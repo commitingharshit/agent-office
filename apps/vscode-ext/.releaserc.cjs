@@ -53,7 +53,7 @@ const config = {
       },
     ],
     notesPlugin,
-    ['@semantic-release/npm', { npmPublish: false }], // Version bump only, no npm publish
+    ['semantic-release-pnpm', { npmPublish: false }], // Version bump only, handles workspace:* versions
   ],
 };
 
