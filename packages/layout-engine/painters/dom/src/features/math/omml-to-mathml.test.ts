@@ -3453,3 +3453,170 @@ describe('m:phant converter', () => {
     expect(mpadded!.querySelector('mphantom')).not.toBeNull();
   });
 });
+
+describe('m:groupChr converter', () => {
+  it('converts bottom underbrace to <munder> with default character', () => {
+    const omml = {
+      name: 'm:oMath',
+      elements: [
+        {
+          name: 'm:groupChr',
+          elements: [
+            {
+              name: 'm:e',
+              elements: [{ name: 'm:r', elements: [{ name: 'm:t', elements: [{ type: 'text', text: 'x' }] }] }],
+            },
+          ],
+        },
+      ],
+    };
+    const result = convertOmmlToMathml(omml, doc);
+    expect(result).not.toBeNull();
+    const munder = result!.querySelector('munder');
+    expect(munder).not.toBeNull();
+    expect(munder!.children[0]!.textContent).toBe('x');
+    const groupMo = munder!.children[1] as Element;
+    expect(groupMo.localName).toBe('mo');
+    expect(groupMo.textContent).toBe('\u23DF');
+  });
+
+  it('hides the group character when m:chr is present without m:val', () => {
+    const omml = {
+      name: 'm:oMath',
+      elements: [
+        {
+          name: 'm:groupChr',
+          elements: [
+            {
+              name: 'm:groupChrPr',
+              elements: [{ name: 'm:chr' }],
+            },
+            {
+              name: 'm:e',
+              elements: [{ name: 'm:r', elements: [{ name: 'm:t', elements: [{ type: 'text', text: 'x' }] }] }],
+            },
+          ],
+        },
+      ],
+    };
+    const result = convertOmmlToMathml(omml, doc);
+    expect(result).not.toBeNull();
+    const munder = result!.querySelector('munder');
+    expect(munder).not.toBeNull();
+    const mo = munder!.querySelector('mo');
+    expect(mo!.textContent).toBe('');
+  });
+
+  it('converts top overbrace to <mover>', () => {
+    const omml = {
+      name: 'm:oMath',
+      elements: [
+        {
+          name: 'm:groupChr',
+          elements: [
+            {
+              name: 'm:groupChrPr',
+              elements: [
+                { name: 'm:chr', attributes: { 'm:val': '\u23DE' } },
+                { name: 'm:pos', attributes: { 'm:val': 'top' } },
+              ],
+            },
+            {
+              name: 'm:e',
+              elements: [{ name: 'm:r', elements: [{ name: 'm:t', elements: [{ type: 'text', text: 'y' }] }] }],
+            },
+          ],
+        },
+      ],
+    };
+    const result = convertOmmlToMathml(omml, doc);
+    const mover = result!.querySelector('mover');
+    expect(mover).not.toBeNull();
+    expect(mover!.children[0]!.textContent).toBe('y');
+    const mo = mover!.querySelector('mo');
+    expect(mo!.textContent).toBe('\u23DE');
+  });
+
+  describe('m:vertJc baseline alignment', () => {
+    const buildGroupChr = (props: Array<{ name: string; attributes?: Record<string, string> }>) => ({
+      name: 'm:oMath',
+      elements: [
+        {
+          name: 'm:groupChr',
+          elements: [
+            { name: 'm:groupChrPr', elements: props },
+            {
+              name: 'm:e',
+              elements: [{ name: 'm:r', elements: [{ name: 'm:t', elements: [{ type: 'text', text: 'x' }] }] }],
+            },
+          ],
+        },
+      ],
+    });
+
+    it('applies no shift when m:vertJc is absent (natural layout)', () => {
+      const omml = buildGroupChr([
+        { name: 'm:chr', attributes: { 'm:val': '\u23DE' } },
+        { name: 'm:pos', attributes: { 'm:val': 'top' } },
+      ]);
+      const mover = convertOmmlToMathml(omml, doc)!.querySelector('mover')!;
+      expect(mover.getAttribute('style')).toBeNull();
+      expect(mover.getAttribute('data-vert-jc')).toBeNull();
+    });
+
+    it('pos=top, vertJc=bot renders natural mover without shift', () => {
+      const omml = buildGroupChr([
+        { name: 'm:chr', attributes: { 'm:val': '\u23DE' } },
+        { name: 'm:pos', attributes: { 'm:val': 'top' } },
+        { name: 'm:vertJc', attributes: { 'm:val': 'bot' } },
+      ]);
+      const mover = convertOmmlToMathml(omml, doc)!.querySelector('mover')!;
+      expect(mover.getAttribute('data-vert-jc')).toBe('bot');
+      expect(mover.getAttribute('style')).toBeNull();
+    });
+
+    it('pos=bot, vertJc=top renders natural munder without shift', () => {
+      const omml = buildGroupChr([
+        { name: 'm:chr', attributes: { 'm:val': '\u23DF' } },
+        { name: 'm:pos', attributes: { 'm:val': 'bot' } },
+        { name: 'm:vertJc', attributes: { 'm:val': 'top' } },
+      ]);
+      const munder = convertOmmlToMathml(omml, doc)!.querySelector('munder')!;
+      expect(munder.getAttribute('data-vert-jc')).toBe('top');
+      expect(munder.getAttribute('style')).toBeNull();
+    });
+
+    it('pos=top, vertJc=top shifts the construct down', () => {
+      const omml = buildGroupChr([
+        { name: 'm:chr', attributes: { 'm:val': '\u23DE' } },
+        { name: 'm:pos', attributes: { 'm:val': 'top' } },
+        { name: 'm:vertJc', attributes: { 'm:val': 'top' } },
+      ]);
+      const mover = convertOmmlToMathml(omml, doc)!.querySelector('mover')!;
+      expect(mover.getAttribute('data-vert-jc')).toBe('top');
+      expect(mover.getAttribute('style')).toContain('top: 1em');
+    });
+
+    it('pos=bot, vertJc=bot shifts the construct up', () => {
+      const omml = buildGroupChr([
+        { name: 'm:chr', attributes: { 'm:val': '\u23DF' } },
+        { name: 'm:pos', attributes: { 'm:val': 'bot' } },
+        { name: 'm:vertJc', attributes: { 'm:val': 'bot' } },
+      ]);
+      const munder = convertOmmlToMathml(omml, doc)!.querySelector('munder')!;
+      expect(munder.getAttribute('data-vert-jc')).toBe('bot');
+      expect(munder.getAttribute('style')).toContain('top: -1em');
+    });
+
+    it('vertJc present without m:val defaults to "bot"', () => {
+      const omml = buildGroupChr([
+        { name: 'm:chr', attributes: { 'm:val': '\u23DE' } },
+        { name: 'm:pos', attributes: { 'm:val': 'top' } },
+        { name: 'm:vertJc' },
+      ]);
+      const mover = convertOmmlToMathml(omml, doc)!.querySelector('mover')!;
+      expect(mover.getAttribute('data-vert-jc')).toBe('bot');
+      expect(mover.getAttribute('style')).toBeNull();
+    });
+  });
+});
