@@ -3,7 +3,7 @@
 # opening a draft PR. Mintlify reuses the URL per branch, so each push
 # refreshes content in place. Production docs stay on docs-stable; this is
 # unrelated to the production gate.
-name: 👀 Refresh main docs preview
+name: 📖 Docs preview (main)
 
 on:
   push:

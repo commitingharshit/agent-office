@@ -5,7 +5,7 @@
 # Mintlify's automatic previews only fire on PRs targeting the deployment
 # branch (`docs-stable`). Path filter keeps the 5 req/min Mintlify API quota
 # from being spent on unrelated code PRs.
-name: 👀 Preview docs for main and stable PRs
+name: 📖 Docs preview (PR)
 
 on:
   pull_request:
