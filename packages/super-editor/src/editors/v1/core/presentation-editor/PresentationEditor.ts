@@ -8119,14 +8119,21 @@ export class PresentationEditor extends EventEmitter {
    * Navigate to a typed document element address.
    *
    * @param target - Typed address: block, bookmark, comment, or tracked change.
+   * @param options - Scroll options forwarded to the underlying scroll path.
+   *   `behavior` defaults to `'auto'` so existing internal callers keep their
+   *   instant-scroll behavior; the `superdoc/ui` viewport surface opts into
+   *   `'smooth'` at its own boundary. `block` defaults to `'center'`.
    * @returns Promise resolving to true if navigation succeeded.
    */
-  async navigateTo(target: NavigableAddress): Promise<boolean> {
+  async navigateTo(
+    target: NavigableAddress,
+    options: { behavior?: ScrollBehavior; block?: 'start' | 'center' | 'end' | 'nearest' } = {},
+  ): Promise<boolean> {
     if (!target) return false;
 
     try {
       if (target.kind === 'block') {
-        return await this.#navigateToBlock(target);
+        return await this.#navigateToBlock(target, options);
       }
 
       if (target.kind === 'entity') {
@@ -8134,13 +8141,14 @@ export class PresentationEditor extends EventEmitter {
           return await this.#navigateToBookmark(target);
         }
         if (target.entityType === 'comment') {
-          return await this.#navigateToComment(target.entityId);
+          return await this.#navigateToComment(target.entityId, options);
         }
         if (target.entityType === 'trackedChange') {
           return await this.#navigateToTrackedChange(
             target.entityId,
             resolveStoryKeyFromAddress(target.story),
             target.pageIndex,
+            options,
           );
         }
       }
@@ -8153,7 +8161,10 @@ export class PresentationEditor extends EventEmitter {
     }
   }
 
-  async #navigateToBlock(target: BlockNavigationAddress): Promise<boolean> {
+  async #navigateToBlock(
+    target: BlockNavigationAddress,
+    options: { behavior?: ScrollBehavior; block?: 'start' | 'center' | 'end' | 'nearest' } = {},
+  ): Promise<boolean> {
     const editor = this.#editor;
     if (!editor) return false;
 
@@ -8171,7 +8182,7 @@ export class PresentationEditor extends EventEmitter {
     }
 
     if (!candidate) return false;
-    return this.#scrollToBlockCandidate(editor, candidate);
+    return this.#scrollToBlockCandidate(editor, candidate, options);
   }
 
   /**
@@ -8183,7 +8194,11 @@ export class PresentationEditor extends EventEmitter {
    * generate layout fragments. We walk the block's children to find the
    * first inline node with text content (typically a `run` node).
    */
-  async #scrollToBlockCandidate(editor: Editor, candidate: { pos: number }): Promise<boolean> {
+  async #scrollToBlockCandidate(
+    editor: Editor,
+    candidate: { pos: number },
+    options: { behavior?: ScrollBehavior; block?: 'start' | 'center' | 'end' | 'nearest' } = {},
+  ): Promise<boolean> {
     const blockNode = editor.state.doc.nodeAt(candidate.pos);
     let contentPos = candidate.pos + 1;
     if (blockNode) {
@@ -8196,8 +8211,8 @@ export class PresentationEditor extends EventEmitter {
     }
 
     const scrolled = await this.scrollToPositionAsync(contentPos, {
-      behavior: 'auto',
-      block: 'center',
+      behavior: options.behavior ?? 'auto',
+      block: options.block ?? 'center',
     });
     if (!scrolled) return false;
 
@@ -8206,7 +8221,10 @@ export class PresentationEditor extends EventEmitter {
     return true;
   }
 
-  async #navigateToComment(entityId: string): Promise<boolean> {
+  async #navigateToComment(
+    entityId: string,
+    options: { behavior?: ScrollBehavior; block?: 'start' | 'center' | 'end' | 'nearest' } = {},
+  ): Promise<boolean> {
     const editor = this.#editor;
     if (!editor) return false;
 
@@ -8219,7 +8237,10 @@ export class PresentationEditor extends EventEmitter {
 
     // Scroll the viewport — setCursorById places the cursor but doesn't
     // scroll in presentation mode where DomPainter renders the output.
-    await this.scrollToPositionAsync(editor.state.selection.from, { behavior: 'auto', block: 'center' });
+    await this.scrollToPositionAsync(editor.state.selection.from, {
+      behavior: options.behavior ?? 'auto',
+      block: options.block ?? 'center',
+    });
     return true;
   }
 
@@ -8254,9 +8275,17 @@ export class PresentationEditor extends EventEmitter {
     return false;
   }
 
-  async #navigateToTrackedChange(entityId: string, storyKey?: string, preferredPageIndex?: number): Promise<boolean> {
+  async #navigateToTrackedChange(
+    entityId: string,
+    storyKey?: string,
+    preferredPageIndex?: number,
+    options: { behavior?: ScrollBehavior; block?: 'start' | 'center' | 'end' | 'nearest' } = {},
+  ): Promise<boolean> {
     const editor = this.#editor;
     if (!editor) return false;
+
+    const behavior = options.behavior ?? 'auto';
+    const block = options.block ?? 'center';
 
     if (storyKey && storyKey !== BODY_STORY_KEY) {
       if (this.#navigateToActiveStoryTrackedChange(entityId, storyKey)) {
@@ -8269,35 +8298,35 @@ export class PresentationEditor extends EventEmitter {
         }
       }
 
-      return this.#scrollToRenderedTrackedChange(entityId, storyKey, preferredPageIndex);
+      return this.#scrollToRenderedTrackedChange(entityId, storyKey, preferredPageIndex, { behavior, block });
     }
 
     const setCursorById = editor.commands?.setCursorById;
 
     // Try direct cursor placement, then scroll to the new selection.
     if (typeof setCursorById === 'function' && setCursorById(entityId, { preferredActiveThreadId: entityId })) {
-      await this.scrollToPositionAsync(editor.state.selection.from, { behavior: 'auto', block: 'center' });
+      await this.scrollToPositionAsync(editor.state.selection.from, { behavior, block });
       return true;
     }
 
     // Fall back to resolving the tracked change position and scrolling.
     const resolved = resolveTrackedChange(editor, entityId);
     if (!resolved) {
-      return this.#scrollToRenderedTrackedChange(entityId, undefined, preferredPageIndex);
+      return this.#scrollToRenderedTrackedChange(entityId, undefined, preferredPageIndex, { behavior, block });
     }
 
     // Try with the raw ID (tracked changes may use a different internal ID).
     if (typeof setCursorById === 'function' && resolved.rawId !== entityId) {
       if (setCursorById(resolved.rawId, { preferredActiveThreadId: resolved.rawId })) {
-        await this.scrollToPositionAsync(editor.state.selection.from, { behavior: 'auto', block: 'center' });
+        await this.scrollToPositionAsync(editor.state.selection.from, { behavior, block });
         return true;
       }
     }
 
     // Last resort: scroll to position directly.
     const scrolled = await this.scrollToPositionAsync(resolved.from, {
-      behavior: 'auto',
-      block: 'center',
+      behavior,
+      block,
     });
     if (!scrolled) return false;
 
@@ -8651,6 +8680,7 @@ export class PresentationEditor extends EventEmitter {
     entityId: string,
     storyKey?: string,
     preferredPageIndex?: number,
+    options: { behavior?: ScrollBehavior; block?: 'start' | 'center' | 'end' | 'nearest' } = {},
   ): Promise<boolean> {
     const candidate = this.#findRenderedTrackedChangeElement(entityId, storyKey, preferredPageIndex);
     if (!candidate) {
@@ -8658,7 +8688,11 @@ export class PresentationEditor extends EventEmitter {
     }
 
     try {
-      candidate.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' });
+      candidate.scrollIntoView({
+        behavior: options.behavior ?? 'auto',
+        block: options.block ?? 'center',
+        inline: 'nearest',
+      });
       return true;
     } catch {
       return false;

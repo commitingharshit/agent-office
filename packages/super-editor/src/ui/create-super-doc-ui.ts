@@ -1173,6 +1173,19 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
       refreshAndNotify();
       return receipt;
     },
+    createFromCapture(capture, { text }) {
+      const target = capture?.target ?? null;
+      if (!target) {
+        return {
+          success: false,
+          failure: { code: 'NO_OP', message: 'ui.comments.createFromCapture: capture has no addressable target.' },
+        };
+      }
+      const api = requireDocComments();
+      const receipt = (api.create as (input: unknown, options?: unknown) => Receipt).call(api, { target, text });
+      refreshAndNotify();
+      return receipt;
+    },
     resolve(commentId) {
       const api = requireDocComments();
       const receipt = (api.patch as (input: unknown, options?: unknown) => Receipt).call(api, {
@@ -1554,6 +1567,33 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
         throw new Error('ui.document.export: host SuperDoc instance does not implement export().');
       }
       return exportFn.call(superdoc, options);
+    },
+    async replaceFile(file: File): Promise<void> {
+      const editor = superdoc.activeEditor;
+      const replace = editor?.replaceFile;
+      if (typeof replace !== 'function') {
+        throw new Error('ui.document.replaceFile: host has no active editor with replaceFile().');
+      }
+      await replace.call(editor, file);
+      // SD-2839 workaround: when `modules.comments: false`,
+      // `Editor.#initComments()` short-circuits and never re-emits
+      // `commentsLoaded` after `replaceFile`. The controller normally
+      // refreshes its `ui.comments` cache on that event. Re-emit it
+      // here so consumers don't have to. Once SD-2839 lands and the
+      // engine fires the event regardless of the UI flag, this becomes
+      // a harmless duplicate emit (the controller dedupes via
+      // shallow equality on the next snapshot).
+      const emit = editor.emit;
+      if (typeof emit === 'function') {
+        try {
+          emit.call(editor, 'commentsLoaded', {
+            editor,
+            comments: editor.converter?.comments ?? [],
+          });
+        } catch (err) {
+          console.error('[superdoc/ui] ui.document.replaceFile commentsLoaded re-emit failed:', err);
+        }
+      }
     },
   };
 
