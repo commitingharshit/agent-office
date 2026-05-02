@@ -1356,11 +1356,16 @@ export interface Config {
 }
 
 /**
- * Internal augmentation of `Config` for runtime-only fields that must not
- * appear on the published consumer surface. The `Config` interface above is
- * the public contract; this type adds the fields SuperDoc sets/reads
- * internally so the implementation can be type-checked without leaking the
- * fields into customer IDE autocomplete.
+ * Internal augmentation of `Config` for runtime-only fields and tightened
+ * invariants that must not appear on the published consumer surface. The
+ * `Config` interface above is the public contract; this type adds the
+ * fields SuperDoc sets/reads internally so the implementation can be
+ * type-checked without leaking the fields into customer IDE autocomplete.
+ *
+ * The four overrides below mark fields that `Config` exposes as optional
+ * but `SuperDoc.#init` always normalizes to a populated shape. Internal
+ * call sites cast `this.config` to this type so they can access these
+ * invariants without per-site null guards.
  *
  * Use this from internal SuperDoc.js callsites that need the augmented shape
  * (e.g. `/** @type {InternalConfig} *\/ (this.config).socket = ...`).
@@ -1372,6 +1377,14 @@ export interface InternalConfig extends Config {
    * not part of the public Config surface.
    */
   socket?: HocuspocusProviderWebsocket;
+  /** Normalized to `[]` by `#init` if the consumer passes nothing or `undefined`. */
+  documents: Document[];
+  /** Normalized to `{}` by `#init` if the consumer passes nothing or `undefined`. */
+  modules: Modules;
+  /** Spread of `DEFAULT_USER` over consumer input by `#init`; `name` always present. */
+  user: User;
+  /** Normalized to `{}` by `#init` if the consumer passes nothing or `undefined`. */
+  layoutEngineOptions: SuperDocLayoutEngineOptions;
 }
 
 /**

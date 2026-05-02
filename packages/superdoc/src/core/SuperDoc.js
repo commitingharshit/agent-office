@@ -64,6 +64,7 @@ const DEFAULT_AWARENESS_PALETTE = Object.freeze([
 /** @typedef {import('./types/index.js').Editor} Editor */
 /** @typedef {import('./types/index.js').DocumentMode} DocumentMode */
 /** @typedef {import('./types/index.js').Config} Config */
+/** @typedef {import('./types/index.js').InternalConfig} InternalConfig */
 /** @typedef {import('./types/index.js').ExportParams} ExportParams */
 /** @typedef {import('./types/index.js').UpgradeToCollaborationOptions} UpgradeToCollaborationOptions */
 /** @typedef {import('./types/index.js').SurfaceRequest} SurfaceRequest */
@@ -120,6 +121,38 @@ export class SuperDoc extends EventEmitter {
    * @type {string[]}
    */
   colors = [];
+
+  /**
+   * Pinia stores and Vue runtime references. Populated by `#initVueApp`
+   * inside the async `#init`, which runs *after* `await #initCollaboration`,
+   * so these fields are briefly `undefined` between `new SuperDoc(config)`
+   * returning and the `ready` event firing. The non-null JSDoc here matches
+   * the existing pattern used for `users` / `version` / `whiteboard` and
+   * assumes consumers wait for `ready` before dereferencing. SD-2916 tracks
+   * the systematic soundness fix across all of these fields (declaring them
+   * `T | undefined` and casting at internal post-init access sites).
+   *
+   * @type {ReturnType<typeof import('../stores/superdoc-store.js').useSuperdocStore>}
+   */
+  superdocStore;
+
+  /** @type {ReturnType<typeof import('../stores/comments-store.js').useCommentsStore>} */
+  commentsStore;
+
+  /** @type {ReturnType<typeof import('../composables/use-high-contrast-mode.js').useHighContrastMode>} */
+  highContrastModeStore;
+
+  /** @type {import('vue').App} */
+  app;
+
+  /** @type {import('pinia').Pinia} */
+  pinia;
+
+  /** @type {number} Count of editors that have signaled `editorCreate`. */
+  readyEditors = 0;
+
+  /** @type {number} Outstanding async saves waiting for collaboration ack. */
+  pendingCollaborationSaves = 0;
 
   /** @type {Config} */
   config = {
@@ -239,6 +272,16 @@ export class SuperDoc extends EventEmitter {
       this.config.comments.visible = false;
     }
     normalizeTrackChangesConfig(this.config);
+
+    // Defensive defaults so the `InternalConfig` runtime invariants hold
+    // for every reachable code path. The class-field initializer seeds
+    // both `documents: []` and `layoutEngineOptions` is filled in by
+    // `normalizeTrackChangesConfig` above, but a consumer that explicitly
+    // passes `{ documents: undefined }` or omits `layoutEngineOptions`
+    // when track-changes hasn't initialized it yet would otherwise leave
+    // these undefined and break later non-null casts.
+    this.config.documents = this.config.documents || [];
+    this.config.layoutEngineOptions = this.config.layoutEngineOptions || {};
 
     // Web layout behavior:
     // - Backward compatible default: web layout still uses PM rendering.
@@ -503,7 +546,7 @@ export class SuperDoc extends EventEmitter {
       this.superdocStore.setExceptionHandler((/** @type {unknown} */ payload) => this.emit('exception', payload));
     }
     this.superdocStore.init(this.config);
-    const commentsModuleConfig = this.config.modules.comments;
+    const commentsModuleConfig = /** @type {InternalConfig} */ (this.config).modules.comments;
     // `commentsModuleConfig` is `false | object | undefined`. A truthy
     // check already rules out both `false` and `undefined`, so an
     // explicit `!== false` afterwards is redundant.
@@ -629,7 +672,7 @@ export class SuperDoc extends EventEmitter {
     this.#assignUserColor();
     this._cleanupAwareness = setupAwarenessHandler(provider, this, this.config.user);
 
-    this.config.documents.forEach((doc) => {
+    /** @type {InternalConfig} */ (this.config).documents.forEach((doc) => {
       doc.ydoc = ydoc;
       doc.provider = provider;
       doc.role = this.config.role;
@@ -652,9 +695,10 @@ export class SuperDoc extends EventEmitter {
     this._commentsCollabInitialized = false;
     this.ydoc = undefined;
     this.provider = undefined;
-    delete this.config.modules.collaboration;
+    const cfg = /** @type {InternalConfig} */ (this.config);
+    delete cfg.modules.collaboration;
 
-    this.config.documents.forEach((doc) => {
+    cfg.documents.forEach((doc) => {
       delete doc.ydoc;
       delete doc.provider;
     });
@@ -722,7 +766,7 @@ export class SuperDoc extends EventEmitter {
       overwriteRoomLockState(ydoc, { isLocked: this.isLocked, lockedBy: this.lockedBy });
 
       // --- Attach collaboration config (awareness, flags, config.documents) ---
-      this.config.modules.collaboration = { ydoc, provider };
+      /** @type {InternalConfig} */ (this.config).modules.collaboration = { ydoc, provider };
       this.#attachExternalCollaboration(ydoc, provider);
 
       // --- Update live store documents in place (no Vue unmount) ---
@@ -967,14 +1011,15 @@ export class SuperDoc extends EventEmitter {
       throw new Error('SuperDoc: upgradeToCollaboration() requires both ydoc and provider');
     }
 
-    const docxDocs = this.config.documents.filter((d) => d.type === DOCX);
+    const cfg = /** @type {InternalConfig} */ (this.config);
+    const docxDocs = cfg.documents.filter((d) => d.type === DOCX);
     if (docxDocs.length === 0) {
       throw new Error('SuperDoc: no DOCX document found for upgrade');
     }
     if (docxDocs.length > 1) {
       throw new Error('SuperDoc: upgradeToCollaboration() only supports a single DOCX document');
     }
-    if (this.config.documents.length !== docxDocs.length) {
+    if (cfg.documents.length !== docxDocs.length) {
       throw new Error('SuperDoc: upgradeToCollaboration() only supports single-DOCX instances');
     }
   }
@@ -986,7 +1031,12 @@ export class SuperDoc extends EventEmitter {
    * @throws {Error} If the editor is not yet created
    */
   #resolveSourceEditor() {
-    const docxDoc = this.config.documents.find((d) => d.type === DOCX);
+    // Upstream `#assertCanUpgrade` already verified at least one DOCX
+    // document exists; cast the find result to assert non-null without
+    // changing runtime behavior.
+    const docxDoc = /** @type {Document} */ (
+      /** @type {InternalConfig} */ (this.config).documents.find((d) => d.type === DOCX)
+    );
     const storeDoc = this.superdocStore.documents.find((d) => d.id === docxDoc.id);
     const editor = storeDoc?.getEditor?.();
 
@@ -1021,7 +1071,10 @@ export class SuperDoc extends EventEmitter {
    */
   onContentError({ error, editor }) {
     const { documentId } = editor.options;
-    const doc = this.superdocStore.documents.find((d) => d.id === documentId);
+    // The errored editor came from `superdocStore.documents`, so the find
+    // by its `documentId` is expected to hit. Cast the find result to a
+    // RuntimeDocument to assert non-null at the consumer callback.
+    const doc = /** @type {RuntimeDocument} */ (this.superdocStore.documents.find((d) => d.id === documentId));
     // `onContentError` is typed as optional on the public Config typedef
     // because consumers don't have to wire a handler. The class field
     // initializer installs a `() => null` default, but `#init` spreads
@@ -1549,7 +1602,7 @@ export class SuperDoc extends EventEmitter {
    * @param {boolean} lock
    */
   setLocked(lock = true) {
-    this.config.documents.forEach((doc) => {
+    /** @type {InternalConfig} */ (this.config).documents.forEach((doc) => {
       // setLocked is a collaboration-only API; the surrounding flow only
       // calls it once each document has a Yjs doc attached. Cast away the
       // optional shape on the public Document typedef without changing
@@ -1777,15 +1830,16 @@ export class SuperDoc extends EventEmitter {
       this._cleanupAwareness = null;
     }
 
-    this.config.socket?.cancelWebsocketRetry();
-    this.config.socket?.disconnect();
-    this.config.socket?.destroy();
+    const cfg = /** @type {InternalConfig} */ (this.config);
+    cfg.socket?.cancelWebsocketRetry();
+    cfg.socket?.disconnect();
+    cfg.socket?.destroy();
 
     this.ydoc?.destroy();
     this.provider?.disconnect();
     this.provider?.destroy();
 
-    this.config.documents.forEach((doc) => {
+    cfg.documents.forEach((doc) => {
       doc.provider?.disconnect();
       doc.provider?.destroy();
       doc.ydoc?.destroy();
