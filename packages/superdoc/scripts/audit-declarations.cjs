@@ -58,12 +58,13 @@ if (!fs.existsSync(distRoot)) {
   process.exit(1);
 }
 
-// Packages whose types have been relocated into `superdoc`'s published
-// declaration tree. They must NEVER appear as a `declare module` block in
+// Packages whose public type dependencies are relocated into `superdoc`'s
+// published declaration tree or explicitly guarded from falling back to an
+// ambient shim. They must NEVER appear as a `declare module` block in
 // `_internal-shims.d.ts` — if they do, their types collapse to `any` for
-// consumers and we have a regression. Mirror of SD-2842's `RELOCATION_RULES`
-// in `ensure-types.cjs`; keep the two lists in sync.
-const RELOCATED_PACKAGES = [
+// consumers and we have a regression. Mirror of SD-2842's
+// `RELOCATION_GUARD_PACKAGES` in `ensure-types.cjs`; keep the two lists in sync.
+const RELOCATION_GUARD_PACKAGES = [
   '@superdoc/document-api',
   '@superdoc/contracts',
   '@superdoc/dom-contract',
@@ -167,7 +168,7 @@ const totalPnpmOccurrences = [...pnpmPathFindings.values()].reduce(
   0,
 );
 
-const relocatedInShim = RELOCATED_PACKAGES.filter((pkg) =>
+const relocatedInShim = RELOCATION_GUARD_PACKAGES.filter((pkg) =>
   [...shimmedModules].some((mod) => mod === pkg || mod.startsWith(pkg + '/')),
 );
 
@@ -205,7 +206,7 @@ if (relocatedInShim.length > 0) {
   console.log(`FAIL  Relocated packages reappeared in _internal-shims.d.ts: ${relocatedInShim.join(', ')}`);
   console.log('      These packages have dedicated relocation rules in ensure-types.cjs and must not fall back to ambient any shims.');
 } else {
-  console.log(`OK    Relocated packages do not appear in shim file (${RELOCATED_PACKAGES.length} guarded)`);
+  console.log(`OK    Relocated packages do not appear in shim file (${RELOCATION_GUARD_PACKAGES.length} guarded)`);
 }
 
 // Informational: remaining shimmed modules
