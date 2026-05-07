@@ -11,7 +11,7 @@ const CROSS_REFERENCE_NODE_NAME = 'crossReference';
  * @returns {boolean}
  */
 export function normalizeYjsFragmentForSchema(fragment) {
-  if (!fragment) return false;
+  if (!fragment || typeof fragment.toArray !== 'function') return false;
 
   let changed = false;
   const normalize = () => {
