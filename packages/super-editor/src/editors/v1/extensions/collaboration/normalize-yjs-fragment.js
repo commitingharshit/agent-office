@@ -3,6 +3,7 @@ import { XmlElement } from 'yjs';
 const CROSS_REFERENCE_NODE_NAME = 'crossReference';
 const CITATION_NODE_NAME = 'citation';
 const SCHEMA_ATOM_NODE_NAMES = new Set([CROSS_REFERENCE_NODE_NAME, CITATION_NODE_NAME]);
+const NORMALIZE_YJS_FRAGMENT_ORIGIN = Symbol.for('superdoc/yjs-fragment-normalize');
 
 /**
  * Imported Word cross references can carry cached result runs in the shared
@@ -21,7 +22,7 @@ export function normalizeYjsFragmentForSchema(fragment) {
   };
 
   if (fragment.doc) {
-    fragment.doc.transact(normalize);
+    fragment.doc.transact(normalize, NORMALIZE_YJS_FRAGMENT_ORIGIN);
   } else {
     normalize();
   }
@@ -39,13 +40,26 @@ export function normalizeYjsFragmentEventsForSchema(events, fallbackFragment) {
     return normalizeYjsFragmentForSchema(fallbackFragment);
   }
 
+  if (events.some((event) => event?.transaction?.origin === NORMALIZE_YJS_FRAGMENT_ORIGIN)) {
+    return false;
+  }
+
   let changed = false;
-  const visited = new Set();
-  for (const event of events) {
-    const target = findNormalizableEventTarget(event?.target);
-    if (!isTraversableYjsXml(target) || visited.has(target)) continue;
-    visited.add(target);
-    changed = stripSchemaAtomChildren(target) || changed;
+  const normalize = () => {
+    const visited = new Set();
+    for (const event of events) {
+      const target = findNormalizableEventTarget(event?.target);
+      if (!isTraversableYjsXml(target) || visited.has(target)) continue;
+      visited.add(target);
+      changed = stripSchemaAtomChildren(target) || changed;
+    }
+  };
+
+  const doc = fallbackFragment?.doc || findEventDoc(events);
+  if (doc) {
+    doc.transact(normalize, NORMALIZE_YJS_FRAGMENT_ORIGIN);
+  } else {
+    normalize();
   }
 
   return changed;
@@ -93,6 +107,14 @@ function findNormalizableEventTarget(target) {
   }
 
   return target;
+}
+
+function findEventDoc(events) {
+  for (const event of events) {
+    const doc = event?.target?.doc;
+    if (doc) return doc;
+  }
+  return null;
 }
 
 function isTraversableYjsXml(value) {
