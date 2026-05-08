@@ -1,6 +1,8 @@
 import { XmlElement } from 'yjs';
 
 const CROSS_REFERENCE_NODE_NAME = 'crossReference';
+const CITATION_NODE_NAME = 'citation';
+const SCHEMA_ATOM_NODE_NAMES = new Set([CROSS_REFERENCE_NODE_NAME, CITATION_NODE_NAME]);
 
 /**
  * Imported Word cross references can carry cached result runs in the shared
@@ -15,7 +17,7 @@ export function normalizeYjsFragmentForSchema(fragment) {
 
   let changed = false;
   const normalize = () => {
-    changed = stripCrossReferenceChildren(fragment) || changed;
+    changed = stripSchemaAtomChildren(fragment) || changed;
   };
 
   if (fragment.doc) {
@@ -43,7 +45,7 @@ export function normalizeYjsFragmentEventsForSchema(events, fallbackFragment) {
     const target = findNormalizableEventTarget(event?.target);
     if (!isTraversableYjsXml(target) || visited.has(target)) continue;
     visited.add(target);
-    changed = stripCrossReferenceChildren(target) || changed;
+    changed = stripSchemaAtomChildren(target) || changed;
   }
 
   return changed;
@@ -53,10 +55,10 @@ export function normalizeYjsFragmentEventsForSchema(events, fallbackFragment) {
  * @param {import('yjs').XmlFragment | import('yjs').XmlElement} parent
  * @returns {boolean}
  */
-function stripCrossReferenceChildren(parent) {
+function stripSchemaAtomChildren(parent) {
   if (!isTraversableYjsXml(parent)) return false;
 
-  if (parent instanceof XmlElement && parent.nodeName === CROSS_REFERENCE_NODE_NAME) {
+  if (parent instanceof XmlElement && SCHEMA_ATOM_NODE_NAMES.has(parent.nodeName)) {
     if (parent.length === 0) return false;
     parent.delete(0, parent.length);
     return true;
@@ -67,7 +69,7 @@ function stripCrossReferenceChildren(parent) {
   for (const child of parent.toArray()) {
     if (!(child instanceof XmlElement)) continue;
 
-    if (child.nodeName === CROSS_REFERENCE_NODE_NAME) {
+    if (SCHEMA_ATOM_NODE_NAMES.has(child.nodeName)) {
       if (child.length > 0) {
         child.delete(0, child.length);
         changed = true;
@@ -75,7 +77,7 @@ function stripCrossReferenceChildren(parent) {
       continue;
     }
 
-    changed = stripCrossReferenceChildren(child) || changed;
+    changed = stripSchemaAtomChildren(child) || changed;
   }
 
   return changed;
@@ -84,7 +86,7 @@ function stripCrossReferenceChildren(parent) {
 function findNormalizableEventTarget(target) {
   let current = target;
   while (current) {
-    if (current instanceof XmlElement && current.nodeName === CROSS_REFERENCE_NODE_NAME) {
+    if (current instanceof XmlElement && SCHEMA_ATOM_NODE_NAMES.has(current.nodeName)) {
       return current;
     }
     current = current.parent;

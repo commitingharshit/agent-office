@@ -45,4 +45,23 @@ describe('normalizeYjsFragmentForSchema', () => {
       ydoc.destroy();
     }
   });
+
+  it('normalizes an ancestor citation when the changed event target is nested text', () => {
+    const ydoc = new YDoc();
+    const root = ydoc.getXmlFragment('supereditor');
+    const citation = new XmlElement('citation');
+    const run = new XmlElement('run');
+    const text = new XmlText();
+    text.insert(0, '(Smith, 2024)');
+    run.insert(0, [text]);
+    citation.insert(0, [run]);
+    root.insert(0, [citation]);
+
+    try {
+      expect(normalizeYjsFragmentEventsForSchema([{ target: text }], root)).toBe(true);
+      expect(citation.length).toBe(0);
+    } finally {
+      ydoc.destroy();
+    }
+  });
 });

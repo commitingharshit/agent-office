@@ -26,6 +26,14 @@ function hasFieldCharType(node, fieldType) {
   );
 }
 
+function getRunText(node) {
+  return (node?.elements ?? [])
+    .filter((element) => element?.name === 'w:t')
+    .flatMap((element) => element?.elements ?? [])
+    .map((child) => child?.text ?? '')
+    .join('');
+}
+
 describe('citation export routing', () => {
   it('exports citation nodes as Word field-code runs', () => {
     const exported = exportSchemaToJson({
@@ -60,5 +68,15 @@ describe('citation export routing', () => {
     expect(exportedRuns.some((node) => hasFieldCharType(node, 'begin'))).toBe(true);
     expect(exportedRuns.some((node) => hasFieldCharType(node, 'separate'))).toBe(true);
     expect(exportedRuns.some((node) => hasFieldCharType(node, 'end'))).toBe(true);
+  });
+
+  it('exports resolvedText when collaborative hydration stripped cached content', () => {
+    const exported = exportSchemaToJson({
+      node: buildCitationNode({
+        attrs: { resolvedText: '(Smith, 2024)' },
+      }),
+    });
+
+    expect(exported.map(getRunText).join('')).toBe('(Smith, 2024)');
   });
 });

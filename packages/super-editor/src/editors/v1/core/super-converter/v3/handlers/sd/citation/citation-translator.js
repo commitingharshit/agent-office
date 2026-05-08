@@ -47,7 +47,7 @@ const encode = (params) => {
 const decode = (params) => {
   const { node } = params;
   const outputMarks = processOutputMarks(node.attrs?.marksAsAttrs || []);
-  const contentNodes = (node.content ?? []).flatMap((n) => exportSchemaToJson({ ...params, node: n }));
+  const contentNodes = buildResultRuns(params, outputMarks);
   const instructionElements = buildInstructionElements(node.attrs?.instruction, node.attrs?.instructionTokens);
 
   return [
@@ -79,6 +79,26 @@ const decode = (params) => {
     },
   ];
 };
+
+function buildResultRuns(params, outputMarks) {
+  const { node } = params;
+  const contentNodes = (node.content ?? []).flatMap((n) => exportSchemaToJson({ ...params, node: n }));
+  if (contentNodes.length > 0) return contentNodes;
+
+  const resolvedText = node.attrs?.resolvedText;
+  if (typeof resolvedText !== 'string' || resolvedText.length === 0) return [];
+
+  const textAttributes = /^\s|\s$/.test(resolvedText) ? { 'xml:space': 'preserve' } : undefined;
+  return [
+    {
+      name: 'w:r',
+      elements: [
+        { name: 'w:rPr', elements: outputMarks },
+        { name: 'w:t', attributes: textAttributes, elements: [{ text: resolvedText, type: 'text' }] },
+      ],
+    },
+  ];
+}
 
 /**
  * Parses CITATION instruction to extract source IDs.
