@@ -2,7 +2,9 @@
 
 `@superdoc-dev/superdoc-yjs-collaboration` is a minimal Yjs WebSocket server for SuperDoc, shipped as a reference implementation for prototypes and local development.
 
-> **Not production infrastructure.** No built-in auth, persistence, scaling, or observability beyond what you wire into the hooks. For production self-hosted collaboration, use [Hocuspocus](https://tiptap.dev/docs/hocuspocus) (recommended default) or [YHub](https://github.com/yjs/yhub) (when attribution and revision history are central). SuperDoc's collaboration contract is provider-agnostic: pass `{ ydoc, provider }` to `modules.collaboration` on the client and the server choice is yours.
+> **Use this package for prototypes and local development.** It does not include production auth, persistence, scaling, or observability.
+>
+> SuperDoc works with any Yjs-compatible server. For self-hosted, see [YHub](https://github.com/yjs/yhub) (advanced; attribution and revision history; beta) or [Hocuspocus](https://tiptap.dev/docs/hocuspocus) (mature). For managed, see [Liveblocks](https://liveblocks.io/). SuperDoc's integration contract is provider-agnostic: pass `{ ydoc, provider }` to `modules.collaboration` on the client.
 
 It provides:
 
@@ -27,9 +29,9 @@ It provides:
 
 ## Examples
 
-Please see a [quick start example here](https://github.com/superdoc-dev/superdoc/tree/develop/examples/collaboration/fastify-server)
+Please see a [quick start example here](https://github.com/superdoc-dev/superdoc/tree/main/examples/editor/collaboration/providers/superdoc-yjs).
 
-For more collaboration examples, see the [collaboration examples folder](https://github.com/superdoc-dev/superdoc/tree/develop/examples/collaboration)
+For more collaboration examples, see the [collaboration examples folder](https://github.com/superdoc-dev/superdoc/tree/main/examples/editor/collaboration).
 
 ## Installation
 
@@ -95,7 +97,7 @@ app.get('/collaboration/:documentId', { websocket: true }, (socket, request) => 
 app.listen({ port: 3000 });
 ```
 
-See [examples/collaboration/fastify-server](https://github.com/superdoc-dev/superdoc/tree/develop/examples/collaboration/fastify-server) for more details
+See [examples/editor/collaboration/providers/superdoc-yjs](https://github.com/superdoc-dev/superdoc/tree/main/examples/editor/collaboration/providers/superdoc-yjs) for more details.
 
 ---
 
