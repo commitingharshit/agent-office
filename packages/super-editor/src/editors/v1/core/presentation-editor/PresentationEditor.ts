@@ -565,7 +565,7 @@ export class PresentationEditor extends EventEmitter {
     elements: HTMLElement[];
   } | null = null;
   /**
-   * Hover state for Table of Contents fragments (SD-2663).
+   * Hover state for Table of Contents fragments.
    * Mirrors the structured-content hover coordination so every paragraph of
    * the same TOC greys out together, matching Word's visual treatment.
    */
@@ -683,7 +683,7 @@ export class PresentationEditor extends EventEmitter {
     // Add event listeners for structured content hover coordination
     this.#painterHost.addEventListener('mouseover', this.#handleStructuredContentBlockMouseEnter);
     this.#painterHost.addEventListener('mouseout', this.#handleStructuredContentBlockMouseLeave);
-    // SD-2663: same coordination pattern for TOC entries — hovering any
+    // same coordination pattern for TOC entries — hovering any
     // paragraph fragment greys out every entry that shares the same data-toc-id.
     this.#painterHost.addEventListener('mouseover', this.#handleTocEntryMouseEnter);
     this.#painterHost.addEventListener('mouseout', this.#handleTocEntryMouseLeave);
@@ -6753,7 +6753,7 @@ export class PresentationEditor extends EventEmitter {
   }
 
   /**
-   * SD-2663: mirror of {@link #handleStructuredContentBlockMouseEnter} for
+   * mirror of {@link #handleStructuredContentBlockMouseEnter} for
    * Table of Contents paragraph fragments. Hovering any TOC entry applies
    * the `toc-group-hover` class to every fragment that shares the same
    * `data-toc-id`, so the whole TOC greys out together (matching Word).
@@ -6813,7 +6813,7 @@ export class PresentationEditor extends EventEmitter {
   }
 
   /**
-   * SD-2663: bridge the vertical gap between adjacent TOC paragraph fragments
+   * bridge the vertical gap between adjacent TOC paragraph fragments
    * so the hover state reads as one continuous grey block.
    *
    * Each TOC entry is its own absolutely-positioned paragraph fragment, so
@@ -6874,7 +6874,7 @@ export class PresentationEditor extends EventEmitter {
   }
 
   /**
-   * Re-applies the toc-group-hover class after a paint cycle (SD-2663).
+   * Re-applies the toc-group-hover class after a paint cycle.
    * Like {@link #reapplySdtGroupHover}, paint rebuilds the DOM so the
    * JS-driven hover class must be restored from cached state.
    */

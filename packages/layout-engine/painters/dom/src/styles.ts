@@ -241,6 +241,11 @@ const LINK_AND_TOC_STYLES = `
   color: inherit !important;
   text-decoration: none !important;
   cursor: default;
+  /* Anchors are draggable by default. The browser starts a native
+     link drag on mousedown, which preempts our pointer-driven text-selection
+     loop. Disabling the user-drag affordance keeps drag-select responsive. */
+  -webkit-user-drag: none;
+  user-drag: none;
 }
 
 .superdoc-toc-entry .superdoc-link:hover {
@@ -252,7 +257,7 @@ const LINK_AND_TOC_STYLES = `
   outline: none;
 }
 
-/* SD-2663: TOC hover affordance — mirrors structured-content block behavior.
+/* TOC hover affordance — mirrors structured-content block behavior.
    The plain :hover covers the entry under the cursor; the .toc-group-hover
    class is set by PresentationEditor on every entry that shares the same
    data-toc-id so the entire TOC greys out as a single block. */

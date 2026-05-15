@@ -115,6 +115,21 @@ describe('EditorInputManager — anchor-href click routing (SD-2537)', () => {
     );
   };
 
+  const firePointerUp = (el: HTMLElement, opts: { clientX?: number; clientY?: number } = {}) => {
+    const PointerEventImpl =
+      (globalThis as unknown as { PointerEvent?: typeof PointerEvent }).PointerEvent ?? globalThis.MouseEvent;
+    el.dispatchEvent(
+      new PointerEventImpl('pointerup', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        buttons: 0,
+        clientX: opts.clientX ?? 10,
+        clientY: opts.clientY ?? 10,
+      } as PointerEventInit),
+    );
+  };
+
   it('routes `#<bookmark>` anchor clicks through goToAnchor', () => {
     const a = makeAnchor('#_Ref506192326');
     firePointerDown(a);
@@ -124,6 +139,10 @@ describe('EditorInputManager — anchor-href click routing (SD-2537)', () => {
   it('routes TOC-inside `#…` anchor clicks through goToAnchor (backward compat)', () => {
     // The pre-PR behavior was TOC-only. Make sure generalizing the branch
     // didn't accidentally exclude TOC entries.
+    //
+    // update: TOC links now defer navigation from pointerdown to
+    // pointerup so the user can drag-select inside the TOC. A clean click
+    // (pointerdown + pointerup with no movement) must still navigate.
     const tocWrapper = document.createElement('span');
     tocWrapper.className = 'superdoc-toc-entry';
     const a = document.createElement('a');
@@ -133,7 +152,25 @@ describe('EditorInputManager — anchor-href click routing (SD-2537)', () => {
     viewportHost.appendChild(tocWrapper);
 
     firePointerDown(a);
+    expect(goToAnchor).not.toHaveBeenCalled();
+    firePointerUp(a);
     expect(goToAnchor).toHaveBeenCalledWith('#_Toc123');
+  });
+
+  it('does not navigate on TOC pointerdown alone — deferral guard', () => {
+    // A bare pointerdown on a TOC entry must NOT navigate, so that the user
+    // has a chance to drag-select before the click resolves. Navigation only
+    // fires on the matching pointerup (covered by the test above).
+    const tocWrapper = document.createElement('span');
+    tocWrapper.className = 'superdoc-toc-entry';
+    const a = document.createElement('a');
+    a.className = 'superdoc-link';
+    a.setAttribute('href', '#_Toc123');
+    tocWrapper.appendChild(a);
+    viewportHost.appendChild(tocWrapper);
+
+    firePointerDown(a);
+    expect(goToAnchor).not.toHaveBeenCalled();
   });
 
   it('does not route external hrefs through goToAnchor', () => {

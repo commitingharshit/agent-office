@@ -3093,7 +3093,7 @@ export class DomPainter {
       // Add TOC-specific styling class
       if (isTocEntry) {
         fragmentEl.classList.add('superdoc-toc-entry');
-        // SD-2663: stamp a stable group id so PresentationEditor can coordinate
+        // stamp a stable group id so PresentationEditor can coordinate
         // hover state across every paragraph fragment of the same TOC.
         const tocId = block.attrs?.tocId;
         if (typeof tocId === 'string' && tocId.length > 0) {

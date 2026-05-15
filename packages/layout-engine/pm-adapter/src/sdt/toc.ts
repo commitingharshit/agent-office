@@ -100,7 +100,7 @@ export function processTocChildren(
     tocInstruction?: string;
     sdtMetadata?: SdtMetadata;
     /**
-     * Stable id shared by every paragraph in the TOC (SD-2663). Used by the
+     * Stable id shared by every paragraph in the TOC. Used by the
      * painter/presentation editor to coordinate hover across all entries.
      */
     tocId?: string;
@@ -207,7 +207,7 @@ export function handleTableOfContentsNode(node: PMNode, context: NodeHandlerCont
 
   // Direct PM `tableOfContents` nodes carry an `sdBlockId` attribute that is
   // stable for the lifetime of the node, so use it to group hover state across
-  // all rendered TOC paragraphs (SD-2663).
+  // all rendered TOC paragraphs.
   const directTocId =
     typeof (node.attrs as { sdBlockId?: unknown } | undefined)?.sdBlockId === 'string'
       ? ((node.attrs as { sdBlockId?: string }).sdBlockId as string)

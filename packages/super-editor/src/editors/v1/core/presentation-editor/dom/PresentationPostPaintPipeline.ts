@@ -46,7 +46,6 @@ type RefreshAfterPaintOptions = {
   proofingAnnotations: ProofingAnnotation[] | null | undefined;
   rebuildDomPositionIndex: () => void;
   reapplyStructuredContentHover?: () => void;
-  /** SD-2663: restore JS-driven `toc-group-hover` class after a repaint. */
   reapplyTocGroupHover?: () => void;
 };
 

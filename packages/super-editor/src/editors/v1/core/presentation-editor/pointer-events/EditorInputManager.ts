@@ -591,6 +591,14 @@ export class EditorInputManager {
   // Margin click state
   #pendingMarginClick: PendingMarginClick | null = null;
 
+  /**
+   * TOC link click recorded at pointerdown, navigated on pointerup if
+   * the pointer never crossed the drag-selection threshold. Deferring lets a
+   * mousedown-and-drag inside a TOC paint a text selection instead of
+   * teleporting away on the first click.
+   */
+  #pendingTocLinkNav: HTMLAnchorElement | null = null;
+
   // Image selection state
   #lastSelectedImageBlockId: string | null = null;
 
@@ -1356,9 +1364,19 @@ export class EditorInputManager {
     // Handle link clicks - dispatch custom event on pointerdown for immediate UI response
     // Navigation prevention happens in #handleClick (on 'click' event)
     const linkEl = target?.closest?.('a.superdoc-link') as HTMLAnchorElement | null;
+    this.#pendingTocLinkNav = null;
     if (linkEl) {
-      this.#handleLinkClick(event, linkEl);
-      return;
+      // a click on a TOC entry should still navigate, but the user
+      // must also be able to drag-select text inside the TOC. Record the link
+      // and fall through to the normal drag-selection setup; pointerup will
+      // navigate only if no drag occurred.
+      const tocEntry = linkEl.closest('.superdoc-toc-entry');
+      if (tocEntry) {
+        this.#pendingTocLinkNav = linkEl;
+      } else {
+        this.#handleLinkClick(event, linkEl);
+        return;
+      }
     }
 
     // Handle field annotation clicks
@@ -1788,6 +1806,15 @@ export class EditorInputManager {
     editor.emit?.('pointerUp', { editor, event });
 
     this.#suppressFocusInFromDraggable = false;
+
+    // TOC entry was pressed at pointerdown; navigate only if the
+    // pointer stayed put (no drag-selection in progress). A drag indicates the
+    // user wanted to highlight content, not jump to the target.
+    const pendingTocLink = this.#pendingTocLinkNav;
+    this.#pendingTocLinkNav = null;
+    if (pendingTocLink && !this.#dragThresholdExceeded) {
+      this.#handleLinkClick(event, pendingTocLink);
+    }
 
     if (!this.#isDragging) {
       this.#stopAutoScroll();

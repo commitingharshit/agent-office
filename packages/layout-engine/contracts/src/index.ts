@@ -1563,7 +1563,7 @@ export type ParagraphAttrs = {
   /**
    * Stable identifier shared by every paragraph that belongs to the same TOC.
    * Used by the painter to stamp `data-toc-id`, which lets the presentation
-   * editor coordinate hover state across all entries of a TOC (SD-2663).
+   * editor coordinate hover state across all entries of a TOC.
    *
    * Sourced from the docPartObject `uniqueId` for SDT-wrapped TOCs, or from
    * the parent `tableOfContents` node's `sdBlockId` for direct PM nodes.
