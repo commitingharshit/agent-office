@@ -252,6 +252,31 @@ const LINK_AND_TOC_STYLES = `
   outline: none;
 }
 
+/* SD-2663: TOC hover affordance — mirrors structured-content block behavior.
+   The plain :hover covers the entry under the cursor; the .toc-group-hover
+   class is set by PresentationEditor on every entry that shares the same
+   data-toc-id so the entire TOC greys out as a single block. */
+.superdoc-toc-entry:hover,
+.superdoc-toc-entry.toc-group-hover {
+  background-color: var(--sd-content-controls-block-hover-bg, #f2f2f2);
+}
+
+/* Each TOC entry is its own absolutely-positioned paragraph fragment, so
+   adjacent entries have a vertical gap from paragraph spacing. Without this
+   pseudo-element the hover state renders as striped bands. PresentationEditor
+   measures the gap to the next same-page entry and writes it to --toc-gap-below;
+   the ::after stripe spans that gap so the TOC reads as one continuous block. */
+.superdoc-toc-entry.toc-group-hover::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: var(--toc-gap-below, 0px);
+  background-color: var(--sd-content-controls-block-hover-bg, #f2f2f2);
+  pointer-events: none;
+}
+
 /* Remove focus outlines from layout engine elements */
 .superdoc-layout,
 .superdoc-page,

@@ -49,7 +49,15 @@ export function handleDocumentPartObjectNode(node: PMNode, context: NodeHandlerC
   if (docPartGallery === 'Table of Contents') {
     processTocChildren(
       Array.from(node.content),
-      { docPartGallery, docPartObjectId, tocInstruction, sdtMetadata: docPartSdtMetadata },
+      {
+        docPartGallery,
+        docPartObjectId,
+        tocInstruction,
+        sdtMetadata: docPartSdtMetadata,
+        // SD-2663: docPartObject `uniqueId` is the stable group key for the TOC.
+        // Falls back to undefined when the SDT omits w:id (per-entry hover still works).
+        tocId: docPartObjectId ?? undefined,
+      },
       {
         nextBlockId,
         positions,
@@ -100,6 +108,7 @@ export function handleDocumentPartObjectNode(node: PMNode, context: NodeHandlerC
           docPartObjectId,
           tocInstruction: getNodeInstruction(child) ?? tocInstruction,
           sdtMetadata: docPartSdtMetadata,
+          tocId: docPartObjectId ?? undefined,
         };
         const tocContext = {
           nextBlockId,

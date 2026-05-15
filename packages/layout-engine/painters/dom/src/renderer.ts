@@ -3093,6 +3093,12 @@ export class DomPainter {
       // Add TOC-specific styling class
       if (isTocEntry) {
         fragmentEl.classList.add('superdoc-toc-entry');
+        // SD-2663: stamp a stable group id so PresentationEditor can coordinate
+        // hover state across every paragraph fragment of the same TOC.
+        const tocId = block.attrs?.tocId;
+        if (typeof tocId === 'string' && tocId.length > 0) {
+          fragmentEl.dataset.tocId = tocId;
+        }
       }
 
       if (paraContinuesFromPrev) {
@@ -7322,8 +7328,7 @@ export class DomPainter {
     wrapper.dataset.layoutEpoch = String(this.layoutEpoch);
     this.applySdtDataset(wrapper, sdt);
 
-    const appearance =
-      sdt.type === 'structuredContent' ? (sdt as { appearance?: string }).appearance : undefined;
+    const appearance = sdt.type === 'structuredContent' ? (sdt as { appearance?: string }).appearance : undefined;
     if (appearance === 'hidden') {
       wrapper.dataset.appearance = 'hidden';
       // No alias label and no chrome: see CSS rule keyed off

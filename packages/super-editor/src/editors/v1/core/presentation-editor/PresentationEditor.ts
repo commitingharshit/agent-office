@@ -564,6 +564,15 @@ export class PresentationEditor extends EventEmitter {
     id: string | null;
     elements: HTMLElement[];
   } | null = null;
+  /**
+   * Hover state for Table of Contents fragments (SD-2663).
+   * Mirrors the structured-content hover coordination so every paragraph of
+   * the same TOC greys out together, matching Word's visual treatment.
+   */
+  #lastHoveredTocGroup: {
+    id: string;
+    elements: HTMLElement[];
+  } | null = null;
 
   // Remote cursor/presence state management
   /** Manager for remote cursor rendering and awareness subscriptions */
@@ -674,6 +683,10 @@ export class PresentationEditor extends EventEmitter {
     // Add event listeners for structured content hover coordination
     this.#painterHost.addEventListener('mouseover', this.#handleStructuredContentBlockMouseEnter);
     this.#painterHost.addEventListener('mouseout', this.#handleStructuredContentBlockMouseLeave);
+    // SD-2663: same coordination pattern for TOC entries — hovering any
+    // paragraph fragment greys out every entry that shares the same data-toc-id.
+    this.#painterHost.addEventListener('mouseover', this.#handleTocEntryMouseEnter);
+    this.#painterHost.addEventListener('mouseout', this.#handleTocEntryMouseLeave);
 
     const win = this.#visibleHost?.ownerDocument?.defaultView ?? window;
     this.#domIndexObserverManager = new DomPositionIndexObserverManager({
@@ -6740,6 +6753,148 @@ export class PresentationEditor extends EventEmitter {
   }
 
   /**
+   * SD-2663: mirror of {@link #handleStructuredContentBlockMouseEnter} for
+   * Table of Contents paragraph fragments. Hovering any TOC entry applies
+   * the `toc-group-hover` class to every fragment that shares the same
+   * `data-toc-id`, so the whole TOC greys out together (matching Word).
+   */
+  #handleTocEntryMouseEnter = (event: MouseEvent) => {
+    const target = event.target as HTMLElement | null;
+    const entry = target?.closest?.(`.${DOM_CLASS_NAMES.TOC_ENTRY}`) as HTMLElement | null;
+    if (!entry) return;
+
+    const tocId = entry.dataset.tocId;
+    if (!tocId) return;
+
+    this.#setHoveredTocGroup(tocId);
+  };
+
+  #handleTocEntryMouseLeave = (event: MouseEvent) => {
+    const target = event.target as HTMLElement | null;
+    const entry = target?.closest?.(`.${DOM_CLASS_NAMES.TOC_ENTRY}`) as HTMLElement | null;
+    if (!entry) return;
+
+    const tocId = entry.dataset.tocId;
+    if (!tocId) return;
+
+    const relatedTarget = event.relatedTarget as HTMLElement | null;
+    if (relatedTarget) {
+      const nextEntry = relatedTarget.closest?.(`.${DOM_CLASS_NAMES.TOC_ENTRY}`) as HTMLElement | null;
+      if (nextEntry && nextEntry.dataset.tocId === tocId) {
+        return;
+      }
+    }
+
+    this.#clearHoveredTocGroup();
+  };
+
+  #clearHoveredTocGroup() {
+    if (!this.#lastHoveredTocGroup) return;
+    this.#lastHoveredTocGroup.elements.forEach((element) => {
+      element.classList.remove(DOM_CLASS_NAMES.TOC_GROUP_HOVER);
+      element.style.removeProperty('--toc-gap-below');
+    });
+    this.#lastHoveredTocGroup = null;
+  }
+
+  #setHoveredTocGroup(id: string) {
+    if (this.#lastHoveredTocGroup?.id === id) return;
+
+    this.#clearHoveredTocGroup();
+
+    if (!this.#painterHost) return;
+
+    const elements = this.#queryTocEntryElementsById(id);
+    if (elements.length === 0) return;
+
+    elements.forEach((element) => element.classList.add(DOM_CLASS_NAMES.TOC_GROUP_HOVER));
+    this.#applyTocGapFill(elements);
+    this.#lastHoveredTocGroup = { id, elements };
+  }
+
+  /**
+   * SD-2663: bridge the vertical gap between adjacent TOC paragraph fragments
+   * so the hover state reads as one continuous grey block.
+   *
+   * Each TOC entry is its own absolutely-positioned paragraph fragment, so
+   * paragraph spacing leaves a strip of unbacked space between them. We
+   * measure the live geometry, then write the gap height onto the entry as a
+   * CSS custom property; the `::after` rule in styles.ts paints that strip.
+   *
+   * Cross-page gaps are intentionally skipped — filling them would draw a
+   * grey bar across the page break.
+   */
+  #applyTocGapFill(elements: HTMLElement[]): void {
+    if (elements.length < 2) return;
+
+    const measured = elements
+      .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+      .sort((a, b) => a.rect.top - b.rect.top);
+
+    for (let i = 0; i < measured.length - 1; i++) {
+      const current = measured[i];
+      const next = measured[i + 1];
+
+      const currentPage = current.element.closest('[data-page-index]');
+      const nextPage = next.element.closest('[data-page-index]');
+      if (!currentPage || currentPage !== nextPage) {
+        current.element.style.removeProperty('--toc-gap-below');
+        continue;
+      }
+
+      // Convert the viewport-space gap into page-space pixels. The painter
+      // applies a CSS transform for zoom, so getBoundingClientRect returns
+      // scaled values; dividing by the effective scale keeps the strip aligned
+      // with the fragment's untransformed height in CSS pixels.
+      const rawGap = next.rect.top - current.rect.bottom;
+      const scaleY =
+        current.rect.height && current.element.offsetHeight ? current.rect.height / current.element.offsetHeight : 1;
+      const gap = scaleY > 0 ? rawGap / scaleY : rawGap;
+
+      if (gap > 0) {
+        // Pad the strip by 1px so sub-pixel rounding can't leave a hairline
+        // between the strip and the next fragment. The overlap falls onto the
+        // next entry which is itself grey, so it's not visible.
+        current.element.style.setProperty('--toc-gap-below', `${gap + 1}px`);
+      } else {
+        current.element.style.removeProperty('--toc-gap-below');
+      }
+    }
+
+    // The trailing entry never has a gap-below to fill.
+    measured[measured.length - 1].element.style.removeProperty('--toc-gap-below');
+  }
+
+  #queryTocEntryElementsById(id: string): HTMLElement[] {
+    if (!this.#painterHost) return [];
+    const escapedId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id.replace(/"/g, '\\"');
+    return Array.from(
+      this.#painterHost.querySelectorAll<HTMLElement>(`.${DOM_CLASS_NAMES.TOC_ENTRY}[data-toc-id="${escapedId}"]`),
+    );
+  }
+
+  /**
+   * Re-applies the toc-group-hover class after a paint cycle (SD-2663).
+   * Like {@link #reapplySdtGroupHover}, paint rebuilds the DOM so the
+   * JS-driven hover class must be restored from cached state.
+   */
+  #reapplyTocGroupHover(): void {
+    if (!this.#lastHoveredTocGroup || !this.#painterHost) return;
+
+    const { id } = this.#lastHoveredTocGroup;
+    const elements = this.#queryTocEntryElementsById(id);
+
+    if (elements.length === 0) {
+      this.#lastHoveredTocGroup = null;
+      return;
+    }
+
+    elements.forEach((element) => element.classList.add(DOM_CLASS_NAMES.TOC_GROUP_HOVER));
+    this.#applyTocGapFill(elements);
+    this.#lastHoveredTocGroup = { id, elements };
+  }
+
+  /**
    * Re-applies the sdt-group-hover class after a paint cycle.
    * DOM elements are rebuilt during repaint, so the hover class added by
    * mouse events is lost. This restores hover state from the cached state.
@@ -6790,6 +6945,7 @@ export class PresentationEditor extends EventEmitter {
       proofingAnnotations: this.#buildProofingAnnotations(),
       rebuildDomPositionIndex: () => this.#rebuildDomPositionIndex(),
       reapplyStructuredContentHover: () => this.#reapplySdtGroupHover(),
+      reapplyTocGroupHover: () => this.#reapplyTocGroupHover(),
     });
   }
 

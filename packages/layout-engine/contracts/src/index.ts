@@ -1560,6 +1560,16 @@ export type ParagraphAttrs = {
   directionContext?: ParagraphDirectionContext;
   isTocEntry?: boolean;
   tocInstruction?: string;
+  /**
+   * Stable identifier shared by every paragraph that belongs to the same TOC.
+   * Used by the painter to stamp `data-toc-id`, which lets the presentation
+   * editor coordinate hover state across all entries of a TOC (SD-2663).
+   *
+   * Sourced from the docPartObject `uniqueId` for SDT-wrapped TOCs, or from
+   * the parent `tableOfContents` node's `sdBlockId` for direct PM nodes.
+   * May be undefined when neither id is available; hover still works per-entry.
+   */
+  tocId?: string;
   /** Floating alignment for positioned paragraphs (from w:framePr/@w:xAlign). */
   floatAlignment?: 'left' | 'right' | 'center';
   /**
