@@ -22,12 +22,16 @@
 export const RTL_DATE_LIKE_TOKEN_RE = /^-?\d+(?:[./-]\d+)+$/;
 
 /**
- * Matches strong-RTL characters in the Hebrew / Arabic / Syriac core blocks.
+ * Matches strong-RTL characters across Hebrew, Arabic, and adjacent RTL scripts
+ * including presentation forms (FB1D-FB4F Hebrew, FB50-FDFF Arabic-A,
+ * FE70-FEFF Arabic-B). The block range covers Hebrew, Arabic, Syriac, NKo,
+ * etc.; the Script properties add presentation forms without including
+ * noncharacters (FDD0-FDEF) or the BOM (FEFF).
  *
- * Known gap: misses Hebrew presentation forms (FB1D-FB4F) and Arabic
- * presentation forms (FB50-FDFF, FE70-FEFF). Tracked under SD-2767 follow-ups.
+ * AIDEV-NOTE: also duplicated in super-editor's mixed-bidi-backspace extension.
+ * Consolidating crosses a layer boundary; tracked under SD-3169 follow-ups.
  */
-export const STRONG_RTL_CHAR_RE = /[\u0590-\u08FF]/;
+export const STRONG_RTL_CHAR_RE = /[\u0590-\u08FF\p{Script=Hebrew}\p{Script=Arabic}]/u;
 
 /**
  * Matches runs whose content is exclusively Latin / digit / neutral. Used as

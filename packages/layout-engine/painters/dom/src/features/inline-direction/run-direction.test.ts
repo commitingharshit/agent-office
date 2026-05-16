@@ -201,6 +201,31 @@ describe('regex coverage smoke tests', () => {
     expect(STRONG_RTL_CHAR_RE.test('2026')).toBe(false);
   });
 
+  // SD-3169: presentation forms used by legacy fonts must classify as strong-RTL
+  // for mixed-bidi boundary detection to fire on them. Run-direction rendering
+  // already fails safe for these (unknown text → 'rtl'), but the regex must
+  // recognize them directly so the painter's helper stays consistent with the
+  // mixed-bidi-backspace boundary detector.
+  it('STRONG_RTL_CHAR_RE matches Hebrew/Arabic presentation forms', () => {
+    // Hebrew Presentation Forms FB1D-FB4F
+    expect(STRONG_RTL_CHAR_RE.test('\uFB21')).toBe(true); // Hebrew Letter Wide Alef
+    expect(STRONG_RTL_CHAR_RE.test('\uFB4F')).toBe(true); // Hebrew Ligature Alef Lamed
+    // Arabic Presentation Forms-A FB50-FDFF
+    expect(STRONG_RTL_CHAR_RE.test('\uFB50')).toBe(true); // Arabic Letter Alef Wasla Isolated
+    expect(STRONG_RTL_CHAR_RE.test('\uFDF2')).toBe(true); // Arabic Ligature Allah Isolated
+    // Arabic Presentation Forms-B FE70-FEFF
+    expect(STRONG_RTL_CHAR_RE.test('\uFE70')).toBe(true); // Arabic Fathatan Isolated
+    expect(STRONG_RTL_CHAR_RE.test('\uFEFC')).toBe(true); // Arabic Ligature Lam With Alef Final
+  });
+
+  it('STRONG_RTL_CHAR_RE excludes noncharacters and the BOM', () => {
+    // FDD0-FDEF are Unicode noncharacters in the Arabic-A range.
+    expect(STRONG_RTL_CHAR_RE.test('\uFDD0')).toBe(false);
+    expect(STRONG_RTL_CHAR_RE.test('\uFDEF')).toBe(false);
+    // FEFF is ZERO WIDTH NO-BREAK SPACE / BOM, not RTL.
+    expect(STRONG_RTL_CHAR_RE.test('\uFEFF')).toBe(false);
+  });
+
   it('LATIN_DIGIT_NEUTRAL_ONLY_RE matches Latin + digit + neutral chars', () => {
     expect(LATIN_DIGIT_NEUTRAL_ONLY_RE.test('Hello world')).toBe(true);
     expect(LATIN_DIGIT_NEUTRAL_ONLY_RE.test('copy 2')).toBe(true);

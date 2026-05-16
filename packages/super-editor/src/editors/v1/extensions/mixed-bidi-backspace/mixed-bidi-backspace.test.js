@@ -175,4 +175,55 @@ describe('mixedBidiBackspace (chain command)', () => {
     expect(__TEST_ONLY__.hasMixedDirectionBoundary('A', 'B')).toBe(false);
     expect(__TEST_ONLY__.hasMixedDirectionBoundary('א', 'ש')).toBe(false);
   });
+
+  // SD-3169: Hebrew/Arabic presentation forms (legacy ligature codepoints used
+  // by older fonts and some legacy systems) live outside the Hebrew/Arabic
+  // core blocks. The Phase 6 STRONG_RTL_CHAR_RE = /[\u0590-\u08FF]/ missed
+  // them, so a paragraph mixing presentation-form Hebrew/Arabic with Latin
+  // would not have its boundary detected and mixed-bidi Backspace would not
+  // fire. Pin via the helper and the end-to-end command path.
+  describe('SD-3169 Hebrew/Arabic presentation forms', () => {
+    it('hasMixedDirectionBoundary recognizes Hebrew presentation forms (FB1D-FB4F)', () => {
+      // \uFB21 = Hebrew Letter Wide Alef. Boundary against Latin must register.
+      expect(__TEST_ONLY__.hasMixedDirectionBoundary('\uFB21', 'A')).toBe(true);
+      expect(__TEST_ONLY__.hasMixedDirectionBoundary('A', '\uFB21')).toBe(true);
+      // \uFB4F = Hebrew Ligature Alef Lamed (last code point in the range).
+      expect(__TEST_ONLY__.hasMixedDirectionBoundary('\uFB4F', 'B')).toBe(true);
+    });
+
+    it('hasMixedDirectionBoundary recognizes Arabic Presentation Forms-A (FB50-FDFF)', () => {
+      // \uFB50 = Arabic Letter Alef Wasla Isolated Form (first code point).
+      expect(__TEST_ONLY__.hasMixedDirectionBoundary('\uFB50', 'A')).toBe(true);
+      // \uFDF2 = Arabic Ligature Allah Isolated Form.
+      expect(__TEST_ONLY__.hasMixedDirectionBoundary('\uFDF2', 'A')).toBe(true);
+    });
+
+    it('hasMixedDirectionBoundary recognizes Arabic Presentation Forms-B (FE70-FEFF)', () => {
+      // \uFE70 = Arabic Fathatan Isolated Form (first code point).
+      expect(__TEST_ONLY__.hasMixedDirectionBoundary('\uFE70', 'A')).toBe(true);
+      // \uFEFC = Arabic Ligature Lam With Alef Final Form (last letter form).
+      expect(__TEST_ONLY__.hasMixedDirectionBoundary('\uFEFC', 'A')).toBe(true);
+    });
+
+    it('hasMixedDirectionBoundary excludes noncharacters in the Arabic A range', () => {
+      // FDD0-FDEF are Unicode noncharacters, not strong-RTL.
+      // FEFF is ZERO WIDTH NO-BREAK SPACE (BOM), not strong-RTL.
+      expect(__TEST_ONLY__.hasMixedDirectionBoundary('\uFDD0', 'A')).toBe(false);
+      expect(__TEST_ONLY__.hasMixedDirectionBoundary('\uFEFF', 'A')).toBe(false);
+    });
+
+    it('returns true and mutates tr on presentation-form-Hebrew + Latin boundary', () => {
+      const { state, view, tr } = setupContext({
+        text: '\uFB21A',
+        charLefts: [10, 20],
+        caretRect: makeRect(20, 10, 1, 12),
+        selectionFrom: 11,
+        pmBase: 10,
+      });
+
+      const handled = mixedBidiBackspace()({ state, view, tr, dispatch: vi.fn() });
+      expect(handled).toBe(true);
+      expect(tr.delete).toHaveBeenCalledWith(10, 11);
+    });
+  });
 });
