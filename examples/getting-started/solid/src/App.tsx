@@ -83,8 +83,8 @@ export default function App() {
       onEditorCreate: (event) => {
         console.log('ProseMirror editor created:', event);
       },
-      onEditorUpdate: ({ editor }) => {
-        console.log('Document updated', editor.on('document-mode', () => {console.log(123)}));
+      onEditorUpdate: () => {
+        console.log('Document updated');
       },
       onContentError: (event) => {
         console.error('Content error:', event);
