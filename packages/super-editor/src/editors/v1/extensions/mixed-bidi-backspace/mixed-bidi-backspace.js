@@ -108,27 +108,35 @@ const resolveBoundaryChars = (chars, caretPoint) => {
   return { left, right };
 };
 
-export const handleMixedBidiBackspace = (editor) => {
-  const { state, view } = editor;
+/**
+ * Compute the visual-left delete range at a mixed-bidi RTL/LTR boundary.
+ *
+ * Returns the PM-position range to delete, or `null` when the caret is not
+ * on a mixed-direction boundary. Pure: does not mutate state or dispatch.
+ *
+ * @param {{ state: any, view: any }} args
+ * @returns {{ from: number, to: number } | null}
+ */
+const resolveMixedBidiBackspaceRange = ({ state, view }) => {
   const { selection } = state;
-  if (!selection?.empty) return false;
+  if (!selection?.empty) return null;
 
-  const doc = view.dom.ownerDocument;
-  const nativeSelection = doc.getSelection();
-  if (!nativeSelection || nativeSelection.rangeCount === 0) return false;
+  const doc = view?.dom?.ownerDocument;
+  const nativeSelection = doc?.getSelection?.();
+  if (!nativeSelection || nativeSelection.rangeCount === 0) return null;
 
   const range = nativeSelection.getRangeAt(0);
-  if (!range.collapsed) return false;
+  if (!range.collapsed) return null;
 
   const caretPoint = resolveCaretPoint(doc, range);
-  if (!caretPoint) return false;
+  if (!caretPoint) return null;
 
   const lineEl = resolveLineElement(doc, caretPoint);
-  if (!lineEl) return false;
+  if (!lineEl) return null;
   const lineText = lineEl.textContent ?? '';
   const hasRtl = STRONG_RTL_CHAR_RE.test(lineText);
   const hasLtr = STRONG_LTR_CHAR_RE.test(lineText);
-  if (!hasRtl || !hasLtr) return false;
+  if (!hasRtl || !hasLtr) return null;
 
   let chars = collectVisualChars(lineEl, view, caretPoint.x);
   if (chars.length < 2) {
@@ -136,22 +144,45 @@ export const handleMixedBidiBackspace = (editor) => {
     chars = collectVisualChars(lineEl, view, null);
   }
   const boundary = resolveBoundaryChars(chars, caretPoint);
-  if (!boundary) return false;
+  if (!boundary) return null;
 
-  if (!hasMixedDirectionBoundary(boundary.left.char, boundary.right.char)) return false;
-  if (selection.from !== boundary.right.pmStart && selection.from !== boundary.left.pmEnd) return false;
+  if (!hasMixedDirectionBoundary(boundary.left.char, boundary.right.char)) return null;
+  if (selection.from !== boundary.right.pmStart && selection.from !== boundary.left.pmEnd) return null;
 
-  const tr = state.tr.delete(boundary.left.pmStart, boundary.left.pmEnd).scrollIntoView();
-  view.dispatch(tr);
-  return true;
+  return { from: boundary.left.pmStart, to: boundary.left.pmEnd };
 };
+
+/**
+ * Mixed-bidi Backspace command. Slotted into the keymap Backspace chain so it
+ * inherits the chain's history boundary, inputType: deleteContentBackward meta,
+ * track-changes wrapping, protected-range guards, and SDT handling, instead of
+ * dispatching its own transaction.
+ *
+ * Returns true (chain stops) only when the caret is at a strong-RTL/strong-LTR
+ * boundary and the visual-left character is targeted for deletion. Otherwise
+ * returns false so the chain falls through to deleteSelection / joinBackward.
+ *
+ * @returns {import('@core/commands/types/index.js').Command}
+ */
+export const mixedBidiBackspace =
+  () =>
+  ({ state, view, tr, dispatch }) => {
+    const range = resolveMixedBidiBackspaceRange({ state, view });
+    if (!range) return false;
+
+    if (dispatch) {
+      tr.delete(range.from, range.to);
+      tr.scrollIntoView();
+    }
+    return true;
+  };
 
 export const MixedBidiBackspace = Extension.create({
   name: 'mixedBidiBackspace',
 
-  addShortcuts() {
+  addCommands() {
     return {
-      Backspace: () => handleMixedBidiBackspace(this.editor),
+      mixedBidiBackspace,
     };
   },
 });
@@ -159,4 +190,5 @@ export const MixedBidiBackspace = Extension.create({
 export const __TEST_ONLY__ = {
   resolveCaretPoint,
   hasMixedDirectionBoundary,
+  resolveMixedBidiBackspaceRange,
 };

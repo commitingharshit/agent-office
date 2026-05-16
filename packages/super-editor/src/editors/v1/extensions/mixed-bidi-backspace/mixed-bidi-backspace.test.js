@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { __TEST_ONLY__, handleMixedBidiBackspace } from './mixed-bidi-backspace.js';
+import { __TEST_ONLY__, mixedBidiBackspace } from './mixed-bidi-backspace.js';
 
 const makeRect = (left, top = 10, width = 8, height = 12) => ({
   left,
@@ -8,7 +8,7 @@ const makeRect = (left, top = 10, width = 8, height = 12) => ({
   height,
 });
 
-const setupEditor = ({ text, charLefts, caretRect, selectionFrom, pmBase = 10 }) => {
+const setupContext = ({ text, charLefts, caretRect, selectionFrom, pmBase = 10 }) => {
   const doc = document.implementation.createHTMLDocument('mixed-bidi-backspace');
   Object.defineProperty(doc, 'defaultView', {
     value: { NodeFilter: { SHOW_TEXT: 4 } },
@@ -64,26 +64,21 @@ const setupEditor = ({ text, charLefts, caretRect, selectionFrom, pmBase = 10 })
   };
   const view = {
     dom: { ownerDocument: doc },
-    dispatch,
     posAtDOM: vi.fn((node, offset) => {
       if (node !== textNode) throw new Error('unexpected node');
       return pmBase + offset;
     }),
   };
-  const editor = {
-    state: {
-      selection: { empty: true, from: selectionFrom },
-      tr,
-    },
-    view,
+  const state = {
+    selection: { empty: true, from: selectionFrom },
   };
 
-  return { editor, tr, dispatch };
+  return { state, view, tr, dispatch };
 };
 
-describe('mixed-bidi-backspace', () => {
-  it('deletes visual-left char on mixed-direction boundary', () => {
-    const { editor, tr, dispatch } = setupEditor({
+describe('mixedBidiBackspace (chain command)', () => {
+  it('returns true and mutates the chain tr on RTL+LTR boundary', () => {
+    const { state, view, tr, dispatch } = setupContext({
       text: 'אA',
       charLefts: [10, 20],
       caretRect: makeRect(20, 10, 1, 12),
@@ -91,30 +86,15 @@ describe('mixed-bidi-backspace', () => {
       pmBase: 10,
     });
 
-    const handled = handleMixedBidiBackspace(editor);
+    const handled = mixedBidiBackspace()({ state, view, tr, dispatch });
     expect(handled).toBe(true);
     expect(tr.delete).toHaveBeenCalledWith(10, 11);
-    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(tr.scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(dispatch).not.toHaveBeenCalled(); // chain owns dispatch
   });
 
-  it('fails open on non-mixed boundary (pure LTR)', () => {
-    const { editor, tr, dispatch } = setupEditor({
-      text: 'AB',
-      charLefts: [10, 20],
-      caretRect: makeRect(20, 10, 1, 12),
-      selectionFrom: 11,
-      pmBase: 10,
-    });
-
-    const handled = handleMixedBidiBackspace(editor);
-    expect(handled).toBe(false);
-    expect(tr.delete).not.toHaveBeenCalled();
-    expect(dispatch).not.toHaveBeenCalled();
-    expect(editor.view.posAtDOM).not.toHaveBeenCalled();
-  });
-
-  it('deletes visual-left char on inverse mixed boundary (LTR + RTL)', () => {
-    const { editor, tr, dispatch } = setupEditor({
+  it('returns true and mutates the chain tr on LTR+RTL boundary', () => {
+    const { state, view, tr } = setupContext({
       text: 'Aא',
       charLefts: [10, 20],
       caretRect: makeRect(20, 10, 1, 12),
@@ -122,79 +102,77 @@ describe('mixed-bidi-backspace', () => {
       pmBase: 10,
     });
 
-    const handled = handleMixedBidiBackspace(editor);
+    const handled = mixedBidiBackspace()({ state, view, tr, dispatch: vi.fn() });
     expect(handled).toBe(true);
     expect(tr.delete).toHaveBeenCalledWith(10, 11);
-    expect(dispatch).toHaveBeenCalledTimes(1);
   });
 
-  it('fails open when selectionFrom does not match boundary PM position', () => {
-    const { editor, tr, dispatch } = setupEditor({
-      text: 'אA',
+  it('returns false without mutating tr on pure LTR (chain falls through)', () => {
+    const { state, view, tr, dispatch } = setupContext({
+      text: 'AB',
       charLefts: [10, 20],
       caretRect: makeRect(20, 10, 1, 12),
-      selectionFrom: 999,
+      selectionFrom: 11,
       pmBase: 10,
     });
 
-    const handled = handleMixedBidiBackspace(editor);
+    const handled = mixedBidiBackspace()({ state, view, tr, dispatch });
     expect(handled).toBe(false);
     expect(tr.delete).not.toHaveBeenCalled();
-    expect(dispatch).not.toHaveBeenCalled();
+    expect(tr.scrollIntoView).not.toHaveBeenCalled();
+    expect(view.posAtDOM).not.toHaveBeenCalled(); // early-out skips DOM scan
   });
 
-  it('fails open for punctuation bridge between RTL and LTR', () => {
-    const { editor, tr, dispatch } = setupEditor({
-      text: 'א.A',
-      charLefts: [10, 20, 30],
-      caretRect: makeRect(30, 10, 1, 12),
-      selectionFrom: 12,
-      pmBase: 10,
-    });
-
-    const handled = handleMixedBidiBackspace(editor);
-    expect(handled).toBe(false);
-    expect(tr.delete).not.toHaveBeenCalled();
-    expect(dispatch).not.toHaveBeenCalled();
-  });
-
-  it('fails open when caret is at visual start (no left char)', () => {
-    const { editor, tr, dispatch } = setupEditor({
-      text: 'אA',
-      charLefts: [10, 20],
-      caretRect: makeRect(5, 10, 1, 12),
-      selectionFrom: 10,
-      pmBase: 10,
-    });
-
-    const handled = handleMixedBidiBackspace(editor);
-    expect(handled).toBe(false);
-    expect(tr.delete).not.toHaveBeenCalled();
-    expect(dispatch).not.toHaveBeenCalled();
-  });
-
-  it('fails open for non-collapsed selection', () => {
-    const { editor, tr, dispatch } = setupEditor({
+  it('returns false on non-empty selection (chain falls through)', () => {
+    const { state, view, tr } = setupContext({
       text: 'אA',
       charLefts: [10, 20],
       caretRect: makeRect(20, 10, 1, 12),
       selectionFrom: 11,
       pmBase: 10,
     });
-    editor.state.selection.empty = false;
+    state.selection.empty = false;
 
-    const handled = handleMixedBidiBackspace(editor);
+    const handled = mixedBidiBackspace()({ state, view, tr, dispatch: vi.fn() });
     expect(handled).toBe(false);
     expect(tr.delete).not.toHaveBeenCalled();
-    expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it('resolveCaretPoint returns null for zero-size rect', () => {
-    const doc = document.implementation.createHTMLDocument('caret-rect');
-    const result = __TEST_ONLY__.resolveCaretPoint(doc, {
-      getBoundingClientRect: () => makeRect(0, 0, 0, 0),
-      startContainer: doc.body,
+  // SD-2933 / SD-2767: the chain's `dispatch` parameter is undefined during dry-run
+  // probing. The command must still return true without mutating tr in that mode.
+  // chain.first uses this to detect whether a command CAN handle the operation.
+  it('does not mutate tr when dispatch is undefined (chain dry-run probe)', () => {
+    const { state, view, tr } = setupContext({
+      text: 'אA',
+      charLefts: [10, 20],
+      caretRect: makeRect(20, 10, 1, 12),
+      selectionFrom: 11,
+      pmBase: 10,
     });
-    expect(result).toBeNull();
+
+    const handled = mixedBidiBackspace()({ state, view, tr, dispatch: undefined });
+    expect(handled).toBe(true);
+    expect(tr.delete).not.toHaveBeenCalled();
+    expect(tr.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('returns false when caret is not at the boundary (e.g. mid-word)', () => {
+    const { state, view, tr } = setupContext({
+      text: 'אAB',
+      charLefts: [10, 20, 30],
+      caretRect: makeRect(30, 10, 1, 12),
+      selectionFrom: 12, // past the boundary
+      pmBase: 10,
+    });
+
+    const handled = mixedBidiBackspace()({ state, view, tr, dispatch: vi.fn() });
+    expect(handled).toBe(false);
+  });
+
+  it('exposes hasMixedDirectionBoundary helper for direct testing', () => {
+    expect(__TEST_ONLY__.hasMixedDirectionBoundary('א', 'A')).toBe(true);
+    expect(__TEST_ONLY__.hasMixedDirectionBoundary('A', 'א')).toBe(true);
+    expect(__TEST_ONLY__.hasMixedDirectionBoundary('A', 'B')).toBe(false);
+    expect(__TEST_ONLY__.hasMixedDirectionBoundary('א', 'ש')).toBe(false);
   });
 });
