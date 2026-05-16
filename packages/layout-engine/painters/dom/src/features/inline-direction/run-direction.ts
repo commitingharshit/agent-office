@@ -71,7 +71,7 @@ export const normalizeRtlDateTokenForWordParity = (text: string): string => {
  * - rtl-tagged + contains strong-RTL chars -> 'rtl' (standard case)
  * - rtl-tagged + only Latin/digit/neutral -> null (per §17.3.2.30, unspecified;
  *   Word does not visually reorder these, so omit dir to inherit paragraph)
- * - rtl-tagged + other (e.g. East Asian, presentation forms) -> 'rtl' (fail-safe)
+ * - rtl-tagged + other (e.g. East Asian, symbols outside the neutral set) -> 'rtl' (fail-safe)
  * - NOT rtl-tagged + date-like numeric text -> 'ltr' (Word-parity: keeps date
  *   LTR-classified within an RTL paragraph context so digits don't drift)
  * - NOT rtl-tagged + anything else -> null (let paragraph + UBA decide)
