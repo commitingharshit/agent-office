@@ -68,7 +68,6 @@ export default function App() {
     const doc = document();
     if (!doc || !editorContainerRef()) return;
 
-    superdoc?.destroy();
     superdoc = new SuperDoc({
       selector: `#${CSS.escape(containerId)}`,
       toolbar: `#${CSS.escape(toolbarId)}`,
