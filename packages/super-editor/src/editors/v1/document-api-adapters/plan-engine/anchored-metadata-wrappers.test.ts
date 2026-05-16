@@ -232,23 +232,22 @@ describe('anchored metadata wrappers', () => {
     expect(metadataListWrapper(editor).total).toBe(0);
   });
 
-  it('attach dry-run reports REVISION_MISMATCH when expectedRevision is stale', () => {
+  it('attach dry-run throws REVISION_MISMATCH when expectedRevision is stale', () => {
     const editor = makeEditor();
 
-    const result = metadataAttachWrapper(
-      editor,
-      { id: 'stale-attach', target: TARGET, namespace: 'urn:test:metadata', payload: { label: 'Preview' } },
-      { changeMode: 'direct', dryRun: true, expectedRevision: 'stale-1' },
-    );
-
-    expect(result).toMatchObject({
-      success: false,
-      failure: { code: 'REVISION_MISMATCH' },
-    });
+    // Live attach throws via executeDomainCommand -> checkRevision; dry-run
+    // must match that shape so consumers can use one try/catch path.
+    expect(() =>
+      metadataAttachWrapper(
+        editor,
+        { id: 'stale-attach', target: TARGET, namespace: 'urn:test:metadata', payload: { label: 'Preview' } },
+        { changeMode: 'direct', dryRun: true, expectedRevision: 'stale-1' },
+      ),
+    ).toThrow(/REVISION_MISMATCH/);
     expect(metadataListWrapper(editor).total).toBe(0);
   });
 
-  it('remove dry-run reports REVISION_MISMATCH when expectedRevision is stale', () => {
+  it('remove dry-run throws REVISION_MISMATCH when expectedRevision is stale', () => {
     const editor = makeEditor();
 
     // Seed an entry so remove finds something to act on; without this it
@@ -259,17 +258,14 @@ describe('anchored metadata wrappers', () => {
       { changeMode: 'direct' },
     );
 
-    const result = metadataRemoveWrapper(
-      editor,
-      { id: 'seed' },
-      { changeMode: 'direct', dryRun: true, expectedRevision: 'stale-1' },
-    );
-
-    expect(result).toMatchObject({
-      success: false,
-      failure: { code: 'REVISION_MISMATCH' },
-    });
-    // The seeded entry remains intact — dry-run with stale revision must not mutate.
+    expect(() =>
+      metadataRemoveWrapper(
+        editor,
+        { id: 'seed' },
+        { changeMode: 'direct', dryRun: true, expectedRevision: 'stale-1' },
+      ),
+    ).toThrow(/REVISION_MISMATCH/);
+    // The seeded entry remains intact: dry-run with stale revision must not mutate.
     expect(metadataGetWrapper(editor, { id: 'seed' })?.payload).toEqual({ v: 1 });
   });
 

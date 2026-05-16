@@ -39,7 +39,7 @@ import { paginate } from '../helpers/adapter-utils.js';
 import { findAllSdtNodes, SDT_INLINE_NAME } from '../helpers/content-controls/index.js';
 import { executeOutOfBandMutation } from '../out-of-band-mutation.js';
 import { executeDomainCommand } from './plan-wrappers.js';
-import { getRevision } from './revision-tracker.js';
+import { checkRevision, getRevision } from './revision-tracker.js';
 
 type XmlNode = {
   type?: string;
@@ -69,7 +69,7 @@ type MetadataPart = {
   entries: MetadataEntry[];
 };
 
-type FailureCode = 'INVALID_INPUT' | 'INVALID_TARGET' | 'TARGET_NOT_FOUND' | 'REVISION_MISMATCH';
+type FailureCode = 'INVALID_INPUT' | 'INVALID_TARGET' | 'TARGET_NOT_FOUND';
 
 type FailureResult = {
   success: false;
@@ -78,24 +78,6 @@ type FailureResult = {
 
 function failure(code: FailureCode, message: string): FailureResult {
   return { success: false, failure: { code, message } };
-}
-
-/**
- * Dry-run paths take an early-return shortcut and don't go through
- * `executeOutOfBandMutation` / `executeDomainCommand`, which means they
- * also skip the revision guard those helpers run. Mirror the guard here
- * so optimistic-concurrency previews stay honest: `dryRun: true` with a
- * stale `expectedRevision` must report `REVISION_MISMATCH`, same as the
- * real path would.
- */
-function revisionMismatchFailure(editor: Editor, expectedRevision: string | undefined): FailureResult | null {
-  if (expectedRevision === undefined) return null;
-  const current = getRevision(editor);
-  if (expectedRevision === current) return null;
-  return failure(
-    'REVISION_MISMATCH',
-    `Expected revision "${expectedRevision}" but document is at "${current}". Re-run query.match() to obtain a fresh ref.`,
-  );
 }
 
 function getConverter(editor: Editor): ConverterWithConvertedXml | null {
@@ -481,8 +463,10 @@ export function metadataAttachWrapper(
 
   const preview = writeEntry(editor, input.namespace, id, input.payload, true);
   if (options?.dryRun) {
-    const stale = revisionMismatchFailure(editor, options.expectedRevision);
-    if (stale) return stale;
+    // Mirror the revision guard that the live path runs inside
+    // executeDomainCommand, so previews against stale revisions throw
+    // REVISION_MISMATCH instead of falsely reporting success.
+    checkRevision(editor, options.expectedRevision);
     return { success: true, id, namespace: input.namespace, partName: preview.partName };
   }
 
@@ -540,8 +524,9 @@ export function metadataRemoveWrapper(
   }
 
   if (options?.dryRun) {
-    const stale = revisionMismatchFailure(editor, options.expectedRevision);
-    if (stale) return stale;
+    // Same revision guard as the live executeOutOfBandMutation /
+    // executeDomainCommand paths. Throws PlanError(REVISION_MISMATCH).
+    checkRevision(editor, options.expectedRevision);
     return { success: true, id: input.id };
   }
 
