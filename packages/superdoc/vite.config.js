@@ -240,8 +240,12 @@ export default defineConfig(({ mode, command }) => {
           // SD-3178 (Phase 3 of SD-3175): root entry of the explicit public
           // facade. Build emits the artifact alongside the existing entries
           // so the facade declarations are available for postbuild
-          // verification. `package.json#exports` is intentionally not yet
-          // updated; Phase 4 owns the contract switch.
+          // verification.
+          // AIDEV-NOTE: `package.json#exports` is intentionally not yet
+          // updated to point at this entry. Phase 4 (a separate child of
+          // SD-3175) owns the contract switch. Adding a `./public` entry
+          // here without that ticket ships a new public subpath under the
+          // radar.
           'public': 'src/public/index.ts',
         },
         external: [

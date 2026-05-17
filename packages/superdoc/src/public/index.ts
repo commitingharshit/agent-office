@@ -10,13 +10,16 @@
  * declarations under this tree.
  *
  * Rules for this file:
- *   - Named exports only. No `export *` from implementation barrels.
+ *   - AIDEV-NOTE: Named exports only. No `export *` from implementation
+ *     barrels. `export *` re-introduces the leak this facade exists to
+ *     close - see SD-3175 (path-as-contract umbrella) for context.
  *   - Explicit `.js` source specifiers (the dts plugin emits `.js`
  *     specifiers; source consistency keeps the two aligned).
- *   - Anything added here is a deliberate public-API decision. Update the
- *     `EXPECTED_NAMES` list in `packages/superdoc/scripts/verify-public-facade-emit.cjs`
- *     in the same PR and link the PR to SD-3175 (or a child ticket) for
- *     reviewer sign-off.
+ *   - AIDEV-NOTE: Adding or removing an export here is a deliberate
+ *     public-API decision. In the same PR, update the `EXPECTED_NAMES`
+ *     list in `packages/superdoc/scripts/verify-public-facade-emit.cjs`
+ *     and link to SD-3175 (or a child ticket) for reviewer sign-off.
+ *     Skipping the EXPECTED_NAMES update fails the postbuild gate.
  *
  * The initial export set deliberately mirrors the symbols validated by
  * SD-3177 (the emit feasibility spike): a runtime value with a typed
