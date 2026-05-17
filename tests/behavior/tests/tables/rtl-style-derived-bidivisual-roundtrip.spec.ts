@@ -56,14 +56,34 @@ async function exportCurrentDocument(superdoc: SuperDocFixture, outputPath: stri
   await writeFile(outputPath, Buffer.from(exportedBytes));
 }
 
-async function findBidiVisualLocations(docxPath: string): Promise<{ inDocument: boolean; inStyles: boolean }> {
+/**
+ * Return the `w:bidiVisual` element (if any) inside the `<w:tblPr>` of the
+ * named style in `word/styles.xml`, plus whether it resolves to a truthy
+ * OOXML boolean per §17.17.4 (missing `w:val` attribute, or `w:val` in
+ * {"1","true","on"} case-insensitive).
+ *
+ * Scoping to a specific styleId is what distinguishes "style cascade
+ * preserved" from "any bidiVisual present anywhere" — the latter would also
+ * pass if export stripped the style value and emitted an explicit-false
+ * inline element instead.
+ */
+async function readStyleBidiVisual(
+  docxPath: string,
+  styleId: string,
+): Promise<{ found: boolean; truthy: boolean; raw: string | null }> {
   const zip = await JSZip.loadAsync(await readFile(docxPath));
-  const documentXml = (await zip.file('word/document.xml')?.async('string')) ?? '';
   const stylesXml = (await zip.file('word/styles.xml')?.async('string')) ?? '';
-  return {
-    inDocument: documentXml.includes('w:bidiVisual'),
-    inStyles: stylesXml.includes('w:bidiVisual'),
-  };
+  const styleStart = stylesXml.indexOf(`w:styleId="${styleId}"`);
+  if (styleStart < 0) return { found: false, truthy: false, raw: null };
+  const styleEnd = stylesXml.indexOf('</w:style>', styleStart);
+  const block = stylesXml.slice(styleStart, styleEnd >= 0 ? styleEnd : undefined);
+  const match = block.match(/<w:bidiVisual\b([^/>]*)\/?>/);
+  if (!match) return { found: false, truthy: false, raw: null };
+  const attrs = match[1] ?? '';
+  const valMatch = attrs.match(/\bw:val="([^"]*)"/);
+  const val = valMatch ? valMatch[1].toLowerCase() : null;
+  const truthy = val === null || val === '1' || val === 'true' || val === 'on';
+  return { found: true, truthy, raw: match[0] };
 }
 
 test('style-cascade bidiVisual survives DOCX export and continues to render in logical order', async ({
@@ -82,11 +102,16 @@ test('style-cascade bidiVisual survives DOCX export and continues to render in l
   const exportedPath = testInfo.outputPath('rtl-style-derived-bidivisual-roundtrip.docx');
   await exportCurrentDocument(superdoc, exportedPath);
 
-  // The exported file must still carry `w:bidiVisual` somewhere (style or
-  // inline) so a downstream Word open preserves the property even though
-  // SuperDoc's renderer no longer uses the style-cascade value for direction.
-  const locations = await findBidiVisualLocations(exportedPath);
-  expect(locations.inDocument || locations.inStyles).toBe(true);
+  // The exported file must still carry `w:bidiVisual` as a truthy property on
+  // the same style entry it came in on (`RtlStyleTable`). Scoping to the
+  // specific style — and validating the boolean per §17.17.4 — prevents a
+  // regression where export strips the style value and emits an explicit
+  // `<w:bidiVisual w:val="0"/>` inline; the re-import would still render
+  // A B C (explicit-false produces no flip) and a substring check would still
+  // pass, but the property would no longer be preserved for a Word consumer.
+  const styleBidi = await readStyleBidiVisual(exportedPath, 'RtlStyleTable');
+  expect(styleBidi.found).toBe(true);
+  expect(styleBidi.truthy).toBe(true);
 
   await superdoc.loadDocument(exportedPath);
   await superdoc.waitForStable();
