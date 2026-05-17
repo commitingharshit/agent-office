@@ -1,7 +1,13 @@
 // @ts-nocheck
 import { Extension } from '@core/Extension.js';
 
-const STRONG_RTL_CHAR_RE = /[\u0590-\u08FF]/;
+// SD-3169: widen beyond Hebrew/Arabic core blocks to include Hebrew/Arabic
+// presentation forms (FB1D-FB4F, FB50-FDFF, FE70-FEFF) used by legacy fonts
+// and some authoring tools. The Unicode Script properties catch presentation
+// forms while excluding noncharacters (FDD0-FDEF) and the BOM (FEFF).
+// AIDEV-NOTE: also duplicated in painter-dom features/inline-direction/run-direction.ts.
+// Consolidating crosses a layer boundary; tracked under SD-3169 follow-ups.
+const STRONG_RTL_CHAR_RE = /[\u0590-\u08FF\p{Script=Hebrew}\p{Script=Arabic}]/u;
 const STRONG_LTR_CHAR_RE = /[A-Za-z\u00C0-\u024F]/;
 
 const isStrongRtl = (char) => STRONG_RTL_CHAR_RE.test(char);
