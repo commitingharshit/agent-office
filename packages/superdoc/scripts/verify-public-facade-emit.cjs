@@ -9,13 +9,16 @@
  *
  *   1. The expected symbol set is exported from each declaration file.
  *   2. The ESM and CJS declarations agree on the exported names.
- *   3. The augmentation surface survives the facade emit. Concretely,
- *      `EditorCommands['setBold']` must resolve to something callable.
- *      This is the SD-2965 regression vector that broke API Extractor:
- *      `declare module '@superdoc/super-editor'` augmentations getting
- *      dropped on the way to consumers. If this assertion fails, the
- *      facade emit silently stripped the augmentations and Phase 4
- *      should not flip the contract.
+ *   3. The command signature surface survives the facade emit. This is
+ *      the SD-2965 regression vector: specific command signatures getting
+ *      dropped or failing to flow through the facade. `EditorCommands` is
+ *      `CoreCommands & ExtensionCommands & AllCommandSignatures & Record<string, AnyCommand>`,
+ *      so the trailing `Record<string, AnyCommand>` makes any indexer
+ *      lookup resolve even when the specific signatures are missing.
+ *      The probe asserts the RETURN TYPE of two commands (`setBold`,
+ *      `insertComment`) is `boolean`, not the `AnyCommand` fallback's
+ *      `unknown`. Two commands from two signature sources (formatting +
+ *      comments) catch partial drops a single-command probe would miss.
  *   4. The emitted declarations contain no private workspace specifiers
  *      (`@superdoc/*`), no package-manager internals (`.pnpm/`), and no
  *      absolute local paths into the repo or `node_modules`.
@@ -107,15 +110,28 @@ if (JSON.stringify(esm.names) !== JSON.stringify(cjs.names)) {
   failed = true;
 }
 
-// (3) Augmentation survival: EditorCommands['setBold'] must resolve.
+// (3) Command signature survival: assert two commands return `boolean`,
+//     not the `AnyCommand` fallback. See header for why a bare resolution
+//     check is not enough (the `Record<string, AnyCommand>` intersection
+//     always satisfies the indexer).
 {
   const probe = `
     import type { EditorCommands } from ${JSON.stringify(FACADE_ESM)};
-    type Probe = EditorCommands['setBold'];
-    declare const __probe: Probe;
-    void __probe;
+    type ReturnsBoolean<F> = F extends (...args: any[]) => boolean ? true : false;
+    // Direct assignment of literal \`true\` to the conditional result. If the
+    // signature is missing and the indexer falls back to AnyCommand, the
+    // conditional resolves to \`false\` and the assignment fails with TS2322.
+    // Casts of the form \`true as Result\` would mask the failure by
+    // laundering through \`never\`, so the literal stays un-cast on purpose.
+    // setBold comes from FormattingCommandAugmentations.
+    const __setBoldOk: ReturnsBoolean<EditorCommands['setBold']> = true;
+    void __setBoldOk;
+    // insertComment comes from CommentCommands. Two sources catches partial
+    // drops a single-command probe would miss.
+    const __insertCommentOk: ReturnsBoolean<EditorCommands['insertComment']> = true;
+    void __insertCommentOk;
   `;
-  const probePath = path.join(distRoot, '__public-facade-augmentation-probe.ts');
+  const probePath = path.join(distRoot, '__public-facade-command-signature-probe.ts');
   fs.writeFileSync(probePath, probe, 'utf8');
   try {
     const program = ts.createProgram({
@@ -135,9 +151,9 @@ if (JSON.stringify(esm.names) !== JSON.stringify(cjs.names)) {
       ...program.getDeclarationDiagnostics(),
     ];
     if (diagnostics.length > 0) {
-      console.error('[verify-public-facade-emit] augmentation probe failed.');
-      console.error('  EditorCommands[\'setBold\'] does not resolve through the facade.');
-      console.error('  This is the SD-2965 regression vector: command-map augmentations were dropped.');
+      console.error('[verify-public-facade-emit] command signature probe failed.');
+      console.error('  A command (setBold or insertComment) does not return `boolean` through the facade.');
+      console.error('  This is the SD-2965 regression vector: specific command signatures were dropped or failed to flow through the facade, and EditorCommands fell back to the `AnyCommand` indexer.');
       for (const d of diagnostics) {
         const msg = typeof d.messageText === 'string'
           ? d.messageText
@@ -183,4 +199,4 @@ if (failed) {
   process.exit(1);
 }
 
-console.log(`[verify-public-facade-emit] OK. Facade emits cleanly: ${esm.names.length} exports, ESM/CJS in parity, augmentations survive.`);
+console.log(`[verify-public-facade-emit] OK. Facade emits cleanly: ${esm.names.length} exports, ESM/CJS in parity, command signatures survive.`);
