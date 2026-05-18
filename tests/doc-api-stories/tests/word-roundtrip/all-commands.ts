@@ -80,7 +80,7 @@ describe('document-api story: Word round-trip preserves anchored metadata', () =
       const ids = (list?.items ?? []).map((item: any) => item?.id ?? item?.domain?.id);
       expect(ids).toContain(CITE_ID);
 
-      // get — payload survives byte-for-byte (Word does not normalize the customXml part)
+      // get — payload survives intact (Word does not normalize the customXml part)
       const info = await callDocOperation<any>('metadata.get', { sessionId, id: CITE_ID });
       expect(info?.id).toBe(CITE_ID);
       expect(info?.namespace).toBe(NAMESPACE);
@@ -95,20 +95,24 @@ describe('document-api story: Word round-trip preserves anchored metadata', () =
     });
   });
 
-  it('Word edit inside anchor: metadata recovers, anchor expands to cover the edited text', async () => {
+  it('Word edit inside anchor: metadata recovers, anchor survives without detaching', async () => {
     await withReopenedSession(FIXTURE_EDITED, async (sessionId) => {
       // payload still recovers — Word does not touch the customXml part during inline edits
       const info = await callDocOperation<any>('metadata.get', { sessionId, id: CITE_ID });
       expect(info?.payload).toEqual(EXPECTED_PAYLOAD);
 
-      // resolve still returns a target — the anchor expanded around the edit rather than detaching
+      // resolve returns a `selection` target with text endpoints — the anchor did not detach
+      // when Word split runs around the inserted word. (A detached / orphaned anchor would
+      // resolve to a different `target.kind`, or no target at all.)
       const resolved = await callDocOperation<any>('metadata.resolve', { sessionId, id: CITE_ID });
       expect(resolved?.id).toBe(CITE_ID);
       expect(resolved?.target?.kind).toBe('selection');
+      expect(resolved?.target?.start?.kind).toBe('text');
+      expect(resolved?.target?.end?.kind).toBe('text');
 
-      // The anchored text now includes the word the editor inserted inside the original "duty of care" span.
-      // The exact run-splitting may shift whitespace; the load-bearing assertion is that the original
-      // anchor head and tail are still both inside the resolved range.
+      // `list({ within })` scoped to the resolved range still returns the citation — the anchor
+      // is still inside its own resolved range after Word's run-splitting. Text-content equality
+      // of the resolved range against the edited string is not asserted here.
       const within = await callDocOperation<any>('metadata.list', {
         sessionId,
         namespace: NAMESPACE,
