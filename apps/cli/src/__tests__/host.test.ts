@@ -424,7 +424,7 @@ describe('CLI host mode', () => {
   );
 
   test(
-    'rejects --request-timeout-ms with a non-positive integer value',
+    'rejects --request-timeout-ms with a non-numeric value',
     async () => {
       const child = spawn('bun', [CLI_BIN, 'host', '--stdio', '--request-timeout-ms', 'not-a-number'], {
         cwd: REPO_ROOT,
