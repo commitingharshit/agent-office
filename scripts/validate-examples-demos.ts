@@ -119,6 +119,19 @@ function validateManifest(manifestPath: string, relPath: string): void {
     if (typeof e.sourceKind !== 'string' || !ALLOWED_SOURCE_KINDS.has(e.sourceKind)) {
       issues.push({ file: relPath, line: 0, kind: 'manifest-schema', detail: `${eid}: sourceKind missing or not one of ${[...ALLOWED_SOURCE_KINDS].join(', ')}` });
     }
+    // sourceKind must agree with sourceRepo: monorepo entries are local,
+    // anything else is external. Cheap drift check.
+    if (typeof e.sourceRepo === 'string' && typeof e.sourceKind === 'string') {
+      const expectedKind = e.sourceRepo === 'superdoc-dev/superdoc' ? 'local' : 'external';
+      if (e.sourceKind !== expectedKind) {
+        issues.push({
+          file: relPath,
+          line: 0,
+          kind: 'manifest-schema',
+          detail: `${eid}: sourceKind '${e.sourceKind}' does not match sourceRepo '${e.sourceRepo}' (expected '${expectedKind}')`,
+        });
+      }
+    }
   }
 }
 
