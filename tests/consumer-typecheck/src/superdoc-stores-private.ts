@@ -64,3 +64,25 @@ const _superDocUI = createSuperDocUI({ superdoc });
 
 void _toolbarController;
 void _superDocUI;
+
+// --- Backward-compat: legacy inline host with `superdocStore` ----------------
+// Pre-SD-3213f typed custom host stubs passed an inline object literal
+// that included a typed `superdocStore.documents[]`. The SD-3213f host
+// type is a union with a deprecated legacy branch so those stubs keep
+// compiling without `any` casts. Without the union branch, TS would
+// reject this object literal under excess-property checks at the
+// `createHeadlessToolbar` call site.
+const _legacyToolbarController = createHeadlessToolbar({
+  superdoc: {
+    activeEditor: null,
+    superdocStore: {
+      documents: [
+        {
+          getEditor: () => null,
+          getPresentationEditor: () => null,
+        },
+      ],
+    },
+  },
+});
+void _legacyToolbarController;
