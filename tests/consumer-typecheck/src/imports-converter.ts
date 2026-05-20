@@ -16,7 +16,7 @@ type _ConverterReal = Assert<IsAny<typeof SuperConverter>>;
 type _HasBodyNumberingReferencesReal = Assert<IsAny<typeof hasBodyNumberingReferences>>;
 
 // Static methods documented in the .d.ts must resolve.
-const _v: string | null = SuperConverter.extractDocumentGuid('<xml/>');
+const _v: string | null = SuperConverter.extractDocumentGuid([{ name: 'word/settings.xml', content: '<xml/>' }]);
 const _hasNumberingReferences: boolean = hasBodyNumberingReferences({
   elements: [{ name: 'w:numPr' }],
 });

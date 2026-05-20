@@ -137,9 +137,10 @@ jobs:
           node typecheck-matrix.mjs
 
       - name: Deep public-type audit (report-only)
-        # Inventory pass: same as PR CI. Not strict yet (no facade yet
-        # per SD-2966); ships only the regression report. Once SD-2966
-        # lands, swap in `--strict`.
+        # Inventory pass: same as PR CI. Not strict yet. The facade landed
+        # in SD-3212 PR C, but the audit still walks broad legacy surfaces
+        # like `./super-editor`. Tracked under SD-3213 follow-up: scope to
+        # curated facade entries, then swap in `--strict`.
         run: |
           cd tests/consumer-typecheck
           node deep-type-audit.mjs

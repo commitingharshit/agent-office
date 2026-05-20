@@ -1,4 +1,3 @@
 export default class DocxZipper {
-  constructor(...args: any[]);
-  [key: string]: any;
+  constructor(params?: { debug?: boolean });
 }
