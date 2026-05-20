@@ -4,7 +4,7 @@
  *
  * SD-3213c partially drained this shim:
  *   - typed constructor (no more `constructor(...args: any[])`)
- *   - typed four named static methods
+ *   - typed the named static methods and exported helper function
  *   - tightened `extractDocumentGuid` / `getStoredSuperdocVersion` /
  *     `setStoredSuperdocVersion` from `any[]` to specific shapes
  *
@@ -31,6 +31,8 @@ export class SuperConverter {
     docx?: unknown;
     media?: Record<string, unknown>;
     fonts?: Record<string, unknown>;
+    xml?: string;
+    json?: unknown;
     fileSource?: unknown;
     documentId?: string | null;
     isNewFile?: boolean;

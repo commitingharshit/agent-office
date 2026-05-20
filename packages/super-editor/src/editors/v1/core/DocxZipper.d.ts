@@ -3,8 +3,8 @@
  * the sibling `DocxZipper.js`. Earlier versions exposed
  * `constructor(...args: any[])` + `[key: string]: any`, which collapsed
  * every consumer access to `any`. SD-3213c replaced that catchall with an
- * explicit minimal surface so the audit's `tier-4-public-contract` bucket
- * stays at zero.
+ * explicit minimal surface so DocxZipper no longer contributes to the
+ * audit's `tier-4-public-contract` bucket.
  *
  * Argument shapes are intentionally wide (`unknown`, `Record<string, unknown>`)
  * because the values internal callers pass are parsed OOXML JSON with no

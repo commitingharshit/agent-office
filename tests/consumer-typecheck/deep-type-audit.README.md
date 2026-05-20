@@ -26,8 +26,10 @@ Gating on either number would recreate the prior allowlist problem
 
 The remaining work, tracked under SD-3213 follow-up:
 
-1. Drain `tier-4-public-contract` to zero (this PR addresses the 16
-   findings concentrated in two hand-written declaration shims).
+1. Drain the residual `tier-4-public-contract` finding
+   (`SuperConverter[key: string]: any`) via SD-3235. SD-3213c reduced the
+   bucket from 16 findings to 1 by fully typing DocxZipper and partially
+   typing SuperConverter's constructor + named statics.
 2. Improve audit attribution per entry/bucket so findings can be
    distinguished as "supported-root leak" vs "legacy compat reach".
 3. Scope the audit to curated facade entries (everything routing through
