@@ -54,7 +54,7 @@ on:
 permissions:
   contents: write
   packages: write
-  id-token: write # PyPI trusted publishing (OIDC)
+  id-token: write # Production PyPI trusted publishing (OIDC) on manual-release; TestPyPI uses TEST_PYPI_TOKEN instead.
 
 concurrency:
   # Release runs never cancel an in-progress release (each merge is a release-worthy
@@ -362,10 +362,14 @@ jobs:
   # TestPyPI smoke (workflow_dispatch, smoke=true)
   #
   # Publishes all six Python projects to TestPyPI at a unique
-  # 0.0.0.dev${run_number} version to exercise every Trusted Publisher
-  # config in one shot. No npm publish, no semantic-release tag, no labs
-  # dispatch. Use to validate TestPyPI setup before the first real merge
-  # on the auto path, and any time the publish wiring changes.
+  # 0.0.0.dev${run_number} version to validate the publish wiring end to
+  # end (account-scoped TEST_PYPI_TOKEN from the `testpypi` environment,
+  # wheel build, all six project names) in one shot. No npm publish, no
+  # semantic-release tag, no labs dispatch. Use before the first real
+  # merge on the auto path, and any time the publish wiring changes.
+  #
+  # First successful run also creates the six TestPyPI projects under
+  # the token owner's account.
   #
   # The 0.0.0.dev* versions left on TestPyPI are swept by the retention
   # workflow (PR1b); they have no stable predecessor so the retention
