@@ -132,20 +132,16 @@ jobs:
           cd tests/consumer-typecheck
           node typecheck-matrix.mjs
 
-      - name: Deep public-type audit (report-only)
-        # Recursive walk of every type reachable from superdoc's public
-        # exports in the installed tarball. Reports inventory by tier and
-        # top files. Always exits 0 in default mode; the `--strict` flag
-        # turns it into a hard gate but is not used in CI yet because the
-        # current public surface is the accidental declaration graph, not
-        # a deliberate facade. SD-2966 will define that facade; once it
-        # lands, this step gets `--strict` added and an allowlist file is
-        # seeded against the facade-scoped findings. Until then, the step
-        # provides visibility without the maintenance burden of a giant
-        # public allowlist.
-        run: |
-          cd tests/consumer-typecheck
-          node deep-type-audit.mjs
+      - name: Deep public-type audit (supported-root strict, SD-3213e)
+        # Single invocation does both: (1) prints the broad inventory
+        # (tier counts, top files, entry/root-bucket attribution) for
+        # visibility, and (2) gates on the supported-root subset against
+        # `deep-type-audit.supported-root-allowlist.json`. Fails on any
+        # new `any` finding reachable from root `.` via an export
+        # classified as `supported-root`, AND on stale entries (a drain
+        # landed but the allowlist wasn't shrunk). The broad audit
+        # remains report-only because it includes legacy/raw reach.
+        run: node tests/consumer-typecheck/deep-type-audit.mjs --strict-supported-root
 
       - name: Package shape gates
         # External package-shape linters (publint + attw) running against
@@ -154,22 +150,17 @@ jobs:
         # ESM, missing CDN files, unpublished `source` paths.
         run: node tests/consumer-typecheck/package-shape-gate.mjs
 
-      - name: Legacy public no-growth gates (SD-3176)
-        # No-growth snapshots for the legacy public compatibility surfaces.
-        # See tests/consumer-typecheck/snapshots/README.md for the policy.
-        # Runs after the matrix step so the packed-and-installed fixture
-        # is available for Snapshot B (resolved named exports).
-        run: |
-          node tests/consumer-typecheck/snapshot-super-editor-package-exports.mjs --check
-          node tests/consumer-typecheck/snapshot-superdoc-legacy-exports.mjs --check
-
-      - name: Root no-growth + 4-source inventory (SD-3212 PR A0)
-        # The superdoc root entry resolves through four package.json#exports
-        # sources (types.import, types.require, import, require). Each is
-        # snapshotted separately and drift-gated. Cross-source mismatches
-        # (typed-only / runtime-only / ESM vs CJS) are reported in the
-        # companion .md but are not blockers on their own.
-        run: node tests/consumer-typecheck/snapshot-superdoc-root-exports.mjs --check
+      - name: Public surface no-growth snapshots (SD-3176, SD-3212)
+        # Unified entry point for the three snapshot families:
+        #   - super-editor-package: @superdoc/super-editor package.json#exports keys
+        #   - legacy: resolved exports for superdoc/* legacy subpaths
+        #   - root: 4-source inventory (types.import, types.require, import,
+        #     require) for the superdoc root entry. Cross-source mismatches
+        #     are reported in the companion .md but are not blockers on their
+        #     own.
+        # Runs after the matrix step so the packed-and-installed fixture is
+        # available. See tests/consumer-typecheck/snapshots/README.md.
+        run: node tests/consumer-typecheck/snapshot.mjs --all --check
 
       - name: Root classification closure gate (SD-3212 PR A1b)
         # Asserts the dependency-closure rule from the A1 classification:
