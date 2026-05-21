@@ -633,6 +633,31 @@ const scenarios = [
     files: ['src/extensions-helpers.ts'],
     mustPass: true,
   },
+  // SD-3240 / SD-3245: editor.converter, editor.extensionService, and
+  // getActiveFormatting are typed surfaces, not `any`. Drains the final
+  // 18 supported-root allowlist entries (16 + 2) to 0. The fixture's
+  // `Equal<T, any>` checks regress the build if any of those surfaces
+  // widen back to `any`.
+  {
+    name: 'bundler / editor surfaces not any (SD-3240)',
+    module: 'ESNext',
+    moduleResolution: 'bundler',
+    skipLibCheck: true,
+    strict: true,
+    noPropertyAccessFromIndexSignature: true,
+    files: ['src/editor-surfaces-not-any.ts'],
+    mustPass: true,
+  },
+  {
+    name: 'node16 / editor surfaces not any (SD-3240)',
+    module: 'Node16',
+    moduleResolution: 'node16',
+    skipLibCheck: true,
+    strict: true,
+    noPropertyAccessFromIndexSignature: true,
+    files: ['src/editor-surfaces-not-any.ts'],
+    mustPass: true,
+  },
   // SD-3213: NodeConfig.renderDOM uses a local SuperDocDOMOutputSpec
   // alias instead of PM's DOMOutputSpec (which contains
   // `readonly [string, ...any[]]`). Pins the four consumer shapes

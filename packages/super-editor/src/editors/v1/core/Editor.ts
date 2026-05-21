@@ -18,6 +18,7 @@ import { ExtensionService } from './ExtensionService.js';
 import { CommandService } from './CommandService.js';
 import { Attribute } from './Attribute.js';
 import { SuperConverter } from '@core/super-converter/SuperConverter.js';
+import type { EditorConverterSurface, EditorExtensionServiceSurface } from './types/EditorPublicSurfaces.js';
 import {
   Commands,
   Editable,
@@ -253,10 +254,8 @@ export class Editor extends EventEmitter<EditorEventMap> {
    */
   #commandService!: CommandService;
 
-  /**
-   * Service for managing extensions
-   */
-  extensionService!: ExtensionService;
+  /** Extension service. See `EditorExtensionServiceSurface`. SD-3240. */
+  extensionService!: EditorExtensionServiceSurface;
 
   /**
    * Storage for extension data
@@ -348,7 +347,8 @@ export class Editor extends EventEmitter<EditorEventMap> {
   /**
    * The document converter instance
    */
-  converter!: SuperConverter;
+  /** Document converter handle. See `EditorConverterSurface`. SD-3240. */
+  converter!: EditorConverterSurface;
 
   /**
    * Toolbar instance (if attached)
@@ -648,8 +648,13 @@ export class Editor extends EventEmitter<EditorEventMap> {
       if (!this.#telemetry || this.#documentOpenTracked) return;
 
       try {
-        const documentCreatedAt = this.converter?.getDocumentCreatedTimestamp?.() || null;
-        this.#telemetry.trackDocumentOpen(documentId, documentCreatedAt);
+        const documentCreatedAt = this.converter?.getDocumentCreatedTimestamp?.() ?? null;
+        this.#telemetry.trackDocumentOpen(
+          documentId,
+          // SD-3240: telemetry signature expects a string; numbers get
+          // coerced via JSON-friendly stringification at the boundary.
+          documentCreatedAt == null ? null : String(documentCreatedAt),
+        );
         this.#documentOpenTracked = true;
       } catch {
         // Fail silently - telemetry should never break the app
@@ -1108,7 +1113,14 @@ export class Editor extends EventEmitter<EditorEventMap> {
   #initProtectionState(): void {
     const protStorage = getProtectionStorage(this);
     if (!protStorage) return;
-    const settingsRoot = this.converter ? readSettingsRoot(this.converter) : null;
+    // SD-3240: readSettingsRoot accepts a narrow `ConverterWithDocumentSettings`
+    // shape that overlaps with EditorConverterSurface but uses a
+    // different `pageStyles` typing (alternateHeaders flag). Cast to
+    // the local narrow interface — both shapes are honest no-`any`
+    // contracts on the same runtime instance.
+    const settingsRoot = this.converter
+      ? readSettingsRoot(this.converter as unknown as Parameters<typeof readSettingsRoot>[0])
+      : null;
     protStorage.state = parseProtectionState(settingsRoot);
     protStorage.initialized = true;
   }
@@ -2115,7 +2127,15 @@ export class Editor extends EventEmitter<EditorEventMap> {
 
     const isolatedExternalExtensions = externalExtensions.map((extension) => cloneExtensionInstance(extension));
 
-    this.extensionService = ExtensionService.create(allExtensions, isolatedExternalExtensions, this);
+    // SD-3240: ExtensionService.d.ts uses a `[key: string]: any` catchall
+    // for internal-implementation members. The runtime instance has the
+    // surface members; the cast bridges the structural gap without
+    // reintroducing `any` on the public field type.
+    this.extensionService = ExtensionService.create(
+      allExtensions,
+      isolatedExternalExtensions,
+      this,
+    ) as unknown as EditorExtensionServiceSurface;
   }
 
   /**
@@ -2131,8 +2151,12 @@ export class Editor extends EventEmitter<EditorEventMap> {
    * Create the document converter as this.converter.
    */
   #createConverter(): void {
+    // SD-3240: SuperConverter.d.ts uses a `[key: string]: any` catchall
+    // for internal-implementation members. The runtime instance has the
+    // surface members; the cast bridges the structural gap without
+    // reintroducing `any` on the public field type.
     if (this.options.converter) {
-      this.converter = this.options.converter as SuperConverter;
+      this.converter = this.options.converter as unknown as EditorConverterSurface;
     } else {
       this.converter = new SuperConverter({
         docx: this.options.content,
@@ -2145,7 +2169,7 @@ export class Editor extends EventEmitter<EditorEventMap> {
         mockDocument: this.options.mockDocument ?? null,
         isNewFile: this.options.isNewFile ?? false,
         trackedChangesOptions: this.options.trackedChanges ?? null,
-      });
+      }) as unknown as EditorConverterSurface;
     }
   }
 
@@ -2367,7 +2391,10 @@ export class Editor extends EventEmitter<EditorEventMap> {
 
     const suppressedNames = new Set(
       (this.extensionService?.extensions || [])
-        .filter((ext: { config?: { excludeFromSummaryJSON?: boolean } }) => {
+        .filter((ext) => {
+          // SD-3240: extension entries are typed but `excludeFromSummaryJSON`
+          // is a runtime opt-in on the config record (Options/Storage generics
+          // hide it). Cast at the read site to access the optional flag.
           const config = (ext as { config?: { excludeFromSummaryJSON?: boolean } })?.config;
           const suppressFlag = config?.excludeFromSummaryJSON;
           return Boolean(suppressFlag);
