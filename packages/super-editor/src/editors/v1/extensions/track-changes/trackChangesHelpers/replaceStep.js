@@ -7,6 +7,8 @@ import { TrackDeleteMarkName } from '../constants.js';
 import { TrackChangesBasePluginKey } from '../plugins/index.js';
 import { CommentsPluginKey } from '../../comment/comments-plugin.js';
 import { findMarkPosition } from './documentHelpers.js';
+import { compileTrackedEdit } from '../review-model/overlap-compiler.js';
+import { makeTextInsertIntent, makeTextDeleteIntent, makeTextReplaceIntent } from '../review-model/edit-intent.js';
 
 /**
  * Given a range (from..to) and a count of characters ("the Nth character in that range"),
@@ -172,6 +174,26 @@ export const replaceStep = ({
     step.from !== originalRange.from ||
     step.to !== originalRange.to ||
     step.slice.content.size !== originalRange.sliceSize;
+
+  const compiled = tryCompileStep({
+    state,
+    tr,
+    newTr,
+    step,
+    stepWasNormalized,
+    originalStep,
+    map,
+    user,
+    date,
+    replacements,
+  });
+  if (compiled.handled) {
+    return;
+  }
+  if (compiled.failed) {
+    // Do not fall through to applying the original step untracked.
+    return;
+  }
 
   // Handle structural deletions with no inline content (e.g., empty paragraph removal,
   // paragraph joins). When there's no content being inserted and no inline content in
@@ -380,6 +402,103 @@ export const replaceStep = ({
  *   Selection taken from another transaction/document context.
  * @returns {void}
  */
+/**
+ * Try to route a text-shaped ReplaceStep through the overlap-aware compiler.
+ *
+ * Returns one of:
+ *  - `{ handled: true }`  — compiler applied the edit; caller must return.
+ *  - `{ failed: true }`   — compiler aborted (typed failure); caller must
+ *                          NOT fall back to the original untracked step.
+ *  - `{ handled: false }` — compiler declined (e.g. structural step
+ *                          without inline content). Caller falls through
+ *                          to the legacy path.
+ *
+ * @param {{ state: import('prosemirror-state').EditorState, tr: import('prosemirror-state').Transaction, newTr: import('prosemirror-state').Transaction, step: import('prosemirror-transform').ReplaceStep, stepWasNormalized: boolean, originalStep: import('prosemirror-transform').ReplaceStep, map: import('prosemirror-transform').Mapping, user: object, date: string, replacements: 'paired'|'independent' }} options
+ */
+const tryCompileStep = ({ state, tr, newTr, step, stepWasNormalized, originalStep, map, user, date, replacements }) => {
+  // Empty structural deletion handled by the existing legacy branch above.
+  if (step.from !== step.to && step.slice.content.size === 0) {
+    let hasInlineContent = false;
+    newTr.doc.nodesBetween(step.from, step.to, (node) => {
+      if (node.isInline) {
+        hasInlineContent = true;
+        return false;
+      }
+    });
+    if (!hasInlineContent) return { handled: false };
+  }
+
+  // Build the intent. Pure inserts and pure deletes use the matching intent
+  // type; mixed (text-replace) carries the original slice.
+  let intent;
+  try {
+    if (step.from === step.to && step.slice.content.size > 0) {
+      intent = makeTextInsertIntent({ at: step.from, content: step.slice, user, date, source: 'native' });
+    } else if (step.from !== step.to && step.slice.content.size === 0) {
+      intent = makeTextDeleteIntent({ from: step.from, to: step.to, user, date, source: 'native' });
+    } else if (step.from !== step.to && step.slice.content.size > 0) {
+      intent = makeTextReplaceIntent({
+        from: step.from,
+        to: step.to,
+        content: step.slice,
+        replacements,
+        user,
+        date,
+        source: 'native',
+      });
+    } else {
+      // Zero-op step; nothing to compile.
+      return { handled: false };
+    }
+  } catch (error) {
+    return { failed: true, error };
+  }
+
+  const beforeSize = newTr.doc.content.size;
+  const beforeSteps = newTr.steps.length;
+  const result = compileTrackedEdit({
+    state,
+    tr: newTr,
+    intent,
+    replacements,
+  });
+
+  if (!result.ok) {
+    // Structural fallback: when the compiler reports CAPABILITY_UNAVAILABLE
+    // for a content shape it cannot model (e.g. mixed structural slice), let
+    // the legacy path handle it. Otherwise — INVALID_TARGET or
+    // PRECONDITION_FAILED — fail closed.
+    if (result.code === 'CAPABILITY_UNAVAILABLE') return { handled: false };
+    return { failed: true, error: new Error(result.message) };
+  }
+
+  // Track that we mutated newTr. We still need to update the outer mapping
+  // (`map`) so subsequent steps in the same transaction can map through.
+  for (let i = beforeSteps; i < newTr.steps.length; i += 1) {
+    map.appendMap(newTr.steps[i].getMap());
+  }
+
+  // Mirror the position-mapping behavior expected by trackedTransaction
+  // selection logic: when there is an inserted side, record `insertedTo`.
+  const meta = {};
+  if (typeof result.insertedTo === 'number') {
+    meta.insertedTo = result.insertedTo;
+  }
+  if (result.insertedMark) {
+    meta.insertedMark = result.insertedMark;
+  }
+  if (result.deletionMarks?.length) {
+    meta.deletionMark = result.deletionMarks[0];
+  }
+  if (result.selection?.kind === 'near' && stepWasNormalized && !result.insertedMark) {
+    meta.selectionPos = result.selection.pos;
+  }
+  newTr.setMeta(TrackChangesBasePluginKey, meta);
+  newTr.setMeta(CommentsPluginKey, { type: 'force' });
+
+  return { handled: true, sizeDelta: newTr.doc.content.size - beforeSize };
+};
+
 const syncSelectionFromTransaction = ({ targetTr, sourceSelection }) => {
   const boundedFrom = Math.max(0, Math.min(sourceSelection.from, targetTr.doc.content.size));
   const boundedTo = Math.max(0, Math.min(sourceSelection.to, targetTr.doc.content.size));

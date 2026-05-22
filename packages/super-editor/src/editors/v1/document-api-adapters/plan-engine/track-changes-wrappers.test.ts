@@ -33,7 +33,11 @@ vi.mock('../story-runtime/resolve-story-runtime.js', () => ({
   resolveStoryRuntime: mocks.resolveStoryRuntime,
 }));
 
-import { trackChangesAcceptAllWrapper, trackChangesAcceptWrapper } from './track-changes-wrappers.js';
+import {
+  trackChangesAcceptAllWrapper,
+  trackChangesAcceptWrapper,
+  trackChangesDecideRangeWrapper,
+} from './track-changes-wrappers.js';
 
 const footnoteStory: StoryLocator = { kind: 'story', storyType: 'footnote', noteId: '5' };
 
@@ -41,6 +45,72 @@ function makeEditor(commands: Record<string, unknown> = {}): Editor {
   return {
     commands,
     state: { doc: { textBetween: vi.fn(() => '') } },
+  } as unknown as Editor;
+}
+
+function makeTextNode(text: string) {
+  return {
+    type: { name: 'text' },
+    attrs: {},
+    text,
+    nodeSize: text.length,
+    isText: true,
+    isLeaf: false,
+    isBlock: false,
+    childCount: 0,
+    child: () => {
+      throw new Error('text nodes do not have children');
+    },
+  };
+}
+
+function makeInlineWrapper(child: any) {
+  return {
+    type: { name: 'run' },
+    attrs: {},
+    nodeSize: child.nodeSize + 2,
+    isText: false,
+    isLeaf: false,
+    isBlock: false,
+    childCount: 1,
+    child: (index: number) => {
+      if (index !== 0) throw new Error('run child out of range');
+      return child;
+    },
+  };
+}
+
+function makeParagraphNode(attrs: Record<string, unknown>, child: any = makeTextNode('abcdef')) {
+  return {
+    type: { name: 'paragraph' },
+    attrs,
+    nodeSize: child.nodeSize + 2,
+    isText: false,
+    isLeaf: false,
+    isBlock: true,
+    childCount: 1,
+    child: (index: number) => {
+      if (index !== 0) throw new Error('paragraph child out of range');
+      return child;
+    },
+  };
+}
+
+function makeRangeDecisionEditor(
+  commands: Record<string, unknown>,
+  block = makeParagraphNode({ sdBlockId: 'p1' }),
+  blockPos = 5,
+): Editor {
+  return {
+    options: { trackedChanges: {} },
+    commands,
+    state: {
+      doc: {
+        descendants: (fn: (node: unknown, pos: number) => void | boolean) => {
+          fn(block, blockPos);
+        },
+      },
+    },
   } as unknown as Editor;
 }
 
@@ -100,6 +170,47 @@ describe('track-changes-wrappers revision guard', () => {
     expect(index.invalidate).toHaveBeenCalledWith(footnoteStory);
   });
 
+  it('preserves typed overlap decision failures for by-id document-api calls', () => {
+    const hostEditor = makeEditor();
+    const storyEditor = {
+      ...makeEditor({ acceptTrackedChangeById: vi.fn(() => false) }),
+      storage: {
+        trackChanges: {
+          lastDecisionFailure: {
+            code: 'PERMISSION_DENIED',
+            message: 'permission denied for accept of change "canon-1".',
+            details: { changeId: 'canon-1' },
+          },
+        },
+      },
+    } as unknown as Editor;
+
+    mocks.resolveTrackedChangeInStory.mockReturnValue({
+      editor: storyEditor,
+      story: footnoteStory,
+      runtimeRef: { storyKey: 'fn:5', rawId: 'raw-1' },
+      change: {
+        id: 'canon-1',
+        rawId: 'raw-1',
+        from: 1,
+        to: 2,
+        attrs: {},
+      },
+    });
+    mocks.executeDomainCommand.mockReturnValue({ steps: [{ effect: 'unchanged' }] });
+
+    const receipt = trackChangesAcceptWrapper(hostEditor, { id: 'canon-1', story: footnoteStory });
+
+    expect(receipt).toEqual({
+      success: false,
+      failure: {
+        code: 'PERMISSION_DENIED',
+        message: 'permission denied for accept of change "canon-1".',
+        details: { changeId: 'canon-1' },
+      },
+    });
+  });
+
   it('checks expectedRevision once on the host editor for accept-all across multiple stories', () => {
     const hostEditor = makeEditor();
     const bodyEditor = makeEditor({ acceptAllTrackedChanges: vi.fn(() => true) });
@@ -147,5 +258,79 @@ describe('track-changes-wrappers revision guard', () => {
     expect(footnoteCommit).toHaveBeenCalledWith(hostEditor);
     expect(index.invalidate).toHaveBeenCalledWith(bodyStory);
     expect(index.invalidate).toHaveBeenCalledWith(footnoteStory);
+  });
+
+  it('resolves range targets against v1 sdBlockId attributes', () => {
+    const acceptTrackedChangesBetween = vi.fn(() => true);
+    const invalidate = vi.fn();
+    const hostEditor = makeRangeDecisionEditor({ acceptTrackedChangesBetween });
+    mocks.getTrackedChangeIndex.mockReturnValue({
+      get: vi.fn(() => []),
+      getAll: vi.fn(() => []),
+      invalidate,
+      invalidateAll: vi.fn(),
+      subscribe: vi.fn(),
+      dispose: vi.fn(),
+    });
+
+    const receipt = trackChangesDecideRangeWrapper(hostEditor, {
+      decision: 'accept',
+      range: { kind: 'text', segments: [{ blockId: 'p1', range: { start: 2, end: 4 } }] },
+    });
+
+    expect(receipt).toEqual({ success: true });
+    expect(acceptTrackedChangesBetween).toHaveBeenCalledWith(8, 10);
+    expect(invalidate).toHaveBeenCalledWith({ kind: 'story', storyType: 'body' });
+  });
+
+  it('resolves range targets through flattened text offsets for inline wrappers', () => {
+    const acceptTrackedChangesBetween = vi.fn(() => true);
+    const hostEditor = makeRangeDecisionEditor(
+      { acceptTrackedChangesBetween },
+      makeParagraphNode({ sdBlockId: 'p1' }, makeInlineWrapper(makeTextNode('Hi'))),
+      5,
+    );
+
+    const receipt = trackChangesDecideRangeWrapper(hostEditor, {
+      decision: 'accept',
+      range: { kind: 'text', segments: [{ blockId: 'p1', range: { start: 0, end: 2 } }] },
+    });
+
+    expect(receipt).toEqual({ success: true });
+    expect(acceptTrackedChangesBetween).toHaveBeenCalledWith(7, 9);
+  });
+
+  it('preserves typed overlap decision failures for range document-api calls', () => {
+    const acceptTrackedChangesBetween = vi.fn(() => false);
+    const hostEditor = {
+      options: { trackedChanges: {} },
+      commands: { acceptTrackedChangesBetween },
+      storage: {
+        trackChanges: {
+          lastDecisionFailure: {
+            code: 'TARGET_NOT_FOUND',
+            message: 'no tracked changes match the requested decision target.',
+          },
+        },
+      },
+      state: makeRangeDecisionEditor({}).state,
+    } as unknown as Editor;
+
+    const receipt = trackChangesDecideRangeWrapper(hostEditor, {
+      decision: 'accept',
+      range: { kind: 'text', segments: [{ blockId: 'p1', range: { start: 2, end: 4 } }] },
+    });
+
+    expect(receipt).toEqual({
+      success: false,
+      failure: {
+        code: 'TARGET_NOT_FOUND',
+        message: 'no tracked changes match the requested decision target.',
+        details: {
+          range: { kind: 'text', segments: [{ blockId: 'p1', range: { start: 2, end: 4 } }] },
+          story: undefined,
+        },
+      },
+    });
   });
 });

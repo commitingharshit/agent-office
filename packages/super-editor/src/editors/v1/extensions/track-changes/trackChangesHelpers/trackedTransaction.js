@@ -415,6 +415,7 @@ export const trackedTransaction = ({ tr, state, user, replacements = 'paired' })
         date,
         originalStep,
         originalStepIndex,
+        replacements,
       });
     } else {
       // Non-structural steps (AttrStep, SetNodeMarkupStep) are typically

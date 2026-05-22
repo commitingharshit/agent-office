@@ -49,4 +49,43 @@ describe('executeTrackChangesDecide validation', () => {
   it('rejects missing target', () => {
     expect(() => executeTrackChangesDecide(stubAdapter(), { decision: 'accept' } as any)).toThrow(/target must be/);
   });
+
+  it('routes canonical range targets to decideRange', () => {
+    const adapter = {
+      ...stubAdapter(),
+      decideRange: mock(() => ({ success: true })),
+    };
+
+    const result = executeTrackChangesDecide(adapter, {
+      decision: 'accept',
+      target: {
+        kind: 'range',
+        range: { kind: 'text', segments: [{ blockId: 'p1', range: { start: 0, end: 2 } }] },
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(adapter.decideRange).toHaveBeenCalledWith(
+      {
+        decision: 'accept',
+        range: { kind: 'text', segments: [{ blockId: 'p1', range: { start: 0, end: 2 } }] },
+      },
+      undefined,
+    );
+  });
+
+  it('fails closed when canonical range targets are not supported by the adapter', () => {
+    const result = executeTrackChangesDecide(stubAdapter(), {
+      decision: 'reject',
+      target: {
+        kind: 'range',
+        range: { kind: 'text', segments: [{ blockId: 'p1', range: { start: 0, end: 2 } }] },
+      },
+    });
+
+    expect(result).toMatchObject({
+      success: false,
+      failure: { code: 'CAPABILITY_UNAVAILABLE' },
+    });
+  });
 });

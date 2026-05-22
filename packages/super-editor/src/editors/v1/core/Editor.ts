@@ -34,6 +34,7 @@ import {
 import { createDocument } from './helpers/createDocument.js';
 import { isActive } from './helpers/isActive.js';
 import { trackedTransaction } from '@extensions/track-changes/trackChangesHelpers/trackedTransaction.js';
+import { createWordIdAllocator, isDecimalWordId } from '@extensions/track-changes/review-model/word-id-allocator.js';
 import { TrackChangesBasePluginKey } from '@extensions/track-changes/plugins/index.js';
 import { CommentsPluginKey } from '@extensions/comment/comments-plugin.js';
 import { getNecessaryMigrations } from '@core/migrations/index.js';
@@ -3214,6 +3215,84 @@ export class Editor extends EventEmitter<EditorEventMap> {
   }
 
   /**
+   * Install a fresh Word revision id allocator on the converter. Walks the
+   * current document and reserves every decimal `sourceId` so newly minted ids
+   * never collide with imported revisions.
+   */
+  #installWordIdAllocatorIfNeeded(): void {
+    if (!this.converter) return;
+
+    const allocator = createWordIdAllocator();
+
+    const reserveAttrs = (attrs: { sourceId?: unknown } | undefined, path: string): void => {
+      const sourceId = attrs?.sourceId;
+      if (isDecimalWordId(sourceId)) {
+        allocator.reserve(path, sourceId as string | number);
+      }
+    };
+
+    const reserveFromDoc = (doc: PmNode | undefined | null, path: string): void => {
+      if (!doc) return;
+      doc.descendants((node) => {
+        if (!Array.isArray(node.marks)) return;
+        for (const mark of node.marks) {
+          const name = mark.type.name;
+          if (name !== 'trackInsert' && name !== 'trackDelete' && name !== 'trackFormat') continue;
+          reserveAttrs(mark.attrs as { sourceId?: unknown }, path);
+        }
+      });
+    };
+
+    const reserveFromJson = (node: unknown, path: string): void => {
+      if (!node || typeof node !== 'object') return;
+      const current = node as { marks?: Array<{ type?: string; attrs?: { sourceId?: unknown } }>; content?: unknown[] };
+      if (Array.isArray(current.marks)) {
+        for (const mark of current.marks) {
+          if (mark.type !== 'trackInsert' && mark.type !== 'trackDelete' && mark.type !== 'trackFormat') continue;
+          reserveAttrs(mark.attrs, path);
+        }
+      }
+      if (Array.isArray(current.content)) {
+        for (const child of current.content) reserveFromJson(child, path);
+      }
+    };
+
+    const wordPartPath = (target: unknown, fallback: string): string => {
+      if (typeof target !== 'string' || !target) return fallback;
+      const stripped = target.replace(/^\/+/, '');
+      return stripped.startsWith('word/') ? stripped : `word/${stripped}`;
+    };
+
+    const relsRoot = this.converter.convertedXml?.['word/_rels/document.xml.rels']?.elements?.find(
+      (node: { name?: string }) => node.name === 'Relationships',
+    );
+    const resolveRelationshipTarget = (relationshipId: string, fallback: string): string => {
+      const target = relsRoot?.elements?.find(
+        (node: { attributes?: { Id?: string; Target?: string } }) => node.attributes?.Id === relationshipId,
+      )?.attributes?.Target;
+      return wordPartPath(target, fallback);
+    };
+
+    reserveFromDoc(this.state?.doc as PmNode, 'word/document.xml');
+    for (const [id, header] of Object.entries(this.converter.headers || {})) {
+      const partPath = resolveRelationshipTarget(id, 'word/header1.xml');
+      const headerEditor = this.converter.headerEditors?.find((item: { id?: string }) => item.id === id);
+      reserveFromDoc(headerEditor?.editor?.state?.doc as PmNode | undefined, partPath);
+      reserveFromJson(header, partPath);
+    }
+    for (const [id, footer] of Object.entries(this.converter.footers || {})) {
+      const partPath = resolveRelationshipTarget(id, 'word/footer1.xml');
+      const footerEditor = this.converter.footerEditors?.find((item: { id?: string }) => item.id === id);
+      reserveFromDoc(footerEditor?.editor?.state?.doc as PmNode | undefined, partPath);
+      reserveFromJson(footer, partPath);
+    }
+    reserveFromJson(this.converter.footnotes, 'word/footnotes.xml');
+    reserveFromJson(this.converter.endnotes, 'word/endnotes.xml');
+
+    this.converter.wordIdAllocator = allocator;
+  }
+
+  /**
    * Export the editor document to DOCX.
    *
    * Return type depends on flags:
@@ -3266,6 +3345,13 @@ export class Editor extends EventEmitter<EditorEventMap> {
 
       // Pre-process the document state to prepare for export
       const json = this.#prepareDocumentForExport(preparedComments);
+
+      // Set up the Word revision id allocator on the converter so
+      // ins/del/rPrChange decoders can mint
+      // Word-compatible decimal `w:id` values without overwriting preserved
+      // imported `sourceId` values. The allocator is reset per export so the
+      // reserved set always reflects the current document state.
+      this.#installWordIdAllocatorIfNeeded();
 
       // Export the document to DOCX
       // GUID will be handled automatically in converter.exportToDocx if document was modified

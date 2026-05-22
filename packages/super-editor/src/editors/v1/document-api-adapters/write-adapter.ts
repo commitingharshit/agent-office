@@ -254,6 +254,15 @@ function applyTrackedWrite(
   });
 
   if (!didApply) {
+    const lastCompilerFailure = (editor.storage?.trackChanges as { lastCompilerFailure?: ReceiptFailure } | undefined)
+      ?.lastCompilerFailure;
+    if (lastCompilerFailure) {
+      return {
+        success: false,
+        resolution: resolvedTarget.resolution,
+        failure: lastCompilerFailure,
+      };
+    }
     return {
       success: false,
       resolution: resolvedTarget.resolution,

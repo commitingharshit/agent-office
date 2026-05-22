@@ -4,6 +4,7 @@ import { Slice } from 'prosemirror-model';
 import { v4 as uuidv4 } from 'uuid';
 import { TrackDeleteMarkName, TrackInsertMarkName } from '../constants.js';
 import { findTrackedMarkBetween } from './findTrackedMarkBetween.js';
+import { normalizeEmail } from '../review-model/identity.js';
 
 /**
  * Mark deletion.
@@ -17,18 +18,14 @@ import { findTrackedMarkBetween } from './findTrackedMarkBetween.js';
  * @returns {{ deletionMark: import('prosemirror-model').Mark, deletionMap: Mapping, nodes: import('prosemirror-model').Node[] }} Deletion map and deletion mark.
  */
 export const markDeletion = ({ tr, from, to, user, date, id: providedId }) => {
-  /**
-   * @param {unknown} value
-   */
-  const normalizeEmail = (value) => (typeof value === 'string' ? value.trim().toLowerCase() : '');
   const userEmail = normalizeEmail(user?.email);
   /**
    * @param {import('prosemirror-model').Mark | null | undefined} mark
    */
   const isOwnInsertion = (mark) => {
     const authorEmail = normalizeEmail(mark?.attrs?.authorEmail);
-    // Word imports often omit authorEmail, treat missing as "own" to allow deletion.
-    if (!authorEmail || !userEmail) return true;
+    // Missing identity is not same-user. Only a trusted authorEmail match counts.
+    if (!authorEmail || !userEmail) return false;
     return authorEmail === userEmail;
   };
 

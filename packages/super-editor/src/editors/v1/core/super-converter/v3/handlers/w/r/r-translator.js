@@ -422,7 +422,10 @@ const decode = (params, decodedAttrs = {}) => {
 
     if (!existingRunPropertyChanges.length && runTrackFormatMark) {
       const runPropertiesNode = getRunPropertiesNode(runNode);
-      appendTrackFormatChangeToRunProperties(runPropertiesNode, [runTrackFormatMark]);
+      appendTrackFormatChangeToRunProperties(runPropertiesNode, [runTrackFormatMark], {
+        wordIdAllocator: params?.converter?.wordIdAllocator || null,
+        partPath: params?.currentPartPath || 'word/document.xml',
+      });
     }
   };
 

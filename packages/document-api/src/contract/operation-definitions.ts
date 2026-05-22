@@ -2482,15 +2482,15 @@ export const OPERATION_DEFINITIONS = {
   },
   'trackChanges.decide': {
     memberPath: 'trackChanges.decide',
-    description: 'Accept or reject a tracked change (by ID or scope: all).',
+    description: 'Accept or reject tracked changes by ID, range, or scope: all.',
     expectedResult:
-      'Returns a Receipt confirming the decision was applied; reports NO_OP if the change was already resolved.',
+      'Returns a Receipt confirming the decision was applied; reports NO_OP if the change was already resolved and typed failures for unsupported or denied tracked-change decisions.',
     requiresDocumentContext: true,
     metadata: mutationOperation({
       idempotency: 'conditional',
       supportsDryRun: false,
       supportsTrackedMode: false,
-      possibleFailureCodes: ['NO_OP'],
+      possibleFailureCodes: ['NO_OP', 'CAPABILITY_UNAVAILABLE', 'PERMISSION_DENIED', 'COMMENT_CASCADE_PARTIAL'],
       throws: [...T_NOT_FOUND_CAPABLE, 'INVALID_INPUT', 'INVALID_TARGET'],
     }),
     referenceDocPath: 'track-changes/decide.mdx',

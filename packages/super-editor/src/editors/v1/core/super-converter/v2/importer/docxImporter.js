@@ -324,6 +324,7 @@ const createNodeListHandler = (nodeHandlers) => {
     parentStyleId,
     lists,
     inlineDocumentFonts,
+    importTrackingContext,
     path = [],
     extraParams = {},
   }) => {
@@ -359,6 +360,7 @@ const createNodeListHandler = (nodeHandlers) => {
                 parentStyleId,
                 lists,
                 inlineDocumentFonts,
+                importTrackingContext,
                 path,
                 extraParams,
               });

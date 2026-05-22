@@ -117,6 +117,7 @@ const findPreviousLiveCharPos = (doc, cursorPos, trackDeleteMarkType) => {
  * @param {string} options.date
  * @param {import('prosemirror-transform').Step} options.originalStep
  * @param {number} options.originalStepIndex
+ * @param {'paired' | 'independent'} [options.replacements]
  */
 export const replaceAroundStep = ({
   state,
@@ -129,6 +130,7 @@ export const replaceAroundStep = ({
   date,
   originalStep,
   originalStepIndex,
+  replacements = 'paired',
 }) => {
   // Diff replay uses forceTrackChanges for consistency, but structural metadata updates
   // (e.g. table style setNodeMarkup) are encoded as ReplaceAroundStep and cannot be
@@ -202,6 +204,7 @@ export const replaceAroundStep = ({
     date,
     originalStep: charStep,
     originalStepIndex,
+    replacements,
   });
 
   // Position the cursor at the deletion edge. The original transaction's

@@ -148,12 +148,14 @@ describe('extract-adapter consumer simulation (SD-2766)', () => {
     expect(rendered).toContain('Here is a MS Word');
     expect(rendered).toContain('sentence');
 
-    // Pairing observation: in this fixture, w:del and w:ins authored at the
-    // same time map to one entityId on both halves. Confirm that here so
-    // any future regression in the importer's pairing surfaces immediately.
+    // Word-authored replacement halves remain separate source-wrapper entities,
+    // while each span still resolves to the correct public tracked-change entry.
     const delEntity = deleteSpans[0].trackedChanges!.find((c) => c.type === 'delete')!.entityId;
     const insEntity = insertSpans[0].trackedChanges!.find((c) => c.type === 'insert')!.entityId;
-    expect(insEntity).toBe(delEntity);
+    const entitiesById = new Map(result.trackedChanges.map((tc) => [tc.entityId, tc]));
+    expect(insEntity).not.toBe(delEntity);
+    expect(entitiesById.get(delEntity)?.wordRevisionIds?.delete).toBeTruthy();
+    expect(entitiesById.get(insEntity)?.wordRevisionIds?.insert).toBeTruthy();
   });
 
   it('attaches every tracked change to the blocks it lives in via blockIds', async () => {
@@ -218,11 +220,10 @@ describe('extract-adapter consumer simulation (SD-2766)', () => {
     }
   });
 
-  it('lets a consumer derive per-segment view of a paired change from spans', async () => {
-    // The aggregate trackedChanges[] entry for a paired change has a single
-    // `type` and (now) no `excerpt` — the spans carry the per-half text.
+  it('lets a consumer derive per-segment view of a Word replacement from spans', async () => {
+    // Word-authored replacement halves expose separate tracked-change entities.
     // A reviewer UI ("show me what John changed") rebuilds the segment view
-    // from spans + blockIds.
+    // from spans + blockIds rather than assuming one aggregate replacement id.
     const ctx = (await initTestEditor({
       content: docxFixture.docx,
       media: docxFixture.media,
@@ -243,33 +244,37 @@ describe('extract-adapter consumer simulation (SD-2766)', () => {
       }
     }
 
-    // Find the paired replacement by its OOXML provenance: both insert and
-    // delete word-revision-ids are populated on a paired entity.
-    const pairedEntity = result.trackedChanges.find(
-      (tc) => !!tc.wordRevisionIds?.insert && !!tc.wordRevisionIds?.delete,
-    )!;
-    expect(pairedEntity).toBeDefined();
+    const deleteEntry = Array.from(entityToSegments.entries()).find(([, segments]) =>
+      segments.some((s) => s.type === 'delete' && s.text === 'basic '),
+    );
+    const insertEntry = Array.from(entityToSegments.entries()).find(
+      ([, segments]) =>
+        segments
+          .filter((s) => s.type === 'insert')
+          .map((s) => s.text)
+          .join('') === 'cool ',
+    );
+    expect(deleteEntry).toBeDefined();
+    expect(insertEntry).toBeDefined();
+    const [deleteEntityId, deleteSegments] = deleteEntry!;
+    const [insertEntityId, insertSegments] = insertEntry!;
+    expect(deleteEntityId).not.toBe(insertEntityId);
 
-    // The misleading concatenated excerpt is suppressed for paired entries.
-    expect(pairedEntity.excerpt).toBeUndefined();
+    const deleteEntity = result.trackedChanges.find((tc) => tc.entityId === deleteEntityId)!;
+    const insertEntity = result.trackedChanges.find((tc) => tc.entityId === insertEntityId)!;
+    expect(deleteEntity.wordRevisionIds?.delete).toBeTruthy();
+    expect(insertEntity.wordRevisionIds?.insert).toBeTruthy();
+    expect(deleteEntity.blockIds).toEqual(insertEntity.blockIds);
 
-    // OOXML provenance is preserved so a spec-aware consumer can map back
-    // to the source document.
-    expect(pairedEntity.wordRevisionIds!.insert).toBeTruthy();
-    expect(pairedEntity.wordRevisionIds!.delete).toBeTruthy();
-    expect(pairedEntity.wordRevisionIds!.insert).not.toBe(pairedEntity.wordRevisionIds!.delete);
-
-    const segments = entityToSegments.get(pairedEntity.entityId)!;
-    expect(segments).toBeDefined();
-
-    // Per-segment view: one delete of "basic " and one insert of "cool " on
-    // the same block. Independently addressable, independently renderable.
-    const deletes = segments.filter((s) => s.type === 'delete');
-    const inserts = segments.filter((s) => s.type === 'insert');
-    expect(deletes.map((s) => s.text)).toEqual(['basic ']);
-    expect(inserts.map((s) => s.text).join('')).toBe('cool ');
-    for (const seg of segments) {
-      expect(seg.blockId).toBe(pairedEntity.blockIds![0]);
+    expect(deleteSegments.filter((s) => s.type === 'delete').map((s) => s.text)).toEqual(['basic ']);
+    expect(
+      insertSegments
+        .filter((s) => s.type === 'insert')
+        .map((s) => s.text)
+        .join(''),
+    ).toBe('cool ');
+    for (const seg of [...deleteSegments, ...insertSegments]) {
+      expect(seg.blockId).toBe(deleteEntity.blockIds![0]);
     }
   });
 

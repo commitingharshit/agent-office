@@ -9,6 +9,8 @@ import {
   upsertMarkSnapshotByType,
 } from './markSnapshotHelpers.js';
 import { getLiveInlineMarksInRange } from './getLiveInlineMarksInRange.js';
+import { compileTrackedEdit } from '../review-model/overlap-compiler.js';
+import { makeFormatIntent } from '../review-model/edit-intent.js';
 
 /**
  * Remove mark step.
@@ -21,6 +23,40 @@ import { getLiveInlineMarksInRange } from './getLiveInlineMarksInRange.js';
  * @param {string} options.date Date.
  */
 export const removeMarkStep = ({ state, step, newTr, doc, user, date }) => {
+  if (TrackedFormatMarkNames.includes(step.mark.type.name)) {
+    const intentUser = {
+      name: user?.name || '',
+      email: user?.email || '',
+      image: user?.image || '',
+    };
+    const intent = makeFormatIntent({
+      kind: 'format-remove',
+      from: step.from,
+      to: step.to,
+      mark: step.mark,
+      user: intentUser,
+      date,
+      source: 'native',
+    });
+    const result = compileTrackedEdit({
+      state,
+      tr: newTr,
+      intent,
+    });
+    if (result.ok) {
+      if (result.formatMarks?.length) {
+        newTr.setMeta(TrackChangesBasePluginKey, {
+          formatMark: result.formatMarks[0],
+          step,
+        });
+      }
+      newTr.setMeta(CommentsPluginKey, { type: 'force' });
+      return;
+    }
+    if (result.code !== 'CAPABILITY_UNAVAILABLE') return;
+    // Fall through to legacy on capability gaps.
+  }
+
   const meta = {};
   let sharedWid = null;
 

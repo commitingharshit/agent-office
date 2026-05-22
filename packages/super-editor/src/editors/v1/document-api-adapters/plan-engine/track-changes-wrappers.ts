@@ -12,9 +12,11 @@
  */
 
 import type { Editor } from '../../core/Editor.js';
+import type { Node as ProseMirrorNode } from 'prosemirror-model';
 import type {
   Receipt,
   RevisionGuardOptions,
+  TextTarget,
   TrackChangeInfo,
   TrackChangeWordRevisionIds,
   TrackChangesAcceptAllInput,
@@ -31,6 +33,7 @@ import { buildResolvedHandle, buildDiscoveryItem, buildDiscoveryResult } from '@
 import { DocumentApiAdapterError } from '../errors.js';
 import { executeDomainCommand } from './plan-wrappers.js';
 import { paginate, validatePaginationInput } from '../helpers/adapter-utils.js';
+import { resolveTextRangeInBlock } from '../helpers/text-offset-resolver.js';
 import { checkRevision, getRevision } from './revision-tracker.js';
 import { resolveTrackedChangeInStory, resolveTrackedChangeType } from '../helpers/tracked-change-resolver.js';
 import { getTrackedChangeIndex } from '../tracked-changes/tracked-change-index.js';
@@ -82,6 +85,30 @@ function toNoOpReceipt(message: string, details?: unknown): Receipt {
       code: 'NO_OP',
       message,
       details,
+    },
+  };
+}
+
+function decisionFailureReceipt(editor: Editor, fallbackMessage: string, fallbackDetails?: unknown): Receipt {
+  const storage = (
+    editor as {
+      storage?: {
+        trackChanges?: {
+          lastDecisionFailure?: { code?: string; message?: string; details?: unknown } | null;
+        };
+      };
+    }
+  ).storage;
+  const failureInfo = storage?.trackChanges?.lastDecisionFailure ?? null;
+  if (!failureInfo?.code) {
+    return toNoOpReceipt(fallbackMessage, fallbackDetails);
+  }
+  return {
+    success: false,
+    failure: {
+      code: failureInfo.code as Extract<Receipt, { success: false }>['failure']['code'],
+      message: failureInfo.message ?? fallbackMessage,
+      details: failureInfo.details ?? fallbackDetails,
     },
   };
 }
@@ -173,9 +200,9 @@ export function trackChangesGetWrapper(editor: Editor, input: TrackChangesGetInp
     authorEmail: toNonEmptyString(resolved.change.attrs.authorEmail),
     authorImage: toNonEmptyString(resolved.change.attrs.authorImage),
     date: toNonEmptyString(resolved.change.attrs.date),
-    excerpt: normalizeExcerpt(
-      resolved.editor.state.doc.textBetween(resolved.change.from, resolved.change.to, ' ', '\ufffc'),
-    ),
+    excerpt:
+      (resolved.change.excerpt !== undefined ? resolved.change.excerpt : undefined) ??
+      normalizeExcerpt(resolved.editor.state.doc.textBetween(resolved.change.from, resolved.change.to, ' ', '\ufffc')),
   };
 }
 
@@ -211,13 +238,18 @@ function decideSingle(
 
   checkRevision(hostEditor, options?.expectedRevision);
 
-  const receipt = executeDomainCommand(resolved.editor, () => Boolean(command(resolved.change.rawId)));
+  const commandRawId = resolved.change.commandRawId ?? resolved.change.rawId;
+  const receipt = executeDomainCommand(resolved.editor, () => Boolean(command(commandRawId)));
 
   if (receipt.steps[0]?.effect !== 'changed') {
-    return toNoOpReceipt(`${decision === 'accept' ? 'Accept' : 'Reject'} tracked change "${id}" produced no change.`, {
-      id,
-      story,
-    });
+    return decisionFailureReceipt(
+      resolved.editor,
+      `${decision === 'accept' ? 'Accept' : 'Reject'} tracked change "${id}" produced no change.`,
+      {
+        id,
+        story,
+      },
+    );
   }
 
   if (resolved.commit) {
@@ -282,7 +314,9 @@ function decideAll(editor: Editor, decision: ReviewDecision, options: RevisionGu
 
       let applied = false;
       for (const snapshot of snapshots) {
-        if (perChangeCommand(snapshot.runtimeRef.rawId)) {
+        const resolved = resolveTrackedChangeInStory(editor, snapshot.address);
+        const commandRawId = resolved?.change.commandRawId ?? snapshot.runtimeRef.rawId;
+        if (perChangeCommand(commandRawId)) {
           applied = true;
         }
       }
@@ -300,7 +334,10 @@ function decideAll(editor: Editor, decision: ReviewDecision, options: RevisionGu
   }
 
   if (!anyApplied) {
-    return toNoOpReceipt(`${decision === 'accept' ? 'Accept' : 'Reject'} all tracked changes produced no change.`);
+    return decisionFailureReceipt(
+      editor,
+      `${decision === 'accept' ? 'Accept' : 'Reject'} all tracked changes produced no change.`,
+    );
   }
 
   return { success: true };
@@ -320,4 +357,97 @@ export function trackChangesRejectAllWrapper(
   options?: RevisionGuardOptions,
 ): Receipt {
   return decideAll(editor, 'reject', options);
+}
+
+// ---------------------------------------------------------------------------
+// trackChanges.decide range targets
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a {@link TextTarget} into a single contiguous PM range within the
+ * body story. Multi-segment ranges are deferred (CAPABILITY_UNAVAILABLE)
+ * until fixtures land — partial decisions per phase0-004 only need a single
+ * contiguous selection.
+ */
+function resolveRangeToPmCoords(editor: Editor, range: TextTarget): { from: number; to: number } | null {
+  if (!range.segments?.length) return null;
+  if (range.segments.length > 1) return null; // multi-segment ranges deferred.
+  const seg = range.segments[0];
+  const doc = editor.state.doc;
+  const block = findBlockStart(doc, seg.blockId);
+  if (!block) return null;
+  return resolveTextRangeInBlock(block.node, block.pos, seg.range);
+}
+
+function findBlockStart(
+  doc: {
+    descendants: (fn: (node: ProseMirrorNode, pos: number) => boolean | void) => void;
+  },
+  blockId: string,
+): { node: ProseMirrorNode; pos: number } | null {
+  let found: { node: ProseMirrorNode; pos: number } | null = null;
+  doc.descendants((node, pos) => {
+    if (found !== null) return false;
+    const attrs = node.attrs as Record<string, unknown>;
+    if ((attrs?.blockId ?? attrs?.sdBlockId ?? attrs?.id) === blockId) {
+      found = { node, pos };
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+export function trackChangesDecideRangeWrapper(
+  editor: Editor,
+  input: { decision: 'accept' | 'reject'; range: TextTarget; story?: StoryLocator },
+  options?: RevisionGuardOptions,
+): Receipt {
+  // Story routing — for now partial-range decisions are implemented
+  // for the body story only. Non-body stories require structural plumbing
+  // owned by phase0-005 and fail closed here.
+  const story = input.story;
+  if (story && (story.kind !== 'story' || story.storyType !== 'body')) {
+    return {
+      success: false,
+      failure: {
+        code: 'CAPABILITY_UNAVAILABLE',
+        message: 'trackChanges.decide range targets currently support the body story only.',
+        details: { story: input.story },
+      },
+    };
+  }
+  const resolved = resolveRangeToPmCoords(editor, input.range);
+  if (!resolved) {
+    return {
+      success: false,
+      failure: {
+        code: 'INVALID_TARGET',
+        message: 'trackChanges.decide range could not be resolved to a contiguous PM coordinate.',
+        details: { range: input.range },
+      },
+    };
+  }
+  checkRevision(editor, options?.expectedRevision);
+
+  const commandName = input.decision === 'accept' ? 'acceptTrackedChangesBetween' : 'rejectTrackedChangesBetween';
+  const command = (editor.commands as Record<string, ((from: number, to: number) => boolean) | undefined>)[commandName];
+  if (typeof command !== 'function') {
+    return {
+      success: false,
+      failure: {
+        code: 'CAPABILITY_UNAVAILABLE',
+        message: `${commandName} command is not available on the editor.`,
+      },
+    };
+  }
+  const applied = Boolean(command(resolved.from, resolved.to));
+  if (!applied) {
+    return decisionFailureReceipt(editor, 'No tracked changes matched the requested decision target.', {
+      range: input.range,
+      story: input.story,
+    });
+  }
+  getTrackedChangeIndex(editor).invalidate({ kind: 'story', storyType: 'body' });
+  return { success: true };
 }

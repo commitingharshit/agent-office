@@ -1028,7 +1028,9 @@ export type {
   TrackChangesRejectInput,
   TrackChangesAcceptAllInput,
   TrackChangesRejectAllInput,
+  TrackChangesRangeInput,
   ReviewDecideInput,
+  ReviewDecisionTarget,
 } from './track-changes/track-changes.js';
 export type { BlocksAdapter } from './blocks/blocks.js';
 export type { ImagesAdapter, ImagesApi, CreateImageAdapter } from './images/images.js';

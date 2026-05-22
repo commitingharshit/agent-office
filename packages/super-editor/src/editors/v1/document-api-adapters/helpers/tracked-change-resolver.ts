@@ -24,12 +24,14 @@ type RawTrackedMark = {
     type: { name: string };
     attrs?: Record<string, unknown>;
   };
+  node?: ProseMirrorNode;
   from: number;
   to: number;
 };
 
 export type GroupedTrackedChange = {
   rawId: string;
+  commandRawId?: string;
   id: string;
   from: number;
   to: number;
@@ -37,10 +39,12 @@ export type GroupedTrackedChange = {
   hasDelete: boolean;
   hasFormat: boolean;
   attrs: Record<string, unknown>;
+  excerpt?: string;
   wordRevisionIds?: TrackChangeWordRevisionIds;
 };
 
 type ChangeTypeInput = Pick<GroupedTrackedChange, 'hasInsert' | 'hasDelete' | 'hasFormat'>;
+type GroupedTrackedChangeDraft = Omit<GroupedTrackedChange, 'id' | 'excerpt'> & { excerptParts: string[] };
 
 function getRawTrackedMarks(editor: Editor): RawTrackedMark[] {
   try {
@@ -92,7 +96,10 @@ function portableHash(input: string): string {
  */
 function deriveTrackedChangeId(editor: Editor, change: Omit<GroupedTrackedChange, 'id'>): string {
   const type = resolveTrackedChangeType(change);
-  const excerpt = normalizeExcerpt(editor.state.doc.textBetween(change.from, change.to, ' ', '\ufffc')) ?? '';
+  const excerpt =
+    (change.excerpt !== undefined ? change.excerpt : undefined) ??
+    normalizeExcerpt(editor.state.doc.textBetween(change.from, change.to, ' ', '\ufffc')) ??
+    '';
   const author = toNonEmptyString(change.attrs.author) ?? '';
   const authorEmail = toNonEmptyString(change.attrs.authorEmail) ?? '';
   const date = toNonEmptyString(change.attrs.date) ?? '';
@@ -134,36 +141,82 @@ function getWordRevisionIdKey(markType: string): keyof TrackChangeWordRevisionId
   return null;
 }
 
+function getTrackedChangeGroupKey(
+  attrs: Readonly<Record<string, unknown>>,
+  markType: string,
+  fallbackId: string,
+): string {
+  const sourceId = toNonEmptyString(attrs.sourceId);
+  return sourceId ? `word:${markType}:${sourceId}` : fallbackId;
+}
+
+function isTrackedMarkName(markType: string | undefined): boolean {
+  return markType === TrackInsertMarkName || markType === TrackDeleteMarkName || markType === TrackFormatMarkName;
+}
+
+export function getTrackedChangeMarkAlias(mark: {
+  readonly type: { readonly name: string };
+  readonly attrs?: Readonly<Record<string, unknown>>;
+}): string | null {
+  const markType = mark.type.name;
+  if (!isTrackedMarkName(markType)) return null;
+  const attrs = mark.attrs ?? {};
+  const id = toNonEmptyString(attrs.id);
+  if (!id) return null;
+  return getTrackedChangeGroupKey(attrs, markType, id);
+}
+
+function hasChildTrackedMarkOnNode(item: RawTrackedMark, parentId: string): boolean {
+  if (!parentId) return false;
+  const marks = Array.isArray(item.node?.marks) ? item.node.marks : [];
+  return marks.some((mark) => {
+    const markType = mark?.type?.name;
+    if (!isTrackedMarkName(markType)) return false;
+    return toNonEmptyString(mark?.attrs?.overlapParentId) === parentId;
+  });
+}
+
+function getTrackedMarkText(editor: Editor, item: RawTrackedMark): string {
+  const nodeText = item.node?.text;
+  if (typeof nodeText === 'string') return nodeText;
+  return editor.state.doc.textBetween(item.from, item.to, ' ', '\ufffc');
+}
+
 export function groupTrackedChanges(editor: Editor): GroupedTrackedChange[] {
   const currentDoc = editor.state.doc;
   const cached = groupedCache.get(editor);
   if (cached && cached.doc === currentDoc) return cached.grouped;
 
   const marks = getRawTrackedMarks(editor);
-  const byRawId = new Map<string, Omit<GroupedTrackedChange, 'id'>>();
+  const byRawId = new Map<string, GroupedTrackedChangeDraft>();
 
   for (const item of marks) {
     const attrs = item.mark?.attrs ?? {};
     const id = toNonEmptyString(attrs.id);
     if (!id) continue;
 
-    const existing = byRawId.get(id);
     const markType = item.mark.type.name;
+    const groupKey = getTrackedChangeGroupKey(attrs, markType, id);
+    const existing = byRawId.get(groupKey);
     const nextHasInsert = markType === TrackInsertMarkName;
     const nextHasDelete = markType === TrackDeleteMarkName;
     const nextHasFormat = markType === TrackFormatMarkName;
     const wordRevisionId = toNonEmptyString(attrs.sourceId);
     const wordRevisionIdKey = getWordRevisionIdKey(markType);
+    const contributesToExcerpt = !hasChildTrackedMarkOnNode(item, id);
+    const excerptText = contributesToExcerpt ? getTrackedMarkText(editor, item) : '';
 
     if (!existing) {
-      byRawId.set(id, {
-        rawId: id,
+      byRawId.set(groupKey, {
+        rawId: groupKey,
+        commandRawId: id,
         from: item.from,
         to: item.to,
         hasInsert: nextHasInsert,
         hasDelete: nextHasDelete,
         hasFormat: nextHasFormat,
         attrs: { ...attrs },
+        excerptParts: excerptText ? [excerptText] : [],
         wordRevisionIds: wordRevisionIdKey
           ? mergeWordRevisionId(undefined, wordRevisionIdKey, wordRevisionId ?? undefined)
           : undefined,
@@ -179,6 +232,9 @@ export function groupTrackedChanges(editor: Editor): GroupedTrackedChange[] {
     if (Object.keys(existing.attrs).length === 0 && Object.keys(attrs).length > 0) {
       existing.attrs = { ...attrs };
     }
+    if (excerptText) {
+      existing.excerptParts.push(excerptText);
+    }
     if (wordRevisionIdKey) {
       existing.wordRevisionIds = mergeWordRevisionId(
         existing.wordRevisionIds,
@@ -189,10 +245,18 @@ export function groupTrackedChanges(editor: Editor): GroupedTrackedChange[] {
   }
 
   const grouped = Array.from(byRawId.values())
-    .map((change) => ({
-      ...change,
-      id: deriveTrackedChangeId(editor, change),
-    }))
+    .map(({ excerptParts, ...change }) => {
+      const hasWordSourceId = Boolean(toNonEmptyString(change.attrs.sourceId));
+      const rawExcerpt = excerptParts.join('');
+      const withExcerpt = {
+        ...change,
+        excerpt: excerptParts.length > 0 ? rawExcerpt : hasWordSourceId ? '' : undefined,
+      };
+      return {
+        ...withExcerpt,
+        id: deriveTrackedChangeId(editor, withExcerpt),
+      };
+    })
     .sort((a, b) => {
       if (a.from !== b.from) return a.from - b.from;
       return a.id.localeCompare(b.id);
@@ -209,7 +273,7 @@ export function resolveTrackedChange(editor: Editor, id: string): GroupedTracked
 
 export function toCanonicalTrackedChangeId(editor: Editor, rawId: string): string | null {
   const grouped = groupTrackedChanges(editor);
-  return grouped.find((item) => item.rawId === rawId)?.id ?? null;
+  return grouped.find((item) => item.rawId === rawId || item.commandRawId === rawId)?.id ?? null;
 }
 
 export function buildTrackedChangeCanonicalIdMap(editor: Editor): Map<string, string> {
@@ -316,5 +380,5 @@ export function resolveTrackedChangeInStory(
  */
 function findMatchingChange(editor: Editor, id: string): GroupedTrackedChange | null {
   const grouped = groupTrackedChanges(editor);
-  return grouped.find((item) => item.id === id || item.rawId === id) ?? null;
+  return grouped.find((item) => item.id === id || item.rawId === id || item.commandRawId === id) ?? null;
 }

@@ -161,6 +161,7 @@ function makeTrackChangesAdapter(): TrackChangesAdapter {
     reject: mock((_input) => ({ success: true as const })),
     acceptAll: mock((_input) => ({ success: true as const })),
     rejectAll: mock((_input) => ({ success: true as const })),
+    decideRange: mock((_input) => ({ success: true as const })),
   };
 }
 
@@ -843,6 +844,14 @@ describe('createDocumentApi', () => {
     const acceptResult = api.trackChanges.decide({ decision: 'accept', target: { id: 'tc-1' } });
     const rejectResult = api.trackChanges.decide({ decision: 'reject', target: { id: 'tc-1' } });
     api.trackChanges.decide({ decision: 'accept', target: { id: 'tc-2', story: footnoteStory } });
+    api.trackChanges.decide({
+      decision: 'accept',
+      target: {
+        kind: 'range',
+        range: { kind: 'text', segments: [{ blockId: 'p1', range: { start: 0, end: 2 } }] },
+        story: footnoteStory,
+      },
+    });
     const acceptAllResult = api.trackChanges.decide({ decision: 'accept', target: { scope: 'all' } });
     const rejectAllResult = api.trackChanges.decide({ decision: 'reject', target: { scope: 'all' } });
 
@@ -853,8 +862,46 @@ describe('createDocumentApi', () => {
     expect(trackAdpt.accept).toHaveBeenCalledWith({ id: 'tc-1' }, undefined);
     expect(trackAdpt.reject).toHaveBeenCalledWith({ id: 'tc-1' }, undefined);
     expect(trackAdpt.accept).toHaveBeenCalledWith({ id: 'tc-2', story: footnoteStory }, undefined);
+    expect(trackAdpt.decideRange).toHaveBeenCalledWith(
+      {
+        decision: 'accept',
+        range: { kind: 'text', segments: [{ blockId: 'p1', range: { start: 0, end: 2 } }] },
+        story: footnoteStory,
+      },
+      undefined,
+    );
     expect(trackAdpt.acceptAll).toHaveBeenCalledWith({}, undefined);
     expect(trackAdpt.rejectAll).toHaveBeenCalledWith({}, undefined);
+  });
+
+  it('returns CAPABILITY_UNAVAILABLE when trackChanges.decide range support is missing', () => {
+    const trackAdpt = makeTrackChangesAdapter();
+    delete trackAdpt.decideRange;
+    const api = createDocumentApi({
+      find: makeFindAdapter(FIND_RESULT),
+      get: makeGetAdapter(),
+      getNode: makeGetNodeAdapter(PARAGRAPH_NODE_RESULT),
+      getText: makeGetTextAdapter(),
+      info: makeInfoAdapter(),
+      comments: makeCommentsAdapter(),
+      write: makeWriteAdapter(),
+      selectionMutation: makeSelectionMutationAdapter(),
+      trackChanges: trackAdpt,
+      create: makeCreateAdapter(),
+      lists: makeListsAdapter(),
+    });
+
+    const result = api.trackChanges.decide({
+      decision: 'reject',
+      target: { kind: 'range', range: { kind: 'text', segments: [{ blockId: 'p1', range: { start: 0, end: 2 } }] } },
+    });
+
+    expect(result).toMatchObject({
+      success: false,
+      failure: {
+        code: 'CAPABILITY_UNAVAILABLE',
+      },
+    });
   });
 
   it('delegates history.get to the history adapter', () => {
@@ -965,7 +1012,7 @@ describe('createDocumentApi', () => {
       expectError(
         () => api.trackChanges.decide({ decision: 'accept', target: 'tc-1' } as any),
         'INVALID_TARGET',
-        '{ id: string } or { scope: "all" }',
+        '{ kind: "id" | "range" | "all" }',
       );
     });
 
@@ -974,7 +1021,7 @@ describe('createDocumentApi', () => {
       expectError(
         () => api.trackChanges.decide({ decision: 'accept', target: null } as any),
         'INVALID_TARGET',
-        '{ id: string } or { scope: "all" }',
+        '{ kind: "id" | "range" | "all" }',
       );
     });
 
@@ -983,7 +1030,7 @@ describe('createDocumentApi', () => {
       expectError(
         () => api.trackChanges.decide({ decision: 'accept', target: { foo: 'bar' } } as any),
         'INVALID_TARGET',
-        '{ id: string } or { scope: "all" }',
+        '{ kind: "id" | "range" | "all" }',
       );
     });
 
@@ -992,7 +1039,7 @@ describe('createDocumentApi', () => {
       expectError(
         () => api.trackChanges.decide({ decision: 'accept', target: { id: '' } } as any),
         'INVALID_TARGET',
-        '{ id: string } or { scope: "all" }',
+        '{ kind: "id" | "range" | "all" }',
       );
     });
   });

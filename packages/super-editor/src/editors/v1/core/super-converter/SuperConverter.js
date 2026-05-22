@@ -212,6 +212,14 @@ class SuperConverter {
      */
     this.trackedChangesOptions = params?.trackedChangesOptions || null;
 
+    /**
+     * Word revision id allocator. Built lazily at export time; preserves
+     * imported decimal `w:id` values and mints fresh part-local decimal ids
+     * for native revisions / successor fragments.
+     * @type {import('@extensions/track-changes/review-model/word-id-allocator').WordIdAllocator | null}
+     */
+    this.wordIdAllocator = null;
+
     this.addedMedia = {};
     this.comments = [];
     this.footnotes = [];
@@ -1303,6 +1311,7 @@ class SuperConverter {
     preserveSdtWrappers = false,
     statFieldCacheMap = undefined,
     existingRelationships = [],
+    partPath = 'word/document.xml',
   }) {
     const bodyNode = this.savedTagsToRestore.find((el) => el.name === 'w:body');
 
@@ -1340,6 +1349,7 @@ class SuperConverter {
       preserveSdtWrappers,
       statFieldCacheMap: resolvedCacheMap,
       existingRelationships,
+      currentPartPath: partPath,
     });
 
     return { result, params };
@@ -1500,6 +1510,7 @@ class SuperConverter {
         isHeaderFooter: true,
         isFinalDoc,
         existingRelationships,
+        partPath,
       });
 
       const bodyContent = result.elements[0].elements;
@@ -1566,6 +1577,7 @@ class SuperConverter {
         isHeaderFooter: true,
         isFinalDoc,
         existingRelationships,
+        partPath,
       });
 
       const bodyContent = result.elements[0].elements;

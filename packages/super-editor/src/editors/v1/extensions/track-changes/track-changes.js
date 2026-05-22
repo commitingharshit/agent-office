@@ -1,16 +1,21 @@
 import { Extension } from '@core/Extension.js';
 import { Slice } from 'prosemirror-model';
 import { Mapping, ReplaceStep, AddMarkStep, RemoveMarkStep } from 'prosemirror-transform';
-import { v4 as uuidv4 } from 'uuid';
 import { TrackDeleteMarkName, TrackInsertMarkName, TrackFormatMarkName } from './constants.js';
 import { TrackChangesBasePlugin, TrackChangesBasePluginKey } from './plugins/index.js';
 import { getTrackChanges } from './trackChangesHelpers/getTrackChanges.js';
-import { markDeletion } from './trackChangesHelpers/markDeletion.js';
-import { markInsertion } from './trackChangesHelpers/markInsertion.js';
 import { collectTrackedChanges, isTrackedChangeActionAllowed } from './permission-helpers.js';
 import { CommentsPluginKey, createOrUpdateTrackedChangeComment } from '../comment/comments-plugin.js';
 import { findMarkInRangeBySnapshot } from './trackChangesHelpers/markSnapshotHelpers.js';
 import { hasExpandedSelection } from '@utils/selectionUtils.js';
+import { compileTrackedEdit } from './review-model/overlap-compiler.js';
+import {
+  makeTextInsertIntent,
+  makeTextDeleteIntent,
+  makeTextReplaceIntent,
+  sliceFromText,
+} from './review-model/edit-intent.js';
+import { decideTrackedChanges, buildDecisionBubbleEvents } from './review-model/decision-engine.js';
 
 /**
  * Reads the `replacements` mode from editor.options.trackedChanges.
@@ -20,14 +25,68 @@ import { hasExpandedSelection } from '@utils/selectionUtils.js';
 const readReplacementsMode = (editor) =>
   editor?.options?.trackedChanges?.replacements === 'independent' ? 'independent' : 'paired';
 
+/**
+ * Runs the atomic decision engine, dispatches the resulting transaction, and
+ * emits bubble lifecycle events from the decision receipt.
+ */
+const dispatchReviewDecision = ({ editor, state, dispatch, decision, target }) => {
+  if (editor?.storage?.trackChanges) {
+    editor.storage.trackChanges.lastDecisionFailure = null;
+  }
+  const result = decideTrackedChanges({
+    state,
+    editor,
+    decision,
+    target,
+    replacements: readReplacementsMode(editor),
+  });
+  if (!result.ok) {
+    // Fail closed (do NOT mutate) for hard errors. NO_OP and
+    // CAPABILITY_UNAVAILABLE return `false` so toolbar wrappers can decide
+    // how to surface the result.
+    if (editor?.storage?.trackChanges) {
+      editor.storage.trackChanges.lastDecisionFailure = {
+        code: result.code,
+        message: result.message,
+        details: result.details,
+      };
+    }
+    return { applied: false, failure: result };
+  }
+  if (dispatch) {
+    dispatch(result.tr);
+    const events = buildDecisionBubbleEvents({ result, editor });
+    if (editor?.emit && events.length) {
+      for (const event of events) editor.emit('commentsUpdate', event);
+    }
+  }
+  return { applied: true, result };
+};
+
 export const TrackChanges = Extension.create({
   name: 'trackChanges',
+
+  addStorage() {
+    return {
+      lastCompilerFailure: null,
+      lastDecisionFailure: null,
+    };
+  },
 
   addCommands() {
     return {
       acceptTrackedChangesBetween:
         (from, to) =>
         ({ state, dispatch, editor }) => {
+          const reviewDecision = dispatchReviewDecision({
+            editor,
+            state,
+            dispatch,
+            decision: 'accept',
+            target: { kind: 'range', from, to },
+          });
+          if (reviewDecision) return reviewDecision.applied;
+
           const trackedChanges = collectTrackedChanges({ state, from, to });
           if (!isTrackedChangeActionAllowed({ editor, action: 'accept', trackedChanges })) return false;
 
@@ -74,6 +133,15 @@ export const TrackChanges = Extension.create({
       rejectTrackedChangesBetween:
         (from, to) =>
         ({ state, dispatch, editor }) => {
+          const reviewDecision = dispatchReviewDecision({
+            editor,
+            state,
+            dispatch,
+            decision: 'reject',
+            target: { kind: 'range', from, to },
+          });
+          if (reviewDecision) return reviewDecision.applied;
+
           const trackedChanges = collectTrackedChanges({ state, from, to });
           if (!isTrackedChangeActionAllowed({ editor, action: 'reject', trackedChanges })) return false;
 
@@ -188,7 +256,16 @@ export const TrackChanges = Extension.create({
 
       acceptTrackedChangeById:
         (id) =>
-        ({ state, tr, commands }) => {
+        ({ state, tr, dispatch, editor, commands }) => {
+          const reviewDecision = dispatchReviewDecision({
+            editor,
+            state,
+            dispatch,
+            decision: 'accept',
+            target: { kind: 'id', id },
+          });
+          if (reviewDecision) return reviewDecision.applied;
+
           const toResolve = getChangesByIdToResolve(state, id) || [];
 
           return toResolve
@@ -202,7 +279,16 @@ export const TrackChanges = Extension.create({
 
       acceptAllTrackedChanges:
         () =>
-        ({ state, commands }) => {
+        ({ state, dispatch, editor, commands }) => {
+          const reviewDecision = dispatchReviewDecision({
+            editor,
+            state,
+            dispatch,
+            decision: 'accept',
+            target: { kind: 'all' },
+          });
+          if (reviewDecision) return reviewDecision.applied;
+
           const from = 0,
             to = state.doc.content.size;
           return commands.acceptTrackedChangesBetween(from, to);
@@ -210,7 +296,16 @@ export const TrackChanges = Extension.create({
 
       rejectTrackedChangeById:
         (id) =>
-        ({ state, tr, commands }) => {
+        ({ state, tr, dispatch, editor, commands }) => {
+          const reviewDecision = dispatchReviewDecision({
+            editor,
+            state,
+            dispatch,
+            decision: 'reject',
+            target: { kind: 'id', id },
+          });
+          if (reviewDecision) return reviewDecision.applied;
+
           const toReject = getChangesByIdToResolve(state, id) || [];
 
           return toReject
@@ -272,7 +367,16 @@ export const TrackChanges = Extension.create({
 
       rejectAllTrackedChanges:
         () =>
-        ({ state, commands }) => {
+        ({ state, dispatch, editor, commands }) => {
+          const reviewDecision = dispatchReviewDecision({
+            editor,
+            state,
+            dispatch,
+            decision: 'reject',
+            target: { kind: 'all' },
+          });
+          if (reviewDecision) return reviewDecision.applied;
+
           const from = 0,
             to = state.doc.content.size;
           return commands.rejectTrackedChangesBetween(from, to);
@@ -316,108 +420,21 @@ export const TrackChanges = Extension.create({
             console.warn('insertTrackedChange: no user name/email provided, track change will have undefined author');
           }
           const date = new Date().toISOString();
-          const tr = state.tr;
 
-          // Get marks from original position BEFORE any changes for format preservation
-          const marks = state.doc.resolve(from).marks();
-
-          // id-minting strategy for a tracked insert/delete/replace:
-          //  - One `primaryId` anchors the operation. When the caller supplies
-          //    `id` (e.g. the Document API write adapter), that becomes the
-          //    primary; otherwise we mint a fresh UUID.
-          //  - The primary id is used for the insertion (pure insert) or the
-          //    lone deletion (pure delete), and always as the `changeId` we
-          //    report back — comment threads key off this id too.
-          //  - For a replacement: in `'paired'` mode both halves share the
-          //    primary id (Google-Docs-like one-click resolve). In
-          //    `'independent'` mode (modules.trackChanges.replacements:
-          //    'independent'), the insertion keeps the primary id and the
-          //    deletion mints its own fresh id via markDeletion, so each
-          //    revision is independently addressable per ECMA-376 §17.13.5.
-          const replacementsMode = readReplacementsMode(editor);
-          const pairedReplacements = replacementsMode === 'paired';
-          const isReplacement = from !== to && text;
-          const primaryId = id ?? uuidv4();
-          const insertionId = primaryId;
-          const deletionId = pairedReplacements || !isReplacement ? primaryId : null;
-
-          const changeId = primaryId;
-          let insertPos = to; // Default insert position is after the selection
-          let deletionMark = null;
-          let deletionNodes = [];
-
-          // Step 1: Mark the original text as deleted (if there's text to delete)
-          if (from !== to) {
-            const result = markDeletion({
-              tr,
-              from,
-              to,
-              user: resolvedUser,
-              date,
-              id: deletionId,
-            });
-            deletionMark = result.deletionMark;
-            deletionNodes = result.nodes || [];
-            // Map the insert position through the deletion mapping
-            insertPos = result.deletionMap.map(to);
-          }
-
-          // Step 2: Insert the new text after the deleted content
-          let insertedMark = null;
-          let insertedNode = null;
-          if (text) {
-            insertedNode = state.schema.text(text, marks);
-            tr.insert(insertPos, insertedNode);
-
-            // Step 3: Mark the insertion
-            const insertedFrom = insertPos;
-            const insertedTo = insertPos + insertedNode.nodeSize;
-            insertedMark = markInsertion({
-              tr,
-              from: insertedFrom,
-              to: insertedTo,
-              user: resolvedUser,
-              date,
-              id: insertionId,
-            });
-          }
-
-          // Store metadata for external consumers (pass full mark objects for comments plugin)
-          // Create a mock step with slice for the comments plugin to extract nodes
-          const mockStep = insertedNode
-            ? {
-                slice: { content: { content: [insertedNode] } },
-              }
-            : null;
-
-          tr.setMeta(TrackChangesBasePluginKey, {
-            insertedMark: insertedMark || null,
-            deletionMark: deletionMark || null,
-            deletionNodes,
-            step: mockStep,
+          return dispatchCompiledInsertTrackedChange({
+            editor,
+            state,
+            dispatch,
+            from,
+            to,
+            text,
+            resolvedUser,
+            date,
+            providedId: id,
+            comment,
+            addToHistory,
             emitCommentEvent,
           });
-          tr.setMeta(CommentsPluginKey, { type: 'force' });
-          tr.setMeta('skipTrackChanges', true);
-
-          if (!addToHistory) {
-            tr.setMeta('addToHistory', false);
-          }
-
-          dispatch(tr);
-
-          // Handle comment if provided (guard for editors without comments extension)
-          if (comment?.trim() && changeId && editor.commands.addCommentReply) {
-            editor.commands.addCommentReply({
-              parentId: changeId,
-              content: comment,
-              author: resolvedUser.name,
-              authorEmail: resolvedUser.email,
-              authorImage: resolvedUser.image,
-            });
-          }
-
-          return true;
         },
 
       toggleTrackChanges:
@@ -724,4 +741,137 @@ const getChangesByIdToResolve = (state, id) => {
   collectDirection(1, linkedAfter);
 
   return [matchingChange, ...linkedAfter, ...linkedBefore];
+};
+
+/**
+ * Routes the document-api tracked text mutation through the shared overlap
+ * compiler so native and document-api semantics agree.
+ *
+ * @param {{
+ *   editor: import('../../core/Editor.ts').Editor,
+ *   state: import('prosemirror-state').EditorState,
+ *   dispatch: (tr: import('prosemirror-state').Transaction) => void,
+ *   from: number,
+ *   to: number,
+ *   text: string,
+ *   resolvedUser: object,
+ *   date: string,
+ *   providedId?: string,
+ *   comment?: string,
+ *   addToHistory: boolean,
+ *   emitCommentEvent: boolean,
+ * }} options
+ */
+const dispatchCompiledInsertTrackedChange = ({
+  editor,
+  state,
+  dispatch,
+  from,
+  to,
+  text,
+  resolvedUser,
+  date,
+  providedId,
+  comment,
+  addToHistory,
+  emitCommentEvent,
+}) => {
+  const replacements = readReplacementsMode(editor);
+  const tr = state.tr;
+  const schema = state.schema;
+  if (editor?.storage?.trackChanges) {
+    editor.storage.trackChanges.lastCompilerFailure = null;
+  }
+  const activeMarks = state.storedMarks ?? state.doc.resolve(from).marks();
+  let intent;
+  try {
+    if (from === to && text) {
+      intent = makeTextInsertIntent({
+        at: from,
+        content: sliceFromText(schema, text, activeMarks),
+        user: resolvedUser,
+        date,
+        source: 'document-api',
+        replacementGroupHint: providedId,
+      });
+    } else if (from !== to && !text) {
+      intent = makeTextDeleteIntent({
+        from,
+        to,
+        user: resolvedUser,
+        date,
+        source: 'document-api',
+        replacementGroupHint: providedId,
+      });
+    } else if (from !== to && text) {
+      intent = makeTextReplaceIntent({
+        from,
+        to,
+        content: sliceFromText(schema, text, activeMarks),
+        replacements,
+        user: resolvedUser,
+        date,
+        source: 'document-api',
+        replacementGroupHint: providedId,
+      });
+    } else {
+      return false;
+    }
+  } catch (error) {
+    console.warn('insertTrackedChange: could not build intent', error);
+    return false;
+  }
+
+  const result = compileTrackedEdit({
+    state,
+    tr,
+    intent,
+    replacements,
+  });
+
+  if (!result.ok) {
+    if (editor?.storage?.trackChanges) {
+      editor.storage.trackChanges.lastCompilerFailure = {
+        code: result.code,
+        message: result.message,
+        details: result.details,
+      };
+    }
+    return false;
+  }
+  if (!dispatch) {
+    return true;
+  }
+
+  const meta = {
+    insertedMark: result.insertedMark || null,
+    deletionMark: result.deletionMarks?.[0] || null,
+    deletionNodes: [],
+    step: result.insertedMark ? { slice: { content: { content: [] } } } : null,
+    emitCommentEvent,
+  };
+  tr.setMeta(TrackChangesBasePluginKey, meta);
+  tr.setMeta(CommentsPluginKey, { type: 'force' });
+  tr.setMeta('skipTrackChanges', true);
+  if (!addToHistory) {
+    tr.setMeta('addToHistory', false);
+  }
+
+  dispatch(tr);
+
+  // Compute a public-facing change id for the comment thread: prefer the
+  // explicit id the caller provided; otherwise the first created/updated
+  // change id from the compiler receipt.
+  const changeId = providedId || result.createdChangeIds?.[0] || result.updatedChangeIds?.[0] || null;
+  if (comment?.trim() && changeId && editor.commands?.addCommentReply) {
+    editor.commands.addCommentReply({
+      parentId: changeId,
+      content: comment,
+      author: resolvedUser.name,
+      authorEmail: resolvedUser.email,
+      authorImage: resolvedUser.image,
+    });
+  }
+
+  return true;
 };

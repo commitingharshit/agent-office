@@ -195,7 +195,9 @@ class TrackedChangeIndexImpl implements TrackedChangeIndex {
     const runtimeRef: TrackedChangeRuntimeRef = { storyKey, rawId: change.rawId };
     const address = buildTrackedChangeAddress(locator, storyKey, change.id);
     const type = resolveTrackedChangeType(change);
-    const excerpt = normalizeExcerpt(editor.state.doc.textBetween(change.from, change.to, ' ', '\ufffc'));
+    const excerpt =
+      (change.excerpt !== undefined ? change.excerpt : undefined) ??
+      normalizeExcerpt(editor.state.doc.textBetween(change.from, change.to, ' ', '\ufffc'));
 
     return {
       address,

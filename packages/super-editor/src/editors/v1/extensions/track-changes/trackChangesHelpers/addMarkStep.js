@@ -12,6 +12,8 @@ import {
   createMarkSnapshot,
 } from './markSnapshotHelpers.js';
 import { getLiveInlineMarksInRange } from './getLiveInlineMarksInRange.js';
+import { compileTrackedEdit } from '../review-model/overlap-compiler.js';
+import { makeFormatIntent } from '../review-model/edit-intent.js';
 
 /**
  * Add mark step.
@@ -24,6 +26,46 @@ import { getLiveInlineMarksInRange } from './getLiveInlineMarksInRange.js';
  * @param {string} options.date Date.
  */
 export const addMarkStep = ({ state, step, newTr, doc, user, date }) => {
+  // Route tracked run-format intents through the compiler so formatting
+  // inside same-user own insertion/replacement folds into the inserted side
+  // instead of producing a separate trackFormat.
+  if (TrackedFormatMarkNames.includes(step.mark.type.name)) {
+    const intentUser = {
+      name: user?.name || '',
+      email: user?.email || '',
+      image: user?.image || '',
+    };
+    const intent = makeFormatIntent({
+      kind: 'format-apply',
+      from: step.from,
+      to: step.to,
+      mark: step.mark,
+      user: intentUser,
+      date,
+      source: 'native',
+    });
+    const result = compileTrackedEdit({
+      state,
+      tr: newTr,
+      intent,
+    });
+    if (result.ok) {
+      if (result.formatMarks?.length) {
+        newTr.setMeta(TrackChangesBasePluginKey, {
+          formatMark: result.formatMarks[0],
+          step,
+        });
+      }
+      newTr.setMeta(CommentsPluginKey, { type: 'force' });
+      return;
+    }
+    if (result.code !== 'CAPABILITY_UNAVAILABLE') {
+      // Fail closed for typed errors; do not silently apply untracked.
+      return;
+    }
+    // Otherwise fall through to legacy path.
+  }
+
   /** @type {{ formatMark?: import('prosemirror-model').Mark, step?: import('prosemirror-transform').AddMarkStep }} */
   const meta = {};
   /** @type {string | null} */
