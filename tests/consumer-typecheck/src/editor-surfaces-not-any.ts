@@ -85,17 +85,23 @@ void _identifierIsExact;
 // `exportToDocx()` at the converter level returns either the rendered
 // XML string or the intermediate xml-js JSON tree (when called with
 // `exportJsonOnly: true`). Blob / Buffer wrapping happens upstream in
-// `Editor.exportDocx()`, not on the converter. This assertion pins the
-// honest converter shape so a future regression to `any` (or back to
-// the original Blob | Buffer fiction) breaks the typecheck matrix.
-// (Note: `Editor.exportDocx({ exportJsonOnly: true })` is publicly
-// typed as `Promise<string>` but actually returns a JSON tree at
-// runtime; that overload correction is tracked separately and is
-// out of scope for SD-3240.)
-const exported: Promise<string | Record<string, unknown>> = editor.converter.exportToDocx();
-void exported;
-const _exportedIsExact: Equal<
-  ReturnType<typeof editor.converter.exportToDocx>,
-  Promise<string | Record<string, unknown>>
-> = true;
-void _exportedIsExact;
+// `Editor.exportDocx()`, not on the converter. SD-3248 tightened the
+// JSON branch to the recursive `ConvertedXmlPart` shape (was
+// `Record<string, unknown>`) so the runtime tree (`{ name, attributes,
+// elements }`) is named honestly; the `Editor.exportDocx` overload was
+// corrected in the same wave. Structural assertion pins both branches
+// without requiring `ConvertedXmlPart` itself to be a named public
+// export.
+type AwaitedExport = Awaited<ReturnType<typeof editor.converter.exportToDocx>>;
+type StringBranch = Extract<AwaitedExport, string>;
+type TreeBranch = Exclude<AwaitedExport, string>;
+const _hasStringBranch: Equal<StringBranch, string> = true;
+const _treeBranchIsTree: TreeBranch extends {
+  name?: string;
+  attributes?: Record<string, unknown>;
+  elements?: unknown[];
+}
+  ? true
+  : false = true;
+void _hasStringBranch;
+void _treeBranchIsTree;

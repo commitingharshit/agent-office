@@ -18,7 +18,11 @@ import { ExtensionService } from './ExtensionService.js';
 import { CommandService } from './CommandService.js';
 import { Attribute } from './Attribute.js';
 import { SuperConverter } from '@core/super-converter/SuperConverter.js';
-import type { EditorConverterSurface, EditorExtensionServiceSurface } from './types/EditorPublicSurfaces.js';
+import type {
+  ConvertedXmlPart,
+  EditorConverterSurface,
+  EditorExtensionServiceSurface,
+} from './types/EditorPublicSurfaces.js';
 import {
   Commands,
   Editable,
@@ -3196,16 +3200,20 @@ export class Editor extends EventEmitter<EditorEventMap> {
    *
    * Return type depends on flags:
    * - `exportXmlOnly: true` → `string` (raw XML)
-   * - `exportJsonOnly: true` → `string` (JSON string)
+   * - `exportJsonOnly: true` → `ConvertedXmlPart` (the xml-js intermediate
+   *   tree; recursive `name` / `attributes` / `elements` shape, NOT a JSON
+   *   string). SD-3248: this overload previously typed as `Promise<string>`,
+   *   which did not match runtime. Consumers should walk the returned tree
+   *   directly; calling `JSON.parse` on it would never have worked.
    * - `getUpdatedDocs: true` → `Record<string, string | null>` (file map)
    * - Default → `Blob` (browser) or `Buffer` (Node.js headless). The runtime
    *   value is determined by the editor's `isHeadless` option at construction
-   *   time, which the type system cannot see — so the default overload is
+   *   time, which the type system cannot see, so the default overload is
    *   generic with `Blob` as the default. Browser consumers get `Blob`
    *   automatically; Node headless consumers opt in with `exportDocx<Buffer>()`.
    */
   async exportDocx(params: ExportDocxParams & { exportXmlOnly: true }): Promise<string>;
-  async exportDocx(params: ExportDocxParams & { exportJsonOnly: true }): Promise<string>;
+  async exportDocx(params: ExportDocxParams & { exportJsonOnly: true }): Promise<ConvertedXmlPart>;
   async exportDocx(params: ExportDocxParams & { getUpdatedDocs: true }): Promise<Record<string, string | null>>;
   async exportDocx<T extends Blob | Buffer = Blob>(
     params?: ExportDocxParams & { exportXmlOnly?: false; exportJsonOnly?: false; getUpdatedDocs?: false },
@@ -3219,7 +3227,9 @@ export class Editor extends EventEmitter<EditorEventMap> {
     getUpdatedDocs = false,
     fieldsHighlightColor = null,
     compression,
-  }: ExportDocxParams = {}): Promise<Blob | Buffer | Record<string, string | null> | string | undefined> {
+  }: ExportDocxParams = {}): Promise<
+    Blob | Buffer | Record<string, string | null> | string | ConvertedXmlPart | undefined
+  > {
     try {
       const exportHostEditor = resolveMainBodyEditor(this);
       commitLiveStorySessionRuntimes(exportHostEditor);
@@ -3255,13 +3265,7 @@ export class Editor extends EventEmitter<EditorEventMap> {
 
       this.#validateDocumentExport();
 
-      // SD-3240: converter surface returns `string | Record<string, unknown>`
-      // (the JSON-only branch returns the intermediate xml-js tree).
-      // The Editor.exportDocx implementation signature here declares the
-      // outer union as `Record<string, string | null>` which is a pre-
-      // existing narrower shape than the runtime JSON tree. Cast at the
-      // bridge so the public surface stays honest.
-      if (exportXmlOnly || exportJsonOnly) return documentXml as string | Record<string, string | null>;
+      if (exportXmlOnly || exportJsonOnly) return documentXml;
 
       const customXml = this.converter.schemaToXml(this.converter.convertedXml['docProps/custom.xml'].elements[0]);
       const styles = this.converter.schemaToXml(this.converter.convertedXml['word/styles.xml'].elements[0]);

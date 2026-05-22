@@ -119,12 +119,12 @@ export interface EditorConverterSurface {
   /**
    * Convert the current document tree to DOCX XML. Returns the
    * exported XML string by default, or the intermediate
-   * `Record<string, unknown>` JSON tree when called with
+   * `ConvertedXmlPart` (xml-js tree) when called with
    * `exportJsonOnly: true`. The `Blob` / `Buffer` wrapping happens
    * upstream in `Editor.exportDocx()` (which feeds the result into
    * a zipper), not here.
    */
-  exportToDocx(...args: unknown[]): Promise<string | Record<string, unknown>>;
+  exportToDocx(...args: unknown[]): Promise<string | ConvertedXmlPart>;
   getBibliographyPartExportPaths(): readonly string[];
   /**
    * ISO-8601 `dcterms:created` timestamp from core.xml (e.g.
