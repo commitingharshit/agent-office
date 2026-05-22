@@ -95,6 +95,10 @@ import { getViewModeSelectionWithoutStructuredContent } from './helpers/getViewM
 import { resolveMainBodyEditor } from '../document-api-adapters/helpers/word-statistics.js';
 import { commitLiveStorySessionRuntimes } from '../document-api-adapters/story-runtime/live-story-session-runtime-registry.js';
 
+type ConverterWithInternalWordIdAllocator = EditorConverterSurface & {
+  wordIdAllocator?: unknown;
+};
+
 declare const __APP_VERSION__: string | undefined;
 declare const version: string | undefined;
 
@@ -3407,7 +3411,7 @@ export class Editor extends EventEmitter<EditorEventMap> {
     reserveFromJson(this.converter.footnotes, 'word/footnotes.xml');
     reserveFromJson(this.converter.endnotes, 'word/endnotes.xml');
 
-    this.converter.wordIdAllocator = allocator;
+    (this.converter as ConverterWithInternalWordIdAllocator).wordIdAllocator = allocator;
   }
 
   /**

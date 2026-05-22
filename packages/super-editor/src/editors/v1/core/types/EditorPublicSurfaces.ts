@@ -24,7 +24,6 @@ import type { EditorExtension } from './EditorConfig.js';
 import type { CommandProps } from './ChainedCommands.js';
 import type { ExtensionAttribute } from '../Attribute.js';
 import type { NumberingModel } from '../parts/adapters/numbering-transforms.js';
-import type { WordIdAllocator } from '../../extensions/track-changes/review-model/word-id-allocator.js';
 
 /**
  * Loosely-typed OOXML part as held in `convertedXml`. Element trees
@@ -117,7 +116,6 @@ export interface EditorConverterSurface {
    * helpers iterate both maps.
    */
   translatedNumbering: { abstracts?: Record<number, unknown>; definitions?: Record<number, unknown> };
-  wordIdAllocator?: WordIdAllocator | null;
 
   // --- Methods ---
   /**
