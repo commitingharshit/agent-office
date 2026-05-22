@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { initTestEditor } from '@tests/helpers/helpers.js';
 import { getTrackChanges } from '@extensions/track-changes/trackChangesHelpers/getTrackChanges.js';
 import { TrackInsertMarkName } from '@extensions/track-changes/constants.js';
@@ -103,5 +103,40 @@ describe('Editor dispatch tracked-change meta', () => {
 
     const tracked = getTrackChanges(editor.state);
     expect(tracked.some((entry) => entry.mark.type.name === TrackInsertMarkName)).toBe(true);
+  });
+
+  it('emits an add commentsUpdate when a native suggesting insert creates a tracked insertion', () => {
+    ({ editor } = initTestEditor({
+      mode: 'text',
+      content: '<p>Hello</p>',
+      user: { name: 'Test', email: 'test@example.com' },
+      useImmediateSetTimeout: false,
+    }));
+
+    editor.setDocumentMode('suggesting');
+
+    const emitSpy = vi.spyOn(editor, 'emit');
+    const tr = editor.state.tr.insertText('Tracked ', 1, 1).setMeta('inputType', 'insertText');
+
+    editor.dispatch(tr);
+
+    const tracked = getTrackChanges(editor.state);
+    expect(tracked.some((entry) => entry.mark.type.name === TrackInsertMarkName)).toBe(true);
+
+    const addPayload = emitSpy.mock.calls.find(
+      ([eventName, payload]) =>
+        eventName === 'commentsUpdate' &&
+        payload?.type === 'trackedChange' &&
+        payload?.event === 'add' &&
+        payload?.trackedChangeType === TrackInsertMarkName,
+    )?.[1];
+
+    expect(addPayload).toEqual(
+      expect.objectContaining({
+        trackedChangeText: expect.stringContaining('Tracked'),
+        author: 'Test',
+        authorEmail: 'test@example.com',
+      }),
+    );
   });
 });

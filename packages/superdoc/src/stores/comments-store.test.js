@@ -1523,6 +1523,65 @@ describe('comments-store', () => {
     expect(superdoc.emit).not.toHaveBeenCalled();
   });
 
+  it('creates the first live tracked-change comment from an add event', () => {
+    const superdoc = {
+      ...__mockSuperdoc,
+      emit: vi.fn(),
+      activeEditor: { commands: { removeComment: vi.fn(), setActiveComment: vi.fn() } },
+    };
+
+    store.commentsList = [];
+    store.handleTrackedChangeUpdate({
+      superdoc,
+      params: {
+        event: 'add',
+        changeId: 'tc-live-insert',
+        trackedChangeText: 'Tracked live insert',
+        trackedChangeType: 'trackInsert',
+        deletedText: null,
+        authorEmail: 'alice@example.com',
+        author: 'Alice',
+        date: 123,
+        documentId: 'doc-1',
+      },
+      broadcastChanges: false,
+    });
+
+    expect(store.commentsList).toHaveLength(1);
+    expect(store.commentsList[0]).toEqual(
+      expect.objectContaining({
+        commentId: 'tc-live-insert',
+        trackedChange: true,
+        trackedChangeText: 'Tracked live insert',
+        trackedChangeType: 'trackInsert',
+        fileId: 'doc-1',
+      }),
+    );
+  });
+
+  it('does not create a missing tracked-change comment from an update-only refresh event', () => {
+    const superdoc = { emit: vi.fn() };
+
+    store.commentsList = [];
+    store.handleTrackedChangeUpdate({
+      superdoc,
+      params: {
+        event: 'update',
+        changeId: 'tc-live-insert',
+        trackedChangeText: 'Tracked live insert',
+        trackedChangeType: 'trackInsert',
+        deletedText: null,
+        authorEmail: 'alice@example.com',
+        author: 'Alice',
+        date: 123,
+        documentId: 'doc-1',
+      },
+    });
+
+    expect(store.commentsList).toEqual([]);
+    expect(superdoc.emit).not.toHaveBeenCalled();
+  });
+
   it('keeps imported resolved tracked-change comments resolved during initial tracked-change rebuild', async () => {
     const editorDispatch = vi.fn();
     const tr = { setMeta: vi.fn() };

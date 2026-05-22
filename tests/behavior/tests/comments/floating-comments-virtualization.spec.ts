@@ -22,6 +22,22 @@ test('@behavior SD-1997: floating comment bubbles render after tracked changes',
     .poll(async () => (await listTrackChanges(superdoc.page, { type: 'insert' })).total)
     .toBeGreaterThanOrEqual(5);
 
+  // The live review/comment model should also contain one tracked-change
+  // comment per inserted suggestion before any visual sidebar assertion runs.
+  await expect
+    .poll(async () =>
+      superdoc.page.evaluate(() => {
+        const comments = (window as any).superdoc?.commentsStore?.commentsList ?? [];
+        return comments.filter(
+          (comment: any) =>
+            comment?.trackedChange === true &&
+            comment?.trackedChangeType === 'trackInsert' &&
+            String(comment?.trackedChangeText ?? '').includes('tracked change'),
+        ).length;
+      }),
+    )
+    .toBeGreaterThanOrEqual(5);
+
   // Verify floating comment placeholders appear in the sidebar
   const placeholders = superdoc.page.locator('.comment-placeholder');
   await expect(placeholders.first()).toBeAttached({ timeout: 10_000 });
