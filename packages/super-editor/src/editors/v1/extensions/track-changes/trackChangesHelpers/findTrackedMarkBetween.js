@@ -16,6 +16,8 @@
  * @param {import('./types.js').Attrs} [args.attrs] - Partial attrs
  *   to match; every key listed must equal the candidate's attr value.
  *   Defaults to `{}` (no attr constraint).
+ * @param {((mark: import('./types.js').PmMark) => boolean) | null} [args.predicate] -
+ *   Additional predicate a candidate mark must satisfy.
  * @param {number} [args.offset] - Expand the range by this many
  *   positions on each side. Defaults to `1` to catch non-inclusive marks.
  * @returns {import('./types.js').TrackedMarkRange | null} The first
