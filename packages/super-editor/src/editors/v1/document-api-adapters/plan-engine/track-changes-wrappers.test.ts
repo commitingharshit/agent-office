@@ -2,14 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Editor } from '../../core/Editor.js';
 import { COMMAND_CATALOG, type StoryLocator } from '@superdoc/document-api';
 
-const mocks = vi.hoisted(() => ({
+const mocks = {
   checkRevision: vi.fn(),
   getRevision: vi.fn(() => '0'),
   executeDomainCommand: vi.fn(),
   resolveTrackedChangeInStory: vi.fn(),
   getTrackedChangeIndex: vi.fn(),
   resolveStoryRuntime: vi.fn(),
-}));
+};
 
 vi.mock('./revision-tracker.js', () => ({
   checkRevision: mocks.checkRevision,
@@ -37,6 +37,8 @@ import {
   trackChangesAcceptAllWrapper,
   trackChangesAcceptWrapper,
   trackChangesDecideRangeWrapper,
+  trackChangesListWrapper,
+  getCachedProjectedTrackedChangeSnapshot,
 } from './track-changes-wrappers.js';
 
 const footnoteStory: StoryLocator = { kind: 'story', storyType: 'footnote', noteId: '5' };
@@ -389,5 +391,43 @@ describe('track-changes-wrappers revision guard', () => {
       },
     });
     expectTrackChangesDecideReceiptCodeDeclared('INVALID_TARGET');
+  });
+});
+
+describe('track-changes-wrappers projected id cache', () => {
+  it('caches list ids for reuse on the same editor revision', () => {
+    const editor = makeEditor();
+    const snapshot = {
+      address: { kind: 'entity', entityType: 'trackedChange', entityId: 'tc-del-1' },
+      runtimeRef: { storyKey: 'body', rawId: 'tc-del-1' },
+      story: { kind: 'story', storyType: 'body' },
+      type: 'delete',
+      excerpt: 'deleted text',
+      storyLabel: 'Body',
+      storyKind: 'body',
+      anchorKey: 'tc::body::tc-del-1',
+      hasInsert: false,
+      hasDelete: true,
+      hasFormat: false,
+      range: { from: 19, to: 27 },
+    };
+
+    mocks.getRevision.mockReturnValue('4');
+    mocks.getTrackedChangeIndex.mockReturnValue({
+      get: vi.fn(() => [snapshot]),
+      getAll: vi.fn(() => [snapshot]),
+      invalidate: vi.fn(),
+      invalidateAll: vi.fn(),
+      subscribe: vi.fn(),
+      dispose: vi.fn(),
+    });
+
+    const result = trackChangesListWrapper(editor);
+
+    expect(result.items[0]?.id).toBe('tc-del-1');
+    expect(getCachedProjectedTrackedChangeSnapshot(editor, 'tc-del-1')).toBe(snapshot);
+
+    mocks.getRevision.mockReturnValue('5');
+    expect(getCachedProjectedTrackedChangeSnapshot(editor, 'tc-del-1')).toBeNull();
   });
 });

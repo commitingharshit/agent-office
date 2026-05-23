@@ -2327,16 +2327,35 @@ export const MCP_TOOL_CATALOG = {
                   {
                     $ref: '#/$defs/TextTarget',
                   },
+                  {
+                    $ref: '#/$defs/SelectionTarget',
+                  },
+                  {
+                    $ref: '#/$defs/CommentTrackedChangeTarget',
+                  },
                 ],
                 description:
-                  "Text range to anchor the comment. Accepts either a single-block TextAddress {kind:'text', blockId, range} or a multi-segment TextTarget {kind:'text', segments:[{blockId, range}, ...]} for selections that span blocks.",
+                  "Comment target. Accepts a TextAddress, TextTarget, SelectionTarget, or {trackedChangeId, kind?:'trackedChange'} to anchor directly on tracked content.",
               },
               {
-                $ref: '#/$defs/TextAddress',
+                oneOf: [
+                  {
+                    $ref: '#/$defs/TextAddress',
+                  },
+                  {
+                    $ref: '#/$defs/TextTarget',
+                  },
+                  {
+                    $ref: '#/$defs/SelectionTarget',
+                  },
+                  {
+                    $ref: '#/$defs/CommentTrackedChangeTarget',
+                  },
+                ],
               },
             ],
             description:
-              "Text range to anchor the comment. Accepts either a single-block TextAddress {kind:'text', blockId, range} or a multi-segment TextTarget {kind:'text', segments:[{blockId, range}, ...]} for selections that span blocks. Only for actions 'create', 'update'. Omit for other actions.",
+              "Comment target. Accepts a TextAddress, TextTarget, SelectionTarget, or {trackedChangeId, kind?:'trackedChange'} to anchor directly on tracked content. Only for actions 'create', 'update'. Omit for other actions.",
           },
           parentId: {
             type: 'string',

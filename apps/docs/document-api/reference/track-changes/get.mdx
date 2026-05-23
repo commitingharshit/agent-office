@@ -56,8 +56,10 @@ Returns a TrackChangeInfo object with the change type, author, date, affected co
 | `date` | string | no |  |
 | `deletedText` | string | no |  |
 | `excerpt` | string | no |  |
+| `grouping` | enum | no | `"standalone"`, `"replacement-pair"`, `"aggregate"`, `"unknown"` |
 | `id` | string | yes |  |
 | `insertedText` | string | no |  |
+| `pairedWithChangeId` | any | no |  |
 | `type` | enum | yes | `"insert"`, `"delete"`, `"format"` |
 | `wordRevisionIds` | object | no |  |
 | `wordRevisionIds.delete` | string | no |  |
@@ -77,13 +79,10 @@ Returns a TrackChangeInfo object with the change type, author, date, affected co
       "storyType": "body"
     }
   },
-  "author": "Jane Doe",
+  "grouping": "standalone",
   "id": "id-001",
-  "type": "insert",
-  "wordRevisionIds": {
-    "delete": "example",
-    "insert": "example"
-  }
+  "pairedWithChangeId": {},
+  "type": "insert"
 }
 ```
 
@@ -143,11 +142,25 @@ Returns a TrackChangeInfo object with the change type, author, date, affected co
     "excerpt": {
       "type": "string"
     },
+    "grouping": {
+      "enum": [
+        "standalone",
+        "replacement-pair",
+        "aggregate",
+        "unknown"
+      ]
+    },
     "id": {
       "type": "string"
     },
     "insertedText": {
       "type": "string"
+    },
+    "pairedWithChangeId": {
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "type": {
       "enum": [

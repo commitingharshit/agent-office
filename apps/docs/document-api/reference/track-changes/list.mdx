@@ -68,18 +68,15 @@ Returns a TrackChangesListResult with tracked change entries, total count, and r
           "storyType": "body"
         }
       },
-      "author": "Jane Doe",
+      "grouping": "standalone",
       "handle": {
         "ref": "handle:abc123",
         "refStability": "stable",
         "targetKind": "text"
       },
       "id": "id-001",
-      "type": "insert",
-      "wordRevisionIds": {
-        "delete": "example",
-        "insert": "example"
-      }
+      "pairedWithChangeId": {},
+      "type": "insert"
     }
   ],
   "page": {
@@ -172,6 +169,14 @@ Returns a TrackChangesListResult with tracked change entries, total count, and r
           "excerpt": {
             "type": "string"
           },
+          "grouping": {
+            "enum": [
+              "standalone",
+              "replacement-pair",
+              "aggregate",
+              "unknown"
+            ]
+          },
           "handle": {
             "$ref": "#/$defs/ResolvedHandle"
           },
@@ -180,6 +185,12 @@ Returns a TrackChangesListResult with tracked change entries, total count, and r
           },
           "insertedText": {
             "type": "string"
+          },
+          "pairedWithChangeId": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "type": {
             "enum": [

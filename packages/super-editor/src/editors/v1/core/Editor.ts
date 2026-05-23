@@ -72,6 +72,7 @@ import { createDocFromMarkdown, createDocFromHTML } from '@core/helpers/index.js
 import { COMMENT_FILE_BASENAMES } from '@core/super-converter/constants.js';
 import { isHeadless } from '../utils/headless-helpers.js';
 import { canUseDOM } from '../utils/canUseDOM.js';
+import { buildCommentJsonFromText } from '../utils/comment-content.js';
 import { buildSchemaSummary } from './schema-summary.js';
 import type { PresentationEditor } from './presentation-editor/index.js';
 import type { EditorRenderer } from './renderers/EditorRenderer.js';
@@ -3502,9 +3503,13 @@ export class Editor extends EventEmitter<EditorEventMap> {
       // Normalize commentJSON property (imported comments provide `elements`)
       const preparedComments = effectiveComments.map((comment: Comment) => {
         const elements = Array.isArray(comment.elements) && comment.elements.length ? comment.elements : undefined;
+        const commentJson =
+          comment.commentJSON ??
+          elements ??
+          (typeof comment.commentText === 'string' ? buildCommentJsonFromText(comment.commentText) : undefined);
         return {
           ...comment,
-          commentJSON: comment.commentJSON ?? elements,
+          commentJSON: commentJson,
         };
       });
 

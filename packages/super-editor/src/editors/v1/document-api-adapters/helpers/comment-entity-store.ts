@@ -1,5 +1,14 @@
 import type { Editor } from '../../core/Editor.js';
-import type { CommentInfo, CommentStatus, TextTarget } from '@superdoc/document-api';
+import type {
+  CommentInfo,
+  CommentStatus,
+  CommentTrackedChangeLink,
+  StoryLocator,
+  TextTarget,
+  TrackChangeType,
+} from '@superdoc/document-api';
+export { buildCommentJsonFromText } from '../../utils/comment-content.js';
+import { buildCommentJsonFromText } from '../../utils/comment-content.js';
 
 const FALLBACK_STORE_KEY = '__documentApiComments';
 
@@ -19,6 +28,16 @@ export interface CommentEntityRecord {
   creatorEmail?: string;
   creatorImage?: string;
   createdTime?: number;
+  trackedChange?: boolean;
+  trackedChangeParentId?: string | null;
+  trackedChangeType?: TrackChangeType | null;
+  trackedChangeDisplayType?: string | null;
+  trackedChangeStory?: StoryLocator | null;
+  trackedChangeStoryKind?: string | null;
+  trackedChangeStoryLabel?: string | null;
+  trackedChangeAnchorKey?: string | null;
+  trackedChangeText?: string | null;
+  deletedText?: string | null;
   [key: string]: unknown;
 }
 
@@ -109,21 +128,6 @@ export function removeCommentEntityTree(store: CommentEntityRecord[], commentId:
   return removed;
 }
 
-/**
- * Strips HTML tags from a comment text string using simple regex replacement.
- *
- * This is only intended for normalizing comment content that was already authored
- * within the editor. It is NOT a security sanitizer and must not be used to
- * neutralize untrusted or user-supplied HTML.
- */
-function stripHtmlToText(value: string): string {
-  return value
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function collectTextFragments(value: unknown, sink: string[]): void {
   if (!value) return;
 
@@ -146,6 +150,29 @@ function collectTextFragments(value: unknown, sink: string[]): void {
   if (record.nodes) collectTextFragments(record.nodes, sink);
 }
 
+function hasOwnProperty(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function hasCommentBodyPayload(raw: Record<string, unknown>): boolean {
+  return (
+    hasOwnProperty(raw, 'commentText') ||
+    hasOwnProperty(raw, 'text') ||
+    hasOwnProperty(raw, 'commentJSON') ||
+    hasOwnProperty(raw, 'elements')
+  );
+}
+
+function isSyntheticTrackedChangeProjection(raw: Record<string, unknown>): boolean {
+  if (raw.trackedChange !== true) return false;
+
+  // Tracked-change projection rows share the comments Y.Array, but they are
+  // not user-authored comment entities. Linked user comments on tracked
+  // content also carry `trackedChange: true`, so only skip rows that lack any
+  // actual comment body payload or thread metadata.
+  return !hasCommentBodyPayload(raw) && !hasOwnProperty(raw, 'parentCommentId');
+}
+
 export function extractCommentText(entry: CommentEntityRecord): string | undefined {
   if (typeof entry.commentText === 'string') return entry.commentText;
 
@@ -155,27 +182,6 @@ export function extractCommentText(entry: CommentEntityRecord): string | undefin
 
   if (!fragments.length) return undefined;
   return fragments.join('').trim();
-}
-
-export function buildCommentJsonFromText(text: string): unknown[] {
-  const normalized = stripHtmlToText(text);
-
-  return [
-    {
-      type: 'paragraph',
-      content: [
-        {
-          type: 'run',
-          content: [
-            {
-              type: 'text',
-              text: normalized,
-            },
-          ],
-        },
-      ],
-    },
-  ];
 }
 
 export function isCommentResolved(entry: CommentEntityRecord): boolean {
@@ -196,8 +202,9 @@ export function isCommentResolved(entry: CommentEntityRecord): boolean {
  *   - Each entry with a `commentId` is upserted into the store. Existing
  *     entries are merged (collaborator-authored fields override locally
  *     captured ones; missing fields are left alone).
- *   - Entries flagged `trackedChange: true` are skipped — those belong to
- *     the tracked-changes domain, not the comments store.
+ *   - Synthetic tracked-change projection rows are skipped — those belong to
+ *     the tracked-changes domain, not the comments store. Linked user
+ *     comments on tracked content are still synced.
  *   - When `options.previouslySynced` is provided, any id present in the
  *     prior set but absent from the current entries is treated as a remote
  *     deletion and pruned via `removeCommentEntityTree`. Locally-authored
@@ -228,7 +235,7 @@ export function syncCommentEntitiesFromCollaboration(
   const validEntries: Array<Record<string, unknown>> = [];
   for (const raw of entries) {
     if (!raw || typeof raw !== 'object') continue;
-    if (raw.trackedChange === true) continue;
+    if (isSyntheticTrackedChangeProjection(raw)) continue;
     const cid = toNonEmptyString(raw.commentId);
     const iid = toNonEmptyString(raw.importedId);
     if (cid) upstreamIds.add(cid);
@@ -270,6 +277,8 @@ export function syncCommentEntitiesFromCollaboration(
     // Identity fields
     if (typeof raw.importedId === 'string') patch.importedId = raw.importedId;
     if (typeof raw.parentCommentId === 'string') patch.parentCommentId = raw.parentCommentId;
+    if (raw.trackedChangeParentId === null) patch.trackedChangeParentId = null;
+    if (typeof raw.trackedChangeParentId === 'string') patch.trackedChangeParentId = raw.trackedChangeParentId;
     // Body
     const commentText =
       typeof raw.commentText === 'string' ? raw.commentText : typeof raw.text === 'string' ? raw.text : undefined;
@@ -281,6 +290,26 @@ export function syncCommentEntitiesFromCollaboration(
     if (typeof raw.creatorEmail === 'string') patch.creatorEmail = raw.creatorEmail;
     if (typeof raw.creatorImage === 'string') patch.creatorImage = raw.creatorImage;
     if (typeof raw.createdTime === 'number') patch.createdTime = raw.createdTime;
+    // Tracked-change linkage
+    if (typeof raw.trackedChange === 'boolean') patch.trackedChange = raw.trackedChange;
+    if (typeof raw.trackedChangeType === 'string') patch.trackedChangeType = raw.trackedChangeType as TrackChangeType;
+    if (raw.trackedChangeType === null) patch.trackedChangeType = null;
+    if (typeof raw.trackedChangeDisplayType === 'string') patch.trackedChangeDisplayType = raw.trackedChangeDisplayType;
+    if (raw.trackedChangeDisplayType === null) patch.trackedChangeDisplayType = null;
+    if (raw.trackedChangeStory === null) patch.trackedChangeStory = null;
+    if (raw.trackedChangeStory && typeof raw.trackedChangeStory === 'object') {
+      patch.trackedChangeStory = raw.trackedChangeStory as StoryLocator;
+    }
+    if (typeof raw.trackedChangeStoryKind === 'string') patch.trackedChangeStoryKind = raw.trackedChangeStoryKind;
+    if (raw.trackedChangeStoryKind === null) patch.trackedChangeStoryKind = null;
+    if (typeof raw.trackedChangeStoryLabel === 'string') patch.trackedChangeStoryLabel = raw.trackedChangeStoryLabel;
+    if (raw.trackedChangeStoryLabel === null) patch.trackedChangeStoryLabel = null;
+    if (typeof raw.trackedChangeAnchorKey === 'string') patch.trackedChangeAnchorKey = raw.trackedChangeAnchorKey;
+    if (raw.trackedChangeAnchorKey === null) patch.trackedChangeAnchorKey = null;
+    if (typeof raw.trackedChangeText === 'string') patch.trackedChangeText = raw.trackedChangeText;
+    if (raw.trackedChangeText === null) patch.trackedChangeText = null;
+    if (typeof raw.deletedText === 'string') patch.deletedText = raw.deletedText;
+    if (raw.deletedText === null) patch.deletedText = null;
     // Status
     if (typeof raw.isInternal === 'boolean') patch.isInternal = raw.isInternal;
     if (typeof raw.isDone === 'boolean') patch.isDone = raw.isDone;
@@ -319,10 +348,29 @@ export function toCommentInfo(
     target?: TextTarget;
     status?: CommentStatus;
     anchoredText?: string;
+    trackedChangeLink?: CommentTrackedChangeLink | null;
   } = {},
 ): CommentInfo {
   const resolvedId = typeof entry.commentId === 'string' ? entry.commentId : String(entry.importedId ?? '');
   const status = options.status ?? (isCommentResolved(entry) ? 'resolved' : 'open');
+  const trackedChangeLink =
+    options.trackedChangeLink !== undefined
+      ? options.trackedChangeLink
+      : entry.trackedChange === true ||
+          entry.trackedChangeType != null ||
+          entry.trackedChangeAnchorKey != null ||
+          entry.trackedChangeText != null ||
+          entry.deletedText != null
+        ? {
+            trackedChange: true,
+            trackedChangeType: entry.trackedChangeType ?? undefined,
+            trackedChangeDisplayType: entry.trackedChangeDisplayType ?? null,
+            trackedChangeStory: entry.trackedChangeStory ?? null,
+            trackedChangeAnchorKey: entry.trackedChangeAnchorKey ?? null,
+            trackedChangeText: entry.trackedChangeText ?? null,
+            deletedText: entry.deletedText ?? null,
+          }
+        : null;
 
   return {
     address: {
@@ -341,5 +389,13 @@ export function toCommentInfo(
     createdTime: typeof entry.createdTime === 'number' ? entry.createdTime : undefined,
     creatorName: typeof entry.creatorName === 'string' ? entry.creatorName : undefined,
     creatorEmail: typeof entry.creatorEmail === 'string' ? entry.creatorEmail : undefined,
+    trackedChange: trackedChangeLink?.trackedChange === true ? true : undefined,
+    trackedChangeType: trackedChangeLink?.trackedChangeType,
+    trackedChangeDisplayType: trackedChangeLink?.trackedChangeDisplayType ?? undefined,
+    trackedChangeStory: trackedChangeLink?.trackedChangeStory ?? undefined,
+    trackedChangeAnchorKey: trackedChangeLink?.trackedChangeAnchorKey ?? undefined,
+    trackedChangeText: trackedChangeLink?.trackedChangeText ?? undefined,
+    deletedText: trackedChangeLink?.deletedText ?? undefined,
+    trackedChangeLink,
   };
 }

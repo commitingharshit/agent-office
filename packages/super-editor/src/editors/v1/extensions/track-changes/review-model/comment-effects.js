@@ -34,6 +34,7 @@
  * @property {CommentNodeDelete[]} nodeDeletes  PM ranges to remove.
  * @property {Array<{ id: string, cause: string }>} entityDeletes Comment thread ids to remove.
  * @property {Array<{ id: string, cause: string, anchor?: { from: number, to: number } }>} entityShrinks Comments whose anchor shrinks.
+ * @property {Array<{ id: string, cause: string }>} entityDetaches Comments whose anchor survives but should detach from tracked-change threading.
  * @property {Array<{ code: string, message: string }>} diagnostics
  */
 
@@ -96,16 +97,19 @@ export const enumerateCommentAnchors = (doc) => {
  * @param {Object} input
  * @param {import('prosemirror-model').Node} input.doc Document before mutation.
  * @param {Array<{ from: number, to: number, cause: string }>} input.removedRanges Coverage to be removed.
+ * @param {Array<{ from: number, to: number, cause: string }>} [input.resolvedRanges] Full tracked-change coverage being retired while content may survive.
  * @returns {CommentEffectsPlan}
  */
-export const planCommentEffects = ({ doc, removedRanges }) => {
+export const planCommentEffects = ({ doc, removedRanges, resolvedRanges = [] }) => {
   /** @type {CommentEffectsPlan} */
-  const plan = { nodeDeletes: [], entityDeletes: [], entityShrinks: [], diagnostics: [] };
-  if (!doc || !removedRanges?.length) return plan;
+  const plan = { nodeDeletes: [], entityDeletes: [], entityShrinks: [], entityDetaches: [], diagnostics: [] };
+  if (!doc) return plan;
   const anchors = enumerateCommentAnchors(doc);
   if (!anchors.length) return plan;
 
   const sortedRemoved = [...removedRanges].filter((r) => r.from < r.to).sort((a, b) => a.from - b.from);
+  const sortedResolved = [...resolvedRanges].filter((r) => r.from < r.to).sort((a, b) => a.from - b.from);
+  if (!sortedRemoved.length && !sortedResolved.length) return plan;
 
   for (const anchor of anchors) {
     const start = anchor.startPos;
@@ -114,7 +118,9 @@ export const planCommentEffects = ({ doc, removedRanges }) => {
     if (start < 0 && end < 0 && ref < 0) continue;
     const anchorStart = start >= 0 ? start : ref >= 0 ? ref : end;
     const anchorEnd = end >= 0 ? end + 1 : ref >= 0 ? ref + 1 : start + 1;
-    const cause = sortedRemoved[0]?.cause ?? 'trackedChange';
+    const removedCause = sortedRemoved[0]?.cause ?? 'trackedChange';
+    const resolvedMatch = sortedResolved.find((r) => r.from < anchorEnd && r.to > anchorStart);
+    const resolvedCause = resolvedMatch?.cause ?? removedCause;
 
     // Determine whether any removed range covers the anchor end or reference.
     const removesEnd = sortedRemoved.some((r) => end >= 0 && r.from <= end && r.to > end);
@@ -122,7 +128,7 @@ export const planCommentEffects = ({ doc, removedRanges }) => {
     const fullyCovered = sortedRemoved.some((r) => r.from <= anchorStart && r.to >= anchorEnd);
 
     if (fullyCovered || removesEnd || removesRef) {
-      plan.entityDeletes.push({ id: anchor.commentId, cause });
+      plan.entityDeletes.push({ id: anchor.commentId, cause: removedCause });
       if (start >= 0)
         plan.nodeDeletes.push({ kind: 'commentRangeStart', from: start, to: start + 1, commentId: anchor.commentId });
       if (end >= 0)
@@ -137,11 +143,19 @@ export const planCommentEffects = ({ doc, removedRanges }) => {
     if (overlaps) {
       plan.entityShrinks.push({
         id: anchor.commentId,
-        cause,
+        cause: removedCause,
         anchor: { from: anchorStart, to: anchorEnd },
       });
       // We do not remove the commentRangeStart/End nodes themselves when only
       // shrinking; PM will reposition them when surrounding text is removed.
+      if (resolvedMatch) {
+        plan.entityDetaches.push({ id: anchor.commentId, cause: resolvedCause });
+      }
+      continue;
+    }
+
+    if (resolvedMatch) {
+      plan.entityDetaches.push({ id: anchor.commentId, cause: resolvedCause });
     }
   }
 

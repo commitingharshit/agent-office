@@ -4,6 +4,7 @@ import type { StoryLocator } from './story.types.js';
 
 export type TrackChangeType = 'insert' | 'delete' | 'format';
 export type TrackChangeOverlapRelationship = 'parent' | 'child' | 'standalone';
+export type TrackChangeGrouping = 'standalone' | 'replacement-pair' | 'aggregate' | 'unknown';
 
 export interface TrackChangeOverlapLayer {
   id: string;
@@ -45,6 +46,8 @@ export interface TrackChangeInfo {
   /** Convenience alias for `address.entityId`. */
   id: string;
   type: TrackChangeType;
+  grouping?: TrackChangeGrouping;
+  pairedWithChangeId?: string | null;
   /** Raw imported Word OOXML revision IDs (`w:id`) from the source document when available. */
   wordRevisionIds?: TrackChangeWordRevisionIds;
   /** Overlap metadata for nested tracked changes that share the same text range. */
@@ -79,6 +82,8 @@ export interface TrackChangesListQuery {
 export interface TrackChangeDomain {
   address: TrackedChangeAddress;
   type: TrackChangeType;
+  grouping?: TrackChangeGrouping;
+  pairedWithChangeId?: string | null;
   /** Raw imported Word OOXML revision IDs (`w:id`) from the source document when available. */
   wordRevisionIds?: TrackChangeWordRevisionIds;
   /** Overlap metadata for nested tracked changes that share the same text range. */

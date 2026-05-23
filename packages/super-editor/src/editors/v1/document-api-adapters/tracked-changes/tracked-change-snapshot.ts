@@ -42,6 +42,15 @@ export interface TrackedChangeSnapshot {
   storyKind: 'body' | 'headerFooter' | 'footnote' | 'endnote';
   /** Canonical shared-map anchor key (`tc::<storyKey>::<rawId>`). */
   anchorKey: string;
+  /** Internal raw command id when distinct from the story-level raw id. */
+  commandRawId?: string;
+  /** Replacement metadata used by public projection helpers. */
+  replacementGroupId?: string;
+  replacementSideId?: string;
+  /** Raw grouped-change shape retained for projection logic. */
+  hasInsert: boolean;
+  hasDelete: boolean;
+  hasFormat: boolean;
   /** Absolute PM position range within the story editor. */
   range: { from: number; to: number };
 }

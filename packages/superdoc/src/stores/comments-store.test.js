@@ -682,7 +682,7 @@ describe('comments-store', () => {
     );
   });
 
-  it('cascades resolve to user comments anchored to the same tracked change (SD-2528)', async () => {
+  it('does not blanket-cascade linked user comments on tracked-change resolve events', async () => {
     const superdoc = {
       emit: vi.fn(),
       user: { id: 'reviewer-id', email: 'reviewer@example.com', name: 'Reviewer' },
@@ -726,25 +726,12 @@ describe('comments-store', () => {
     });
 
     expect(trackedChangeComment.resolveComment).toHaveBeenCalledTimes(1);
-    // Cascading runs in a microtask so we wait one turn before asserting.
     await Promise.resolve();
-    expect(linkedUserComment.resolveComment).toHaveBeenCalledTimes(1);
-    expect(linkedUserComment.resolveComment).toHaveBeenCalledWith({
-      id: 'reviewer-id',
-      email: 'reviewer@example.com',
-      name: 'Reviewer',
-      superdoc,
-    });
+    expect(linkedUserComment.resolveComment).not.toHaveBeenCalled();
     expect(unrelatedUserComment.resolveComment).not.toHaveBeenCalled();
   });
 
-  // SD-2528 P2 #1 — when the resolve event carries an explicit `documentId`,
-  // the cascade must filter linked comments by that document. `findTrackedChangeById`
-  // does this for the primary comment; the cascade scan one level down was
-  // missing the same guard. In multi-document sessions where imported TC ids
-  // happen to collide, accepting/rejecting a change in one document must not
-  // resolve comments anchored on a different document.
-  it('scopes cascade resolve to the active document when documentId is provided', async () => {
+  it('does not cascade linked comments even when tracked-change resolve carries a documentId', async () => {
     const superdoc = { emit: vi.fn(), user: { email: 'reviewer@example.com', name: 'Reviewer' } };
     __mockSuperdoc.documents.value = [
       { id: 'doc-A', type: 'docx' },
@@ -789,13 +776,11 @@ describe('comments-store', () => {
     });
 
     await Promise.resolve();
-    expect(linkedOnDocA.resolveComment).toHaveBeenCalledTimes(1);
+    expect(linkedOnDocA.resolveComment).not.toHaveBeenCalled();
     expect(linkedOnDocB.resolveComment).not.toHaveBeenCalled();
   });
 
-  // Regression: when no documentId is passed, single-document behaviour is
-  // unchanged. Mirrors the legacy `cascades resolve` test contract.
-  it('cascades to every doc-anchored linked comment when no documentId is provided (single-doc)', async () => {
+  it('does not cascade linked comments in single-document resolve flows either', async () => {
     const superdoc = { emit: vi.fn(), user: { email: 'r@e', name: 'R' } };
 
     const trackedChangeComment = {
@@ -824,7 +809,7 @@ describe('comments-store', () => {
     });
 
     await Promise.resolve();
-    expect(linkedNoFileId.resolveComment).toHaveBeenCalledTimes(1);
+    expect(linkedNoFileId.resolveComment).not.toHaveBeenCalled();
   });
 
   it('does not re-resolve already-resolved linked user comments', async () => {

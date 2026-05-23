@@ -285,6 +285,12 @@ class TrackedChangeIndexImpl implements TrackedChangeIndex {
       storyLabel,
       storyKind,
       anchorKey: makeTrackedChangeAnchorKey(runtimeRef),
+      commandRawId: change.commandRawId,
+      replacementGroupId: toNonEmptyString(change.attrs.replacementGroupId),
+      replacementSideId: toNonEmptyString(change.attrs.replacementSideId),
+      hasInsert: change.hasInsert,
+      hasDelete: change.hasDelete,
+      hasFormat: change.hasFormat,
       range: { from: change.from, to: change.to },
     };
   }

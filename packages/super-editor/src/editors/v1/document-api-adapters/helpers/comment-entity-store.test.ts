@@ -287,7 +287,7 @@ describe('syncCommentEntitiesFromCollaboration (SD-3214)', () => {
     expect(store[0].commentText).toBe('short form');
   });
 
-  it('skips entries flagged trackedChange:true (those belong to a separate domain)', () => {
+  it('skips synthetic tracked-change projection entries without comment payload', () => {
     const editor = makeEditorWithConverter();
     syncCommentEntitiesFromCollaboration(editor, [
       { commentId: 'tc-1', trackedChange: true, trackedChangeText: 'inserted', creatorName: 'A' },
@@ -296,6 +296,31 @@ describe('syncCommentEntitiesFromCollaboration (SD-3214)', () => {
     const store = getCommentEntityStore(editor);
     expect(store).toHaveLength(1);
     expect(store[0].commentId).toBe('c-1');
+  });
+
+  it('syncs linked tracked-content comments when they include comment payload', () => {
+    const editor = makeEditorWithConverter();
+    syncCommentEntitiesFromCollaboration(editor, [
+      {
+        commentId: 'tc-user-1',
+        trackedChange: true,
+        trackedChangeParentId: 'tc-root-1',
+        trackedChangeText: 'inserted text',
+        commentText: 'user-authored tracked comment',
+        creatorName: 'A',
+      },
+    ]);
+
+    const store = getCommentEntityStore(editor);
+    expect(store).toHaveLength(1);
+    expect(store[0]).toMatchObject({
+      commentId: 'tc-user-1',
+      trackedChange: true,
+      trackedChangeParentId: 'tc-root-1',
+      trackedChangeText: 'inserted text',
+      commentText: 'user-authored tracked comment',
+      creatorName: 'A',
+    });
   });
 
   it('skips entries without a commentId', () => {

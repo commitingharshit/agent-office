@@ -46,6 +46,8 @@ export type GroupedTrackedChange = {
   overlap?: TrackChangeOverlapInfo;
 };
 
+export type TrackedChangeProjectedSide = 'inserted' | 'deleted';
+
 type ChangeTypeInput = Pick<GroupedTrackedChange, 'hasInsert' | 'hasDelete' | 'hasFormat'>;
 type GroupedTrackedChangeDraft = Omit<GroupedTrackedChange, 'id' | 'excerpt'> & { excerptParts: string[] };
 type InternalTrackChangeOverlapLayer = TrackChangeOverlapLayer & {
@@ -353,13 +355,18 @@ export function groupTrackedChanges(editor: Editor): GroupedTrackedChange[] {
 }
 
 export function resolveTrackedChange(editor: Editor, id: string): GroupedTrackedChange | null {
+  const { baseId } = splitProjectedTrackedChangeId(id);
   const grouped = groupTrackedChanges(editor);
-  return grouped.find((item) => item.id === id) ?? null;
+  return grouped.find((item) => item.id === baseId) ?? null;
 }
 
 export function toCanonicalTrackedChangeId(editor: Editor, rawId: string): string | null {
+  const { baseId, side } = splitProjectedTrackedChangeId(rawId);
   const grouped = groupTrackedChanges(editor);
-  return grouped.find((item) => item.rawId === rawId || item.commandRawId === rawId)?.id ?? null;
+  const canonical =
+    grouped.find((item) => item.rawId === baseId || item.commandRawId === baseId || item.id === baseId)?.id ?? null;
+  if (!canonical) return null;
+  return side ? `${canonical}#${side}` : canonical;
 }
 
 export function buildTrackedChangeCanonicalIdMap(editor: Editor): Map<string, string> {
@@ -368,8 +375,23 @@ export function buildTrackedChangeCanonicalIdMap(editor: Editor): Map<string, st
   for (const change of grouped) {
     map.set(change.rawId, change.id);
     map.set(change.id, change.id);
+    map.set(`${change.id}#inserted`, change.id);
+    map.set(`${change.id}#deleted`, change.id);
   }
   return map;
+}
+
+export function splitProjectedTrackedChangeId(value: string): {
+  baseId: string;
+  side: TrackedChangeProjectedSide | null;
+} {
+  if (value.endsWith('#inserted')) {
+    return { baseId: value.slice(0, -'#inserted'.length), side: 'inserted' };
+  }
+  if (value.endsWith('#deleted')) {
+    return { baseId: value.slice(0, -'#deleted'.length), side: 'deleted' };
+  }
+  return { baseId: value, side: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -465,6 +487,7 @@ export function resolveTrackedChangeInStory(
  * tolerate callers that stored whichever was convenient at the time.
  */
 function findMatchingChange(editor: Editor, id: string): GroupedTrackedChange | null {
+  const { baseId } = splitProjectedTrackedChangeId(id);
   const grouped = groupTrackedChanges(editor);
-  return grouped.find((item) => item.id === id || item.rawId === id || item.commandRawId === id) ?? null;
+  return grouped.find((item) => item.id === baseId || item.rawId === baseId || item.commandRawId === baseId) ?? null;
 }

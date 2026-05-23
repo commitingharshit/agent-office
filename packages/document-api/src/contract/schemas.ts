@@ -273,6 +273,23 @@ const SHARED_DEFS: Record<string, JsonSchema> = {
     },
     ['kind', 'start', 'end'],
   ),
+  CommentTrackedChangeTarget: objectSchema(
+    {
+      kind: { const: 'trackedChange' },
+      trackedChangeId: { type: 'string' },
+      story: ref('StoryLocator'),
+    },
+    ['trackedChangeId'],
+  ),
+  CommentTrackedChangeLink: objectSchema({
+    trackedChange: { const: true },
+    trackedChangeType: { enum: ['insert', 'delete', 'format'] },
+    trackedChangeDisplayType: { type: ['string', 'null'] },
+    trackedChangeStory: { oneOf: [ref('StoryLocator'), { type: 'null' }] },
+    trackedChangeAnchorKey: { type: ['string', 'null'] },
+    trackedChangeText: { type: ['string', 'null'] },
+    deletedText: { type: ['string', 'null'] },
+  }),
   TargetLocator: {
     oneOf: [
       objectSchema({ target: ref('SelectionTarget') }, ['target']),
@@ -427,6 +444,16 @@ const SHARED_DEFS: Record<string, JsonSchema> = {
       removed: arraySchema(ref('EntityAddress')),
     },
     ['success'],
+  ),
+  CommentsCreateSuccess: objectSchema(
+    {
+      success: { const: true },
+      id: { type: 'string' },
+      inserted: arraySchema(ref('EntityAddress')),
+      updated: arraySchema(ref('EntityAddress')),
+      removed: arraySchema(ref('EntityAddress')),
+    },
+    ['success', 'id'],
   ),
   ReceiptFailure: objectSchema(
     {
@@ -594,6 +621,7 @@ const inlineAnchorSchema = ref('InlineAnchor');
 const targetKindSchema = ref('TargetKind');
 const textAddressSchema = ref('TextAddress');
 const textTargetSchema = ref('TextTarget');
+const commentTrackedChangeTargetSchema = ref('CommentTrackedChangeTarget');
 const blockNodeAddressSchema = ref('BlockNodeAddress');
 const deletableBlockNodeAddressSchema = ref('DeletableBlockNodeAddress');
 const tableAddressSchema = ref('TableAddress');
@@ -613,11 +641,13 @@ const commentAddressSchema = ref('CommentAddress');
 const trackedChangeAddressSchema = ref('TrackedChangeAddress');
 const entityAddressSchema = ref('EntityAddress');
 const selectionTargetSchema = ref('SelectionTarget');
+const commentTrackedChangeLinkSchema = ref('CommentTrackedChangeLink');
 const targetLocatorSchema = ref('TargetLocator');
 const deleteBehaviorSchema = ref('DeleteBehavior');
 const resolvedHandleSchema = ref('ResolvedHandle');
 const pageInfoSchema = ref('PageInfo');
 const receiptSuccessSchema = ref('ReceiptSuccess');
+const commentsCreateSuccessSchema = ref('CommentsCreateSuccess');
 const textMutationRangeSchema = ref('TextMutationRange');
 const textMutationResolutionSchema = ref('TextMutationResolution');
 const textMutationSuccessSchema = ref('TextMutationSuccess');
@@ -743,6 +773,12 @@ function preApplyFailureResultSchemaFor(operationId: OperationId): JsonSchema {
 function receiptResultSchemaFor(operationId: OperationId): JsonSchema {
   return {
     oneOf: [receiptSuccessSchema, receiptFailureResultSchemaFor(operationId)],
+  };
+}
+
+function commentsCreateResultSchemaFor(operationId: OperationId): JsonSchema {
+  return {
+    oneOf: [commentsCreateSuccessSchema, receiptFailureResultSchemaFor(operationId)],
   };
 }
 
@@ -1456,6 +1492,14 @@ const commentInfoSchema = objectSchema(
     createdTime: { type: 'number' },
     creatorName: { type: 'string' },
     creatorEmail: { type: 'string' },
+    trackedChange: { type: 'boolean' },
+    trackedChangeType: { enum: ['insert', 'delete', 'format'] },
+    trackedChangeDisplayType: { type: ['string', 'null'] },
+    trackedChangeStory: { oneOf: [storyLocatorSchema, { type: 'null' }] },
+    trackedChangeAnchorKey: { type: ['string', 'null'] },
+    trackedChangeText: { type: ['string', 'null'] },
+    deletedText: { type: ['string', 'null'] },
+    trackedChangeLink: { oneOf: [commentTrackedChangeLinkSchema, { type: 'null' }] },
   },
   ['address', 'commentId', 'status'],
 );
@@ -1473,6 +1517,14 @@ const commentDomainItemSchema = discoveryItemSchema(
     createdTime: { type: 'number' },
     creatorName: { type: 'string' },
     creatorEmail: { type: 'string' },
+    trackedChange: { type: 'boolean' },
+    trackedChangeType: { enum: ['insert', 'delete', 'format'] },
+    trackedChangeDisplayType: { type: ['string', 'null'] },
+    trackedChangeStory: { oneOf: [storyLocatorSchema, { type: 'null' }] },
+    trackedChangeAnchorKey: { type: ['string', 'null'] },
+    trackedChangeText: { type: ['string', 'null'] },
+    deletedText: { type: ['string', 'null'] },
+    trackedChangeLink: { oneOf: [commentTrackedChangeLinkSchema, { type: 'null' }] },
   },
   ['address', 'status'],
 );
@@ -1506,6 +1558,8 @@ const trackChangeInfoSchema = objectSchema(
     address: trackedChangeAddressSchema,
     id: { type: 'string' },
     type: { enum: ['insert', 'delete', 'format'] },
+    grouping: { enum: ['standalone', 'replacement-pair', 'aggregate', 'unknown'] },
+    pairedWithChangeId: { type: ['string', 'null'] },
     wordRevisionIds: trackChangeWordRevisionIdsSchema,
     author: { type: 'string' },
     authorEmail: { type: 'string' },
@@ -1522,6 +1576,8 @@ const trackChangeDomainItemSchema = discoveryItemSchema(
   {
     address: trackedChangeAddressSchema,
     type: { enum: ['insert', 'delete', 'format'] },
+    grouping: { enum: ['standalone', 'replacement-pair', 'aggregate', 'unknown'] },
+    pairedWithChangeId: { type: ['string', 'null'] },
     wordRevisionIds: trackChangeWordRevisionIdsSchema,
     author: { type: 'string' },
     authorEmail: { type: 'string' },
@@ -4876,9 +4932,9 @@ const operationSchemas: Record<OperationId, OperationSchemaSet> = {
       {
         text: { type: 'string', description: 'Comment text content.' },
         target: {
-          oneOf: [textAddressSchema, textTargetSchema],
+          oneOf: [textAddressSchema, textTargetSchema, selectionTargetSchema, commentTrackedChangeTargetSchema],
           description:
-            "Text range to anchor the comment. Accepts either a single-block TextAddress {kind:'text', blockId, range} or a multi-segment TextTarget {kind:'text', segments:[{blockId, range}, ...]} for selections that span blocks.",
+            "Comment target. Accepts a TextAddress, TextTarget, SelectionTarget, or {trackedChangeId, kind?:'trackedChange'} to anchor directly on tracked content.",
         },
         parentCommentId: {
           type: 'string',
@@ -4887,8 +4943,8 @@ const operationSchemas: Record<OperationId, OperationSchemaSet> = {
       },
       ['text'],
     ),
-    output: receiptResultSchemaFor('comments.create'),
-    success: receiptSuccessSchema,
+    output: commentsCreateResultSchemaFor('comments.create'),
+    success: commentsCreateSuccessSchema,
     failure: receiptFailureResultSchemaFor('comments.create'),
   },
   'comments.patch': {
@@ -4896,7 +4952,9 @@ const operationSchemas: Record<OperationId, OperationSchemaSet> = {
       {
         commentId: { type: 'string' },
         text: { type: 'string', description: 'Updated comment text.' },
-        target: textAddressSchema,
+        target: {
+          oneOf: [textAddressSchema, textTargetSchema, selectionTargetSchema, commentTrackedChangeTargetSchema],
+        },
         status: {
           enum: ['resolved', 'active'],
           description:

@@ -26,18 +26,25 @@ vi.mock('./plan-wrappers.js', () => ({
   executeDomainCommand: vi.fn(),
 }));
 
-vi.mock('../helpers/adapter-utils.js', async () => {
-  const actual = await vi.importActual<typeof import('../helpers/adapter-utils.js')>('../helpers/adapter-utils.js');
-  return {
-    ...actual,
-    resolveTextTarget: vi.fn(),
-  };
-});
+vi.mock('../helpers/adapter-utils.js', () => ({
+  resolveTextTarget: vi.fn(),
+  validatePaginationInput: vi.fn(),
+  paginate: vi.fn(<T>(items: T[], offset = 0, limit?: number) => {
+    const total = items.length;
+    const effectiveLimit = limit ?? total;
+    return { total, items: items.slice(offset, offset + effectiveLimit) };
+  }),
+}));
 
 import { listCommentAnchors } from '../helpers/comment-target-resolver.js';
 import { resolveTextTarget } from '../helpers/adapter-utils.js';
 import { executeDomainCommand } from './plan-wrappers.js';
 import { getTrackedChangeIndex } from '../tracked-changes/tracked-change-index.js';
+
+const listCommentAnchorsMock = listCommentAnchors as unknown as ReturnType<typeof vi.fn>;
+const resolveTextTargetMock = resolveTextTarget as unknown as ReturnType<typeof vi.fn>;
+const executeDomainCommandMock = executeDomainCommand as unknown as ReturnType<typeof vi.fn>;
+const getTrackedChangeIndexMock = getTrackedChangeIndex as unknown as ReturnType<typeof vi.fn>;
 
 function makeAnchor(
   overrides: Partial<CommentAnchor> & { commentId: string; pos: number; end: number },
@@ -75,8 +82,8 @@ function mockTextBetweenSequence(editor: Editor, ...values: string[]): void {
 }
 
 beforeEach(() => {
-  vi.mocked(listCommentAnchors).mockReturnValue([]);
-  vi.mocked(getTrackedChangeIndex).mockReturnValue({ getAll: () => [] } as never);
+  listCommentAnchorsMock.mockReturnValue([]);
+  getTrackedChangeIndexMock.mockReturnValue({ getAll: () => [] } as never);
 });
 
 describe('comments-wrappers: anchoredText', () => {
@@ -86,7 +93,7 @@ describe('comments-wrappers: anchoredText', () => {
 
   it('populates anchoredText for a root comment with an anchor', () => {
     const editor = makeEditor([{ commentId: 'c1', commentText: 'My comment' }], 'selected text');
-    vi.mocked(listCommentAnchors).mockReturnValue([makeAnchor({ commentId: 'c1', pos: 10, end: 23 })]);
+    listCommentAnchorsMock.mockReturnValue([makeAnchor({ commentId: 'c1', pos: 10, end: 23 })]);
 
     const wrapper = createCommentsWrapper(editor);
     const result = wrapper.list();
@@ -96,7 +103,7 @@ describe('comments-wrappers: anchoredText', () => {
 
   it('returns anchoredText as undefined when comment has no anchor', () => {
     const editor = makeEditor([{ commentId: 'c1', commentText: 'My comment' }]);
-    vi.mocked(listCommentAnchors).mockReturnValue([]);
+    listCommentAnchorsMock.mockReturnValue([]);
 
     const wrapper = createCommentsWrapper(editor);
     const result = wrapper.list();
@@ -112,7 +119,7 @@ describe('comments-wrappers: anchoredText', () => {
       ],
       'anchored excerpt',
     );
-    vi.mocked(listCommentAnchors).mockReturnValue([makeAnchor({ commentId: 'c1', pos: 5, end: 20 })]);
+    listCommentAnchorsMock.mockReturnValue([makeAnchor({ commentId: 'c1', pos: 5, end: 20 })]);
 
     const wrapper = createCommentsWrapper(editor);
     const result = wrapper.list();
@@ -125,7 +132,7 @@ describe('comments-wrappers: anchoredText', () => {
 
   it('returns anchoredText on comments.get as well', () => {
     const editor = makeEditor([{ commentId: 'c1', commentText: 'My comment' }], 'get excerpt');
-    vi.mocked(listCommentAnchors).mockReturnValue([makeAnchor({ commentId: 'c1', pos: 0, end: 11 })]);
+    listCommentAnchorsMock.mockReturnValue([makeAnchor({ commentId: 'c1', pos: 0, end: 11 })]);
 
     const wrapper = createCommentsWrapper(editor);
     const info = wrapper.get({ commentId: 'c1' });
@@ -137,7 +144,7 @@ describe('comments-wrappers: anchoredText', () => {
     (editor.state!.doc as { textBetween: ReturnType<typeof vi.fn> }).textBetween = vi.fn(() => {
       throw new Error('out of range');
     });
-    vi.mocked(listCommentAnchors).mockReturnValue([makeAnchor({ commentId: 'c1', pos: 999, end: 1000 })]);
+    listCommentAnchorsMock.mockReturnValue([makeAnchor({ commentId: 'c1', pos: 999, end: 1000 })]);
 
     const wrapper = createCommentsWrapper(editor);
     const result = wrapper.list();
@@ -153,7 +160,7 @@ describe('comments-wrappers: anchoredText', () => {
       ],
       'deep excerpt',
     );
-    vi.mocked(listCommentAnchors).mockReturnValue([makeAnchor({ commentId: 'c1', pos: 0, end: 12 })]);
+    listCommentAnchorsMock.mockReturnValue([makeAnchor({ commentId: 'c1', pos: 0, end: 12 })]);
 
     const wrapper = createCommentsWrapper(editor);
     const result = wrapper.list();
@@ -168,7 +175,7 @@ describe('comments-wrappers: anchoredText', () => {
 
   it('strips object-replacement characters from range-node atoms', () => {
     const editor = makeEditor([{ commentId: 'c1', commentText: 'My comment' }], '\ufffchello world\ufffc');
-    vi.mocked(listCommentAnchors).mockReturnValue([makeAnchor({ commentId: 'c1', pos: 0, end: 15 })]);
+    listCommentAnchorsMock.mockReturnValue([makeAnchor({ commentId: 'c1', pos: 0, end: 15 })]);
 
     const wrapper = createCommentsWrapper(editor);
     const result = wrapper.list();
@@ -177,9 +184,7 @@ describe('comments-wrappers: anchoredText', () => {
 
   it('populates anchoredText for resolved comments', () => {
     const editor = makeEditor([{ commentId: 'c1', commentText: 'Resolved note', isDone: true }], 'resolved text');
-    vi.mocked(listCommentAnchors).mockReturnValue([
-      makeAnchor({ commentId: 'c1', pos: 0, end: 13, status: 'resolved' }),
-    ]);
+    listCommentAnchorsMock.mockReturnValue([makeAnchor({ commentId: 'c1', pos: 0, end: 13, status: 'resolved' })]);
 
     const wrapper = createCommentsWrapper(editor);
     const result = wrapper.list({ includeResolved: true });
@@ -188,7 +193,7 @@ describe('comments-wrappers: anchoredText', () => {
 
   it('projects live tracked changes as tracked-change comments', () => {
     const editor = makeEditor([]);
-    vi.mocked(getTrackedChangeIndex).mockReturnValue({
+    getTrackedChangeIndexMock.mockReturnValue({
       getAll: () => [
         {
           address: { kind: 'entity', entityType: 'trackedChange', entityId: 'tc-live' },
@@ -226,7 +231,7 @@ describe('comments-wrappers: anchoredText', () => {
 
   it('does not add synthetic comments for imported Word tracked changes', () => {
     const editor = makeEditor([]);
-    vi.mocked(getTrackedChangeIndex).mockReturnValue({
+    getTrackedChangeIndexMock.mockReturnValue({
       getAll: () => [
         {
           address: { kind: 'entity', entityType: 'trackedChange', entityId: 'tc-imported' },
@@ -259,7 +264,7 @@ describe('comments-wrappers: multi-segment TextTarget', () => {
 
   it('returns a single-segment target for a comment with one anchor', () => {
     const editor = makeEditor([{ commentId: 'c1', commentText: 'Comment' }], 'abc');
-    vi.mocked(listCommentAnchors).mockReturnValue([
+    listCommentAnchorsMock.mockReturnValue([
       makeAnchor({
         commentId: 'c1',
         pos: 0,
@@ -280,7 +285,7 @@ describe('comments-wrappers: multi-segment TextTarget', () => {
     const editor = makeEditor([{ commentId: 'c1', commentText: 'Comment' }]);
     mockTextBetweenSequence(editor, 'abc', 'def');
 
-    vi.mocked(listCommentAnchors).mockReturnValue([
+    listCommentAnchorsMock.mockReturnValue([
       makeAnchor({
         commentId: 'c1',
         pos: 0,
@@ -314,7 +319,7 @@ describe('comments-wrappers: multi-segment TextTarget', () => {
     mockTextBetweenSequence(editor, 'first', 'second');
 
     // Anchors provided out of document order — sorted internally by pos
-    vi.mocked(listCommentAnchors).mockReturnValue([
+    listCommentAnchorsMock.mockReturnValue([
       makeAnchor({
         commentId: 'c1',
         pos: 50,
@@ -340,7 +345,7 @@ describe('comments-wrappers: multi-segment TextTarget', () => {
 
   it('returns target as undefined when comment has no anchors', () => {
     const editor = makeEditor([{ commentId: 'c1', commentText: 'Comment' }]);
-    vi.mocked(listCommentAnchors).mockReturnValue([]);
+    listCommentAnchorsMock.mockReturnValue([]);
 
     const wrapper = createCommentsWrapper(editor);
     const result = wrapper.list();
@@ -351,7 +356,7 @@ describe('comments-wrappers: multi-segment TextTarget', () => {
     const editor = makeEditor([{ commentId: 'c1', commentText: 'Comment' }]);
     mockTextBetweenSequence(editor, 'hello', 'world');
 
-    vi.mocked(listCommentAnchors).mockReturnValue([
+    listCommentAnchorsMock.mockReturnValue([
       makeAnchor({
         commentId: 'c1',
         pos: 0,
@@ -379,7 +384,7 @@ describe('comments-wrappers: multi-segment TextTarget', () => {
     ]);
     mockTextBetweenSequence(editor, 'abc', 'def');
 
-    vi.mocked(listCommentAnchors).mockReturnValue([
+    listCommentAnchorsMock.mockReturnValue([
       makeAnchor({
         commentId: 'c1',
         pos: 0,
@@ -417,7 +422,7 @@ describe('comments-wrappers: multi-segment TextTarget', () => {
       return 'second segment';
     });
 
-    vi.mocked(listCommentAnchors).mockReturnValue([
+    listCommentAnchorsMock.mockReturnValue([
       makeAnchor({
         commentId: 'c1',
         pos: 999,
@@ -444,7 +449,7 @@ describe('comments-wrappers: multi-segment TextTarget', () => {
     const editor = makeEditor([{ commentId: 'c1', commentText: 'Comment' }]);
     mockTextBetweenSequence(editor, '\ufffcabc\ufffc', '\ufffcdef\ufffc');
 
-    vi.mocked(listCommentAnchors).mockReturnValue([
+    listCommentAnchorsMock.mockReturnValue([
       makeAnchor({
         commentId: 'c1',
         pos: 0,
@@ -473,7 +478,7 @@ describe('comments-wrappers: same-block segment canonicalization', () => {
   it('merges adjacent same-block anchors into one segment', () => {
     // Two adjacent ranges in block p1: [0,5] and [5,10] → merged [0,10]
     const editor = makeEditor([{ commentId: 'c1', commentText: 'Comment' }], 'abcdefghij');
-    vi.mocked(listCommentAnchors).mockReturnValue([
+    listCommentAnchorsMock.mockReturnValue([
       makeAnchor({
         commentId: 'c1',
         pos: 1,
@@ -502,7 +507,7 @@ describe('comments-wrappers: same-block segment canonicalization', () => {
   it('merges overlapping same-block anchors into one segment', () => {
     // Two overlapping ranges in block p1: [0,5] and [3,8] → merged [0,8]
     const editor = makeEditor([{ commentId: 'c1', commentText: 'Comment' }], 'abcdefgh');
-    vi.mocked(listCommentAnchors).mockReturnValue([
+    listCommentAnchorsMock.mockReturnValue([
       makeAnchor({
         commentId: 'c1',
         pos: 1,
@@ -532,7 +537,7 @@ describe('comments-wrappers: same-block segment canonicalization', () => {
     const editor = makeEditor([{ commentId: 'c1', commentText: 'Comment' }]);
     mockTextBetweenSequence(editor, 'abc', 'ghij');
 
-    vi.mocked(listCommentAnchors).mockReturnValue([
+    listCommentAnchorsMock.mockReturnValue([
       makeAnchor({
         commentId: 'c1',
         pos: 1,
@@ -566,7 +571,7 @@ describe('comments-wrappers: same-block segment canonicalization', () => {
     const editor = makeEditor([{ commentId: 'c1', commentText: 'Comment' }]);
     mockTextBetweenSequence(editor, 'abcdefghij', 'xyz');
 
-    vi.mocked(listCommentAnchors).mockReturnValue([
+    listCommentAnchorsMock.mockReturnValue([
       makeAnchor({
         commentId: 'c1',
         pos: 1,
@@ -628,7 +633,7 @@ describe('comments-wrappers: addCommentHandler multi-segment targets', () => {
     // segments[0] resolves to a later PM range than segments[1] — the
     // caller built an out-of-order TextTarget (e.g. stitched two
     // selections together backwards).
-    vi.mocked(resolveTextTarget).mockImplementation((_editor, target) => {
+    resolveTextTargetMock.mockImplementation((_editor, target) => {
       if (target.blockId === 'pA') return { from: 50, to: 60 };
       if (target.blockId === 'pB') return { from: 10, to: 20 };
       return null;
@@ -658,7 +663,7 @@ describe('comments-wrappers: addCommentHandler multi-segment targets', () => {
     // segments[0] and segments[1] are in order, but there is text
     // between them (pm positions 10..20 are selected, 30..40 selected,
     // positions 20..30 have real text the caller did not select).
-    vi.mocked(resolveTextTarget).mockImplementation((_editor, target) => {
+    resolveTextTargetMock.mockImplementation((_editor, target) => {
       if (target.blockId === 'p1') return { from: 10, to: 20 };
       if (target.blockId === 'p3') return { from: 30, to: 40 };
       return null;
@@ -688,7 +693,7 @@ describe('comments-wrappers: addCommentHandler multi-segment targets', () => {
     // Two adjacent textblocks — the flattened PM gap between them is
     // just block-boundary tokens, which textBetween(prev.to, curr.from, '')
     // renders as an empty string.
-    vi.mocked(resolveTextTarget).mockImplementation((_editor, target) => {
+    resolveTextTargetMock.mockImplementation((_editor, target) => {
       if (target.blockId === 'pA') return { from: 10, to: 20 };
       if (target.blockId === 'pB') return { from: 22, to: 30 };
       return null;
@@ -696,7 +701,7 @@ describe('comments-wrappers: addCommentHandler multi-segment targets', () => {
     (editor.state!.doc as { textBetween: ReturnType<typeof vi.fn> }).textBetween = vi.fn(() => '');
     // Simulate a successful plan execution so the handler reaches the
     // success branch after validation + applyTextSelection.
-    vi.mocked(executeDomainCommand).mockReturnValue({
+    executeDomainCommandMock.mockReturnValue({
       steps: [{ effect: 'changed' }],
     } as unknown as ReturnType<typeof executeDomainCommand>);
 
@@ -718,14 +723,103 @@ describe('comments-wrappers: addCommentHandler multi-segment targets', () => {
     expect(receipt.success).toBe(true);
   });
 
+  it('accepts trackedChangeId targets from the tracked-change index when live resolution misses a body deletion', () => {
+    const editor = makeWriteEditor();
+    const bodyDeletionSnapshot = {
+      address: { kind: 'entity', entityType: 'trackedChange', entityId: 'tc-del-1' },
+      runtimeRef: { storyKey: 'body', rawId: 'tc-del-1' },
+      story: { kind: 'story', storyType: 'body' },
+      type: 'delete',
+      excerpt: 'deleted text',
+      storyLabel: 'Body',
+      storyKind: 'body',
+      anchorKey: 'tc::body::tc-del-1',
+      hasInsert: false,
+      hasDelete: true,
+      hasFormat: false,
+      range: { from: 19, to: 27 },
+    };
+    getTrackedChangeIndexMock.mockReturnValue({
+      get: () => [bodyDeletionSnapshot],
+      getAll: () => [],
+    } as never);
+    executeDomainCommandMock.mockReturnValue({
+      steps: [{ effect: 'changed' }],
+    } as unknown as ReturnType<typeof executeDomainCommand>);
+
+    const wrapper = createCommentsWrapper(editor);
+    const receipt = wrapper.add({
+      text: 'comment on deletion',
+      target: {
+        trackedChangeId: 'tc-del-1',
+      } as Parameters<typeof wrapper.add>[0]['target'],
+    });
+
+    expect(receipt.success).toBe(true);
+    expect(editor.commands!.setTextSelection).toHaveBeenCalledWith({ from: 19, to: 27 });
+  });
+
+  it('creates a tracked-change-linked comment without a text selection when a deletion target cannot be resolved live', () => {
+    const editor = {
+      ...makeWriteEditor(),
+      emit: vi.fn(),
+      options: {
+        documentId: 'doc-1',
+        user: {
+          name: 'Actor B',
+          email: 'actor-b@labs.requirements',
+        },
+      },
+    } as unknown as Editor;
+
+    (editor.commands!.addComment as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error('addComment should not run for detached tracked deletions');
+    });
+
+    const wrapper = createCommentsWrapper(editor);
+    const receipt = wrapper.add({
+      text: 'comment on deletion',
+      target: {
+        trackedChangeId: 'tc-del-1#deleted',
+      } as Parameters<typeof wrapper.add>[0]['target'],
+    });
+
+    expect(receipt.success).toBe(true);
+    expect(editor.commands!.setTextSelection as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    expect(editor.commands!.addComment as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    expect(editor.converter!.comments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          commentId: receipt.id,
+          commentText: 'comment on deletion',
+          trackedChange: true,
+          trackedChangeParentId: 'tc-del-1',
+          trackedChangeType: 'delete',
+        }),
+      ]),
+    );
+    expect((editor as { emit: ReturnType<typeof vi.fn> }).emit).toHaveBeenCalledWith(
+      'commentsUpdate',
+      expect.objectContaining({
+        type: 'add',
+        activeCommentId: receipt.id,
+        comment: expect.objectContaining({
+          commentId: receipt.id,
+          trackedChangeParentId: 'tc-del-1',
+          trackedChangeType: 'delete',
+        }),
+      }),
+    );
+  });
+
   it('treats a TextAddress with an undefined `segments` field as TextAddress, not TextTarget', () => {
     // Regression: a plain structural `'segments' in target` check misclassifies
     // a TextAddress carrying an extra undefined `segments` field (e.g. from
     // object spread) as a TextTarget, then crashes on `segments[0]`. The
     // runtime guard must reject a non-array `segments` before the spread.
     const editor = makeWriteEditor();
-    vi.mocked(resolveTextTarget).mockReturnValue({ from: 5, to: 12 });
-    vi.mocked(executeDomainCommand).mockReturnValue({
+    resolveTextTargetMock.mockReturnValue({ from: 5, to: 12 });
+    executeDomainCommandMock.mockReturnValue({
       steps: [{ effect: 'changed' }],
     } as unknown as ReturnType<typeof executeDomainCommand>);
 
@@ -762,8 +856,8 @@ describe('comments-wrappers: addCommentHandler multi-segment targets', () => {
     // requires the absence of TextAddress fields, so a hybrid falls
     // through to the explicit-block branch.
     const editor = makeWriteEditor();
-    vi.mocked(resolveTextTarget).mockReturnValue({ from: 11, to: 17 });
-    vi.mocked(executeDomainCommand).mockReturnValue({
+    resolveTextTargetMock.mockReturnValue({ from: 11, to: 17 });
+    executeDomainCommandMock.mockReturnValue({
       steps: [{ effect: 'changed' }],
     } as unknown as ReturnType<typeof executeDomainCommand>);
 
@@ -797,8 +891,8 @@ describe('comments-wrappers: addCommentHandler multi-segment targets', () => {
     // a TextAddress, so the adapter must not fall through to the
     // single-block path and dereference target.range.
     const editor = makeWriteEditor();
-    vi.mocked(resolveTextTarget).mockReturnValue({ from: 11, to: 17 });
-    vi.mocked(executeDomainCommand).mockReturnValue({
+    resolveTextTargetMock.mockReturnValue({ from: 11, to: 17 });
+    executeDomainCommandMock.mockReturnValue({
       steps: [{ effect: 'changed' }],
     } as unknown as ReturnType<typeof executeDomainCommand>);
 
@@ -823,8 +917,8 @@ describe('comments-wrappers: addCommentHandler multi-segment targets', () => {
     // but not as a TextAddress. The adapter should resolve the real
     // segment instead of manufacturing a segment from the stray range.
     const editor = makeWriteEditor();
-    vi.mocked(resolveTextTarget).mockReturnValue({ from: 11, to: 17 });
-    vi.mocked(executeDomainCommand).mockReturnValue({
+    resolveTextTargetMock.mockReturnValue({ from: 11, to: 17 });
+    executeDomainCommandMock.mockReturnValue({
       steps: [{ effect: 'changed' }],
     } as unknown as ReturnType<typeof executeDomainCommand>);
 
@@ -852,7 +946,7 @@ describe('comments-wrappers: addCommentHandler multi-segment targets', () => {
     // firstResolved.from < lastResolved.to across the block boundary),
     // silently anchoring a comment over content the caller never selected.
     const editor = makeWriteEditor();
-    vi.mocked(resolveTextTarget).mockImplementation((_editor, target) => {
+    resolveTextTargetMock.mockImplementation((_editor, target) => {
       if (target.blockId === 'pA') return { from: 10, to: 10 };
       if (target.blockId === 'pB') return { from: 20, to: 20 };
       return null;
@@ -882,7 +976,7 @@ describe('comments-wrappers: addCommentHandler multi-segment targets', () => {
     // because PM omits leaves from textBetween by default. The contiguity
     // check must use a leafText callback so atom-only gaps still reject.
     const editor = makeWriteEditor();
-    vi.mocked(resolveTextTarget).mockImplementation((_editor, target) => {
+    resolveTextTargetMock.mockImplementation((_editor, target) => {
       if (target.blockId === 'p1') return { from: 5, to: 10 };
       if (target.blockId === 'p1-after-image') return { from: 12, to: 17 };
       return null;

@@ -46,6 +46,7 @@ import type { FormatInlineAliasInput, StyleApplyInput } from '../format/format.j
 import type { InlineRunPatchKey } from '../format/inline-run-patch.js';
 import type { StylesApplyInput, StylesApplyOptions, StylesApplyReceipt } from '../styles/index.js';
 import type {
+  CommentsCreateReceipt,
   CommentsCreateInput,
   CommentsPatchInput,
   CommentsDeleteInput,
@@ -867,7 +868,7 @@ export interface OperationRegistry extends FormatInlineAliasOperationRegistry {
   };
 
   // --- comments.* ---
-  'comments.create': { input: CommentsCreateInput; options: RevisionGuardOptions; output: Receipt };
+  'comments.create': { input: CommentsCreateInput; options: RevisionGuardOptions; output: CommentsCreateReceipt };
   'comments.patch': { input: CommentsPatchInput; options: RevisionGuardOptions; output: Receipt };
   'comments.delete': { input: CommentsDeleteInput; options: RevisionGuardOptions; output: Receipt };
   'comments.get': { input: GetCommentInput; options: never; output: CommentInfo };

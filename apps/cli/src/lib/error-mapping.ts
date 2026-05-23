@@ -41,6 +41,10 @@ function mapTrackChangesError(operationId: CliExposedOperationId, error: unknown
   const message = extractErrorMessage(error);
   const details = extractErrorDetails(error);
 
+  if (operationId === 'trackChanges.decide' && code === 'TARGET_NOT_FOUND') {
+    return new CliError('TARGET_NOT_FOUND', message, { operationId, details });
+  }
+
   if (code === 'TARGET_NOT_FOUND' || (typeof message === 'string' && message.includes('was not found'))) {
     return new CliError('TRACK_CHANGE_NOT_FOUND', message, { operationId, details });
   }
@@ -439,6 +443,9 @@ export function mapFailedReceipt(operationId: CliExposedOperationId, result: unk
 
   // Track-changes family
   if (family === 'trackChanges') {
+    if (operationId === 'trackChanges.decide' && failureCode === 'TARGET_NOT_FOUND') {
+      return new CliError('TARGET_NOT_FOUND', failureMessage, { operationId, failure });
+    }
     if (failureCode === 'TRACK_CHANGE_COMMAND_UNAVAILABLE') {
       return new CliError('TRACK_CHANGE_COMMAND_UNAVAILABLE', failureMessage, { operationId, failure });
     }

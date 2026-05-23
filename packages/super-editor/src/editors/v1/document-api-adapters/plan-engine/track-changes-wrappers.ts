@@ -35,7 +35,11 @@ import { executeDomainCommand } from './plan-wrappers.js';
 import { paginate, validatePaginationInput } from '../helpers/adapter-utils.js';
 import { resolveTextRangeInBlock } from '../helpers/text-offset-resolver.js';
 import { checkRevision, getRevision } from './revision-tracker.js';
-import { resolveTrackedChangeInStory, resolveTrackedChangeType } from '../helpers/tracked-change-resolver.js';
+import {
+  resolveTrackedChangeInStory,
+  resolveTrackedChangeType,
+  splitProjectedTrackedChangeId,
+} from '../helpers/tracked-change-resolver.js';
 import { getTrackedChangeIndex } from '../tracked-changes/tracked-change-index.js';
 import type { TrackedChangeSnapshot } from '../tracked-changes/tracked-change-snapshot.js';
 import { resolveStoryRuntime } from '../story-runtime/resolve-story-runtime.js';
@@ -56,31 +60,162 @@ function normalizeWordRevisionIds(
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
-function snapshotToInfo(snapshot: TrackedChangeSnapshot): TrackChangeInfo {
+type ProjectedTrackChange = {
+  info: TrackChangeInfo;
+  handleKey: string;
+  snapshot: TrackedChangeSnapshot;
+};
+
+type ProjectedTrackedChangeCacheEntry = {
+  revision: string;
+  byProjectedId: Map<string, TrackedChangeSnapshot>;
+};
+
+const projectedTrackedChangeCache = new WeakMap<Editor, ProjectedTrackedChangeCacheEntry>();
+
+function buildProjectedInfo(
+  snapshot: TrackedChangeSnapshot,
+  options: {
+    id?: string;
+    type?: TrackChangeType;
+    grouping?: TrackChangeInfo['grouping'];
+    pairedWithChangeId?: string | null;
+    handleSuffix?: string;
+  } = {},
+): ProjectedTrackChange {
+  const id = options.id ?? snapshot.address.entityId;
+  const type = options.type ?? snapshot.type;
   const changedText = snapshot.excerpt
-    ? { [snapshot.type === 'delete' ? 'deletedText' : 'insertedText']: snapshot.excerpt }
+    ? { [type === 'delete' ? 'deletedText' : 'insertedText']: snapshot.excerpt }
     : {};
   return {
-    address: snapshot.address,
-    id: snapshot.address.entityId,
-    type: snapshot.type,
-    wordRevisionIds: normalizeWordRevisionIds(snapshot.wordRevisionIds),
-    overlap: snapshot.overlap,
-    author: snapshot.author,
-    authorEmail: snapshot.authorEmail,
-    authorImage: snapshot.authorImage,
-    date: snapshot.date,
-    excerpt: snapshot.excerpt,
-    ...(snapshot.type === 'format' ? {} : changedText),
+    info: {
+      address: {
+        ...snapshot.address,
+        entityId: id,
+      },
+      id,
+      type,
+      grouping: options.grouping,
+      pairedWithChangeId: options.pairedWithChangeId ?? undefined,
+      wordRevisionIds: normalizeWordRevisionIds(snapshot.wordRevisionIds),
+      overlap: snapshot.overlap,
+      author: snapshot.author,
+      authorEmail: snapshot.authorEmail,
+      authorImage: snapshot.authorImage,
+      date: snapshot.date,
+      excerpt: snapshot.excerpt,
+      ...(type === 'format' ? {} : changedText),
+    },
+    handleKey: `${snapshot.anchorKey}${options.handleSuffix ?? ''}`,
+    snapshot,
   };
 }
 
-function filterByType(
-  snapshots: ReadonlyArray<TrackedChangeSnapshot>,
+function isCombinedReplacementSnapshot(snapshot: TrackedChangeSnapshot): boolean {
+  return snapshot.hasInsert && snapshot.hasDelete && !snapshot.hasFormat;
+}
+
+function replacementPairKey(snapshot: TrackedChangeSnapshot): string | null {
+  if (snapshot.type !== 'insert' && snapshot.type !== 'delete') return null;
+  if (snapshot.replacementGroupId) {
+    return `group:${snapshot.runtimeRef.storyKey}:${snapshot.replacementGroupId}`;
+  }
+  if (snapshot.commandRawId) {
+    return `command:${snapshot.runtimeRef.storyKey}:${snapshot.commandRawId}`;
+  }
+  return null;
+}
+
+function snapshotToInfo(snapshot: TrackedChangeSnapshot): TrackChangeInfo {
+  return buildProjectedInfo(snapshot, { grouping: 'standalone', pairedWithChangeId: null }).info;
+}
+
+export function projectSnapshots(snapshots: ReadonlyArray<TrackedChangeSnapshot>): ProjectedTrackChange[] {
+  const byPairKey = new Map<string, TrackedChangeSnapshot[]>();
+  for (const snapshot of snapshots) {
+    if (isCombinedReplacementSnapshot(snapshot)) continue;
+    const key = replacementPairKey(snapshot);
+    if (!key) continue;
+    const group = byPairKey.get(key) ?? [];
+    group.push(snapshot);
+    byPairKey.set(key, group);
+  }
+
+  const pairedById = new Map<string, string>();
+  for (const group of byPairKey.values()) {
+    const inserts = group.filter((snapshot) => snapshot.type === 'insert');
+    const deletes = group.filter((snapshot) => snapshot.type === 'delete');
+    if (inserts.length !== 1 || deletes.length !== 1) continue;
+    pairedById.set(inserts[0].address.entityId, deletes[0].address.entityId);
+    pairedById.set(deletes[0].address.entityId, inserts[0].address.entityId);
+  }
+
+  const projected: ProjectedTrackChange[] = [];
+  for (const snapshot of snapshots) {
+    if (isCombinedReplacementSnapshot(snapshot)) {
+      const insertedId = `${snapshot.address.entityId}#inserted`;
+      const deletedId = `${snapshot.address.entityId}#deleted`;
+      projected.push(
+        buildProjectedInfo(snapshot, {
+          id: insertedId,
+          type: 'insert',
+          grouping: 'replacement-pair',
+          pairedWithChangeId: deletedId,
+          handleSuffix: '#inserted',
+        }),
+      );
+      projected.push(
+        buildProjectedInfo(snapshot, {
+          id: deletedId,
+          type: 'delete',
+          grouping: 'replacement-pair',
+          pairedWithChangeId: insertedId,
+          handleSuffix: '#deleted',
+        }),
+      );
+      continue;
+    }
+
+    const pairedWithChangeId = pairedById.get(snapshot.address.entityId) ?? null;
+    projected.push(
+      buildProjectedInfo(snapshot, {
+        grouping: pairedWithChangeId ? 'replacement-pair' : 'standalone',
+        pairedWithChangeId,
+      }),
+    );
+  }
+
+  return projected;
+}
+
+function cacheProjectedTrackedChanges(
+  editor: Editor,
+  projected: ReadonlyArray<ProjectedTrackChange>,
+  revision = getRevision(editor),
+): void {
+  projectedTrackedChangeCache.set(editor, {
+    revision,
+    byProjectedId: new Map(projected.map((row) => [row.info.id, row.snapshot])),
+  });
+}
+
+export function getCachedProjectedTrackedChangeSnapshot(
+  editor: Editor,
+  projectedId: string,
+): TrackedChangeSnapshot | null {
+  const cache = projectedTrackedChangeCache.get(editor);
+  if (!cache) return null;
+  if (cache.revision !== getRevision(editor)) return null;
+  return cache.byProjectedId.get(projectedId) ?? null;
+}
+
+function filterProjectedByType(
+  rows: ReadonlyArray<ProjectedTrackChange>,
   requestedType?: TrackChangeType,
-): TrackedChangeSnapshot[] {
-  if (!requestedType) return [...snapshots];
-  return snapshots.filter((snapshot) => snapshot.type === requestedType);
+): ProjectedTrackChange[] {
+  if (!requestedType) return [...rows];
+  return rows.filter((row) => row.info.type === requestedType);
 }
 
 function toNoOpReceipt(message: string, details?: unknown): Receipt {
@@ -139,19 +274,23 @@ export function trackChangesListWrapper(editor: Editor, input?: TrackChangesList
     rawSnapshots = index.get(scope.story);
   }
 
-  const filtered = filterByType(rawSnapshots, input?.type);
+  const projected = projectSnapshots(rawSnapshots);
+  const evaluatedRevision = getRevision(editor);
+  cacheProjectedTrackedChanges(editor, projected, evaluatedRevision);
+  const filtered = filterProjectedByType(projected, input?.type);
   const paged = paginate(filtered, input?.offset, input?.limit);
   // Track-changes discovery uses a document-level revision token across every
   // scope. Part commits also advance the host revision, so one shared token
   // correctly guards body, story-scoped, and aggregate review flows.
-  const evaluatedRevision = getRevision(editor);
 
-  const items = paged.items.map((snapshot) => {
-    const info = snapshotToInfo(snapshot);
-    const handle = buildResolvedHandle(snapshot.anchorKey, 'stable', 'trackedChange');
+  const items = paged.items.map((row) => {
+    const info = row.info;
+    const handle = buildResolvedHandle(row.handleKey, 'stable', 'trackedChange');
     const {
       address,
       type,
+      grouping,
+      pairedWithChangeId,
       wordRevisionIds,
       overlap,
       author,
@@ -165,6 +304,8 @@ export function trackChangesListWrapper(editor: Editor, input?: TrackChangesList
     return buildDiscoveryItem(info.id, handle, {
       address,
       type,
+      grouping,
+      pairedWithChangeId,
       wordRevisionIds,
       overlap,
       author,
@@ -202,7 +343,13 @@ export function trackChangesGetWrapper(editor: Editor, input: TrackChangesGetInp
   const anchorKey = makeTrackedChangeAnchorKey(resolved.runtimeRef);
   const snapshots =
     storyKey === BODY_STORY_KEY ? index.get({ kind: 'story', storyType: 'body' }) : index.get(resolved.story);
-  const snapshot = snapshots.find((item) => item.anchorKey === anchorKey);
+  const projected = projectSnapshots(snapshots);
+  const projectedMatch = projected.find((row) => row.info.id === id);
+
+  if (projectedMatch) return projectedMatch.info;
+
+  const { baseId } = splitProjectedTrackedChangeId(id);
+  const snapshot = snapshots.find((item) => item.anchorKey === anchorKey || item.address.entityId === baseId);
 
   if (snapshot) return snapshotToInfo(snapshot);
 

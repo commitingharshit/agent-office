@@ -782,42 +782,10 @@ export const useCommentsStore = defineStore('comments', () => {
         existingTrackedChange.resolveComment(resolveArgs);
       }
 
-      // AIDEV-NOTE: SD-2528. User-attached comments on a tracked change carry
-      // trackedChangeParentId === <tracked-change id>. When the TC is accepted
-      // or rejected, those comment bubbles must also resolve — otherwise the
-      // comment lingers after the redline it referred to is gone. Defer to a
-      // microtask so the cascading resolveComment doesn't dispatch into a
-      // still-running acceptTrackedChangeById/rejectTrackedChangeById loop and
-      // collide with its mutable `tr`.
-      //
-      // AIDEV-NOTE: SD-2528 P2 #1. Mirror `findTrackedChangeById`'s
-      // documentId scope (see line 591-596). In multi-document sessions
-      // tracked-change ids can collide across documents (each imported file
-      // has its own w:id space); without this filter, accepting a change in
-      // document A would cascade-resolve comments anchored on document B
-      // that happen to share the same id. Single-document callers (no
-      // documentId on the event) keep the legacy global behaviour.
-      if (normalizedChangeId) {
-        const linkedToResolve = commentsList.value.filter((linkedComment) => {
-          if (!linkedComment || linkedComment === existingTrackedChange) return false;
-          if (linkedComment.resolvedTime) return false;
-          const linkedParentId =
-            linkedComment.trackedChangeParentId != null ? String(linkedComment.trackedChangeParentId) : null;
-          if (linkedParentId !== normalizedChangeId) return false;
-          if (normalizedDocumentId) {
-            return belongsToTrackedChangeSyncDocument(linkedComment, normalizedDocumentId);
-          }
-          return true;
-        });
-        if (linkedToResolve.length) {
-          Promise.resolve().then(() => {
-            linkedToResolve.forEach((linkedComment) => {
-              if (linkedComment.resolvedTime) return;
-              linkedComment.resolveComment(resolveArgs);
-            });
-          });
-        }
-      }
+      // User comments linked to tracked content are no longer blanket-cascaded
+      // here. The decision engine emits explicit standard comment update/delete
+      // events for each affected thread so accepted insertions can keep their
+      // comments while rejected/removed coverage still deletes the right ones.
     }
   };
 

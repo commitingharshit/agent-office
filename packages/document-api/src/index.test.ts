@@ -87,9 +87,17 @@ function makeInfoAdapter(result?: Partial<DocumentInfo>) {
 
 function makeCommentsAdapter(): CommentsAdapter {
   return {
-    add: mock(() => ({ success: true as const })),
+    add: mock(() => ({
+      success: true as const,
+      id: 'c1',
+      inserted: [{ kind: 'entity' as const, entityType: 'comment' as const, entityId: 'c1' }],
+    })),
     edit: mock(() => ({ success: true as const })),
-    reply: mock(() => ({ success: true as const })),
+    reply: mock(() => ({
+      success: true as const,
+      id: 'c2',
+      inserted: [{ kind: 'entity' as const, entityType: 'comment' as const, entityId: 'c2' }],
+    })),
     move: mock(() => ({ success: true as const })),
     resolve: mock(() => ({ success: true as const })),
     remove: mock(() => ({ success: true as const })),
@@ -544,6 +552,7 @@ describe('createDocumentApi', () => {
     const receipt = api.comments.create(input);
 
     expect(receipt.success).toBe(true);
+    expect(receipt.id).toBe('c1');
     expect(commentsAdpt.add).toHaveBeenCalledWith(input, undefined);
   });
 
@@ -567,6 +576,7 @@ describe('createDocumentApi', () => {
     const receipt = api.comments.create(input);
 
     expect(receipt.success).toBe(true);
+    expect(receipt.id).toBe('c2');
     expect(commentsAdpt.reply).toHaveBeenCalledWith({ parentCommentId: 'c1', text: 'reply text' }, undefined);
   });
 
@@ -791,6 +801,34 @@ describe('createDocumentApi', () => {
     expect(selectionAdpt.execute).toHaveBeenCalledWith(
       { kind: 'format', target, ref: undefined, inline: { fontFamily: 'Arial' } },
       { changeMode: 'direct', dryRun: false },
+    );
+  });
+
+  it('delegates root formatRange to selectionMutation.execute with inline properties', () => {
+    const selectionAdpt = makeSelectionMutationAdapter();
+    const api = createDocumentApi({
+      find: makeFindAdapter(FIND_RESULT),
+      get: makeGetAdapter(),
+      getNode: makeGetNodeAdapter(PARAGRAPH_NODE_RESULT),
+      getText: makeGetTextAdapter(),
+      info: makeInfoAdapter(),
+      comments: makeCommentsAdapter(),
+      write: makeWriteAdapter(),
+      selectionMutation: selectionAdpt,
+      trackChanges: makeTrackChangesAdapter(),
+      create: makeCreateAdapter(),
+      lists: makeListsAdapter(),
+    });
+
+    const target = {
+      kind: 'selection' as const,
+      start: { kind: 'text' as const, blockId: 'p1', offset: 0 },
+      end: { kind: 'text' as const, blockId: 'p1', offset: 2 },
+    };
+    api.formatRange({ target, properties: { bold: true }, changeMode: 'tracked', dryRun: true });
+    expect(selectionAdpt.execute).toHaveBeenCalledWith(
+      { kind: 'format', target, ref: undefined, inline: { bold: true } },
+      { changeMode: 'tracked', dryRun: true },
     );
   });
 
@@ -2079,6 +2117,24 @@ describe('createDocumentApi', () => {
       expect(result.success).toBe(true);
     });
 
+    it('accepts SelectionTarget', () => {
+      const api = makeApi();
+      const target = {
+        kind: 'selection' as const,
+        start: { kind: 'text' as const, blockId: 'p1', offset: 0 },
+        end: { kind: 'text' as const, blockId: 'p1', offset: 5 },
+      };
+      const result = api.comments.create({ target, text: 'comment' });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts tracked-change target', () => {
+      const api = makeApi();
+      const target = { kind: 'trackedChange' as const, trackedChangeId: 'tc-1' };
+      const result = api.comments.create({ target, text: 'comment' });
+      expect(result.success).toBe(true);
+    });
+
     it('accepts reply without target (parentCommentId only)', () => {
       const api = makeApi();
       const result = api.comments.create({ parentCommentId: 'c1', text: 'reply' });
@@ -2135,7 +2191,7 @@ describe('createDocumentApi', () => {
       const api = makeApi();
       expectValidationError(
         () => api.comments.create({ target: { kind: 'text', blockId: 'p1' }, text: 'comment' } as any),
-        'target must be a TextAddress or TextTarget object',
+        'SelectionTarget, or tracked-change target',
       );
     });
 
@@ -2187,6 +2243,58 @@ describe('createDocumentApi', () => {
           { blockId: 'p2', range: { start: 0, end: 7 } },
         ],
       } as const;
+      api.comments.create({ target, text: 'comment' });
+      expect(commentsAdpt.add).toHaveBeenCalledWith({ target, text: 'comment' }, undefined);
+    });
+
+    it('forwards SelectionTarget unchanged', () => {
+      const commentsAdpt = makeCommentsAdapter();
+      const api = createDocumentApi({
+        find: makeFindAdapter(FIND_RESULT),
+        get: makeGetAdapter(),
+        getNode: makeGetNodeAdapter(PARAGRAPH_NODE_RESULT),
+        getText: makeGetTextAdapter(),
+        info: makeInfoAdapter(),
+        capabilities: makeCapabilitiesAdapter(),
+        comments: commentsAdpt,
+        write: makeWriteAdapter(),
+        selectionMutation: makeSelectionMutationAdapter(),
+        trackChanges: makeTrackChangesAdapter(),
+        create: makeCreateAdapter(),
+        lists: makeListsAdapter(),
+      });
+
+      const target = {
+        kind: 'selection' as const,
+        start: { kind: 'text' as const, blockId: 'p1', offset: 1 },
+        end: { kind: 'text' as const, blockId: 'p1', offset: 4 },
+      };
+      api.comments.create({ target, text: 'comment' });
+      expect(commentsAdpt.add).toHaveBeenCalledWith({ target, text: 'comment' }, undefined);
+    });
+
+    it('forwards tracked-change target unchanged', () => {
+      const commentsAdpt = makeCommentsAdapter();
+      const api = createDocumentApi({
+        find: makeFindAdapter(FIND_RESULT),
+        get: makeGetAdapter(),
+        getNode: makeGetNodeAdapter(PARAGRAPH_NODE_RESULT),
+        getText: makeGetTextAdapter(),
+        info: makeInfoAdapter(),
+        capabilities: makeCapabilitiesAdapter(),
+        comments: commentsAdpt,
+        write: makeWriteAdapter(),
+        selectionMutation: makeSelectionMutationAdapter(),
+        trackChanges: makeTrackChangesAdapter(),
+        create: makeCreateAdapter(),
+        lists: makeListsAdapter(),
+      });
+
+      const target = {
+        kind: 'trackedChange' as const,
+        trackedChangeId: 'tc-1',
+        story: { kind: 'story' as const, storyType: 'body' as const },
+      };
       api.comments.create({ target, text: 'comment' });
       expect(commentsAdpt.add).toHaveBeenCalledWith({ target, text: 'comment' }, undefined);
     });
@@ -2267,6 +2375,24 @@ describe('createDocumentApi', () => {
       expect(result.success).toBe(true);
     });
 
+    it('accepts SelectionTarget', () => {
+      const api = makeApi();
+      const target = {
+        kind: 'selection' as const,
+        start: { kind: 'text' as const, blockId: 'p1', offset: 0 },
+        end: { kind: 'text' as const, blockId: 'p1', offset: 5 },
+      };
+      const result = api.comments.patch({ commentId: 'c1', target });
+      expect(result.success).toBe(true);
+    });
+
+    it('accepts tracked-change target', () => {
+      const api = makeApi();
+      const target = { trackedChangeId: 'tc-1' };
+      const result = api.comments.patch({ commentId: 'c1', target });
+      expect(result.success).toBe(true);
+    });
+
     it('accepts text-only patch (no target needed)', () => {
       const api = makeApi();
       const result = api.comments.patch({ commentId: 'c1', text: 'updated' });
@@ -2318,7 +2444,7 @@ describe('createDocumentApi', () => {
       const api = makeApi();
       expectValidationError(
         () => api.comments.patch({ commentId: 'c1', target: { kind: 'text', blockId: 'p1' } } as any),
-        'target must be a text address object',
+        'SelectionTarget, or tracked-change target',
       );
     });
 
@@ -2387,6 +2513,54 @@ describe('createDocumentApi', () => {
         },
         undefined,
       );
+    });
+
+    it('forwards SelectionTarget to adapter.move unchanged', () => {
+      const commentsAdpt = makeCommentsAdapter();
+      const api = createDocumentApi({
+        find: makeFindAdapter(FIND_RESULT),
+        get: makeGetAdapter(),
+        getNode: makeGetNodeAdapter(PARAGRAPH_NODE_RESULT),
+        getText: makeGetTextAdapter(),
+        info: makeInfoAdapter(),
+        capabilities: makeCapabilitiesAdapter(),
+        comments: commentsAdpt,
+        write: makeWriteAdapter(),
+        selectionMutation: makeSelectionMutationAdapter(),
+        trackChanges: makeTrackChangesAdapter(),
+        create: makeCreateAdapter(),
+        lists: makeListsAdapter(),
+      });
+
+      const target = {
+        kind: 'selection' as const,
+        start: { kind: 'text' as const, blockId: 'p1', offset: 1 },
+        end: { kind: 'text' as const, blockId: 'p1', offset: 4 },
+      };
+      api.comments.patch({ commentId: 'c1', target });
+      expect(commentsAdpt.move).toHaveBeenCalledWith({ commentId: 'c1', target }, undefined);
+    });
+
+    it('forwards tracked-change target to adapter.move unchanged', () => {
+      const commentsAdpt = makeCommentsAdapter();
+      const api = createDocumentApi({
+        find: makeFindAdapter(FIND_RESULT),
+        get: makeGetAdapter(),
+        getNode: makeGetNodeAdapter(PARAGRAPH_NODE_RESULT),
+        getText: makeGetTextAdapter(),
+        info: makeInfoAdapter(),
+        capabilities: makeCapabilitiesAdapter(),
+        comments: commentsAdpt,
+        write: makeWriteAdapter(),
+        selectionMutation: makeSelectionMutationAdapter(),
+        trackChanges: makeTrackChangesAdapter(),
+        create: makeCreateAdapter(),
+        lists: makeListsAdapter(),
+      });
+
+      const target = { kind: 'trackedChange' as const, trackedChangeId: 'tc-1' };
+      api.comments.patch({ commentId: 'c1', target });
+      expect(commentsAdpt.move).toHaveBeenCalledWith({ commentId: 'c1', target }, undefined);
     });
   });
 

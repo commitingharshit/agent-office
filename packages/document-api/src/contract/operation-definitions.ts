@@ -2374,7 +2374,7 @@ export const OPERATION_DEFINITIONS = {
     memberPath: 'comments.create',
     description: 'Create a new comment thread (or reply when parentCommentId is given).',
     expectedResult:
-      'Returns a Receipt confirming the comment was created; reports NO_OP if the anchor target is invalid.',
+      'Returns a Receipt confirming the comment was created, including the new comment id; reports NO_OP if the anchor target is invalid.',
     requiresDocumentContext: true,
     metadata: mutationOperation({
       idempotency: 'non-idempotent',

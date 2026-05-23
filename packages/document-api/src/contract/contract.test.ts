@@ -214,6 +214,53 @@ describe('document-api contract catalog', () => {
     }
   });
 
+  it('allows null trackedChangeLink on comment read models', () => {
+    const schemas = buildInternalContractSchemas();
+    const commentInfoSchema = schemas.operations['comments.get'].output as {
+      properties?: {
+        trackedChangeLink?: { oneOf?: Array<Record<string, unknown>> };
+      };
+    };
+    const commentsListSchema = schemas.operations['comments.list'].output as {
+      properties?: {
+        items?: {
+          items?: {
+            properties?: {
+              trackedChangeLink?: { oneOf?: Array<Record<string, unknown>> };
+            };
+          };
+        };
+      };
+    };
+
+    const getVariants = commentInfoSchema.properties?.trackedChangeLink?.oneOf ?? [];
+    const listVariants = commentsListSchema.properties?.items?.items?.properties?.trackedChangeLink?.oneOf ?? [];
+
+    expect(getVariants.some((variant) => variant.type === 'null')).toBe(true);
+    expect(listVariants.some((variant) => variant.type === 'null')).toBe(true);
+  });
+
+  it('requires id on comments.create success receipts', () => {
+    const schemas = buildInternalContractSchemas();
+    const createOutputSchema = schemas.operations['comments.create'].output as {
+      oneOf?: Array<{
+        $ref?: string;
+      }>;
+    };
+    const defs = schemas.$defs as Record<
+      string,
+      {
+        properties?: Record<string, unknown>;
+        required?: string[];
+      }
+    >;
+
+    const successSchema = createOutputSchema.oneOf?.[0];
+    expect(successSchema?.$ref).toBe('#/$defs/CommentsCreateSuccess');
+    expect(defs.CommentsCreateSuccess?.properties).toHaveProperty('id');
+    expect(defs.CommentsCreateSuccess?.required).toEqual(expect.arrayContaining(['success', 'id']));
+  });
+
   it('declares UNSUPPORTED_ENVIRONMENT for insert metadata and generated failure schema', () => {
     const schemas = buildInternalContractSchemas();
     const insertFailureSchema = schemas.operations.insert.failure as {

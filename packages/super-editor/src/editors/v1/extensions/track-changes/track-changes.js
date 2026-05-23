@@ -58,6 +58,7 @@ const dispatchReviewDecision = ({ editor, state, dispatch, decision, target }) =
     dispatch(result.tr);
 
     if (editor?.emit) {
+      const documentId = editor.options?.documentId;
       // Partial decisions retire the original id and mint successor fragments
       // (splitFromId === originalId). For each retired id, decide whether to
       // emit `resolve` (no successors remain) or `update` (successors keep
@@ -90,7 +91,7 @@ const dispatchReviewDecision = ({ editor, state, dispatch, decision, target }) =
         if (!remaining.length) continue;
         const payload = buildPartialUpdatePayload({
           state: nextState,
-          documentId: editor.options?.documentId,
+          documentId,
           originalId: changeId,
           remaining,
         });
@@ -98,6 +99,18 @@ const dispatchReviewDecision = ({ editor, state, dispatch, decision, target }) =
           editor.emit('commentsUpdate', payload);
           emittedFor.add(changeId);
         }
+      }
+
+      const deletedCommentIds = new Set((result.receipt?.deletedComments ?? []).map(({ id }) => id).filter(Boolean));
+      const detachedCommentIds = new Set(
+        (result.receipt?.detachedComments ?? []).map(({ id }) => id).filter((id) => id && !deletedCommentIds.has(id)),
+      );
+
+      for (const commentId of deletedCommentIds) {
+        editor.emit('commentsUpdate', buildDeletedCommentPayload({ commentId, documentId }));
+      }
+      for (const commentId of detachedCommentIds) {
+        editor.emit('commentsUpdate', buildDetachedCommentUpdatePayload({ commentId, documentId }));
       }
     }
   }
@@ -174,6 +187,34 @@ const buildPartialUpdatePayload = ({ state, documentId, originalId, remaining })
     ...(importedAuthor && { importedAuthor: { name: importedAuthor } }),
   };
 };
+
+const buildDetachedCommentUpdatePayload = ({ commentId, documentId }) => ({
+  type: 'update',
+  comment: {
+    commentId,
+    documentId,
+    fileId: documentId ?? null,
+    trackedChange: false,
+    trackedChangeParentId: null,
+    trackedChangeType: null,
+    trackedChangeDisplayType: null,
+    trackedChangeText: null,
+    trackedChangeStory: null,
+    trackedChangeStoryKind: null,
+    trackedChangeStoryLabel: null,
+    trackedChangeAnchorKey: null,
+    deletedText: null,
+  },
+});
+
+const buildDeletedCommentPayload = ({ commentId, documentId }) => ({
+  type: 'deleted',
+  comment: {
+    commentId,
+    documentId,
+    fileId: documentId ?? null,
+  },
+});
 
 export const TrackChanges = Extension.create({
   name: 'trackChanges',

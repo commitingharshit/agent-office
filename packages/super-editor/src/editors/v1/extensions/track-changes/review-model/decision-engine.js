@@ -63,6 +63,7 @@ import { planCommentEffects } from './comment-effects.js';
  * @property {string[]} updatedChangeIds changes whose surviving coverage changed.
  * @property {Array<{ id: string, cause?: string }>} removedChangeIds retired logical change ids.
  * @property {Array<{ id: string, cause: string }>} deletedComments comment threads removed as side effects.
+ * @property {Array<{ id: string, cause: string }>} detachedComments comment threads whose anchors survive but should detach from tracked-change threading.
  * @property {Array<{ id: string, cause: string }>} shrunkenComments comment threads that shrank.
  * @property {Array<{ changeId: string }>} affectedChildren child ids that retired with their parent.
  */
@@ -399,6 +400,8 @@ const buildMutationPlan = ({ state, graph, selections, decision, replacements })
   const ops = [];
   /** @type {Array<{ from: number, to: number, cause: string }>} */
   const removedRanges = [];
+  /** @type {Array<{ from: number, to: number, cause: string }>} */
+  const resolvedRanges = [];
   /** @type {Set<string>} */
   const touched = new Set();
   /** @type {Set<string>} */
@@ -432,6 +435,15 @@ const buildMutationPlan = ({ state, graph, selections, decision, replacements })
       }
     }
     touched.add(change.id);
+    if (isFull) {
+      for (const segment of change.segments) {
+        resolvedRanges.push({
+          from: segment.from,
+          to: segment.to,
+          cause: `${decision}:${change.id}`,
+        });
+      }
+    }
 
     if (!isFull && (change.type === CanonicalChangeType.Insertion || change.type === CanonicalChangeType.Deletion)) {
       const partialResult = planPartialTextDecision({
@@ -493,7 +505,7 @@ const buildMutationPlan = ({ state, graph, selections, decision, replacements })
     }
   }
 
-  const commentEffects = planCommentEffects({ doc: state.doc, removedRanges });
+  const commentEffects = planCommentEffects({ doc: state.doc, removedRanges, resolvedRanges });
 
   // Convert comment node deletions into removeContent ops so apply respects
   // the same reverse-order pass. Removing the anchor nodes from inside
@@ -879,6 +891,7 @@ const buildReceipt = ({ plan }) => {
     updatedChangeIds: [],
     removedChangeIds: Array.from(plan.retiredChangeIds).map((id) => ({ id, cause: 'decision' })),
     deletedComments: plan.commentEffects.entityDeletes,
+    detachedComments: plan.commentEffects.entityDetaches,
     shrunkenComments: plan.commentEffects.entityShrinks.map(({ id, cause }) => ({ id, cause })),
     affectedChildren: plan.commentEffects._affectedChildren ?? [],
   };

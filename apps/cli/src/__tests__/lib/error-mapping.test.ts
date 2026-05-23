@@ -14,6 +14,17 @@ describe('mapInvokeError', () => {
     expect(mapped.message).toBe('blocks.delete requires a target.');
     expect(mapped.details).toEqual({ operationId: 'blocks.delete', details: { field: 'target' } });
   });
+
+  test('preserves TARGET_NOT_FOUND for trackChanges.decide stale ids', () => {
+    const error = Object.assign(new Error('Tracked change "tc-1" was not found.'), {
+      code: 'TARGET_NOT_FOUND',
+      details: { id: 'tc-1' },
+    });
+
+    const mapped = mapInvokeError('trackChanges.decide' as any, error);
+    expect(mapped.code).toBe('TARGET_NOT_FOUND');
+    expect(mapped.details).toEqual({ operationId: 'trackChanges.decide', details: { id: 'tc-1' } });
+  });
 });
 
 // ---------------------------------------------------------------------------
