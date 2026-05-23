@@ -127,16 +127,8 @@ function replacementPairKey(snapshot: TrackedChangeSnapshot): string | null {
   return null;
 }
 
-function snapshotGrouping(snapshot: TrackedChangeSnapshot): TrackChangeInfo['grouping'] {
-  return isCombinedReplacementSnapshot(snapshot) ? 'aggregate' : 'standalone';
-}
-
-function snapshotToProjected(snapshot: TrackedChangeSnapshot): ProjectedTrackChange {
-  return buildProjectedInfo(snapshot, { grouping: snapshotGrouping(snapshot), pairedWithChangeId: null });
-}
-
 function snapshotToInfo(snapshot: TrackedChangeSnapshot): TrackChangeInfo {
-  return snapshotToProjected(snapshot).info;
+  return buildProjectedInfo(snapshot, { grouping: 'standalone', pairedWithChangeId: null }).info;
 }
 
 export function projectSnapshots(snapshots: ReadonlyArray<TrackedChangeSnapshot>): ProjectedTrackChange[] {
@@ -162,7 +154,26 @@ export function projectSnapshots(snapshots: ReadonlyArray<TrackedChangeSnapshot>
   const projected: ProjectedTrackChange[] = [];
   for (const snapshot of snapshots) {
     if (isCombinedReplacementSnapshot(snapshot)) {
-      projected.push(snapshotToProjected(snapshot));
+      const insertedId = `${snapshot.address.entityId}#inserted`;
+      const deletedId = `${snapshot.address.entityId}#deleted`;
+      projected.push(
+        buildProjectedInfo(snapshot, {
+          id: insertedId,
+          type: 'insert',
+          grouping: 'replacement-pair',
+          pairedWithChangeId: deletedId,
+          handleSuffix: '#inserted',
+        }),
+      );
+      projected.push(
+        buildProjectedInfo(snapshot, {
+          id: deletedId,
+          type: 'delete',
+          grouping: 'replacement-pair',
+          pairedWithChangeId: insertedId,
+          handleSuffix: '#deleted',
+        }),
+      );
       continue;
     }
 

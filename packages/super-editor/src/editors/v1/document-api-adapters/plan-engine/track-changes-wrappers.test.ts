@@ -395,7 +395,7 @@ describe('track-changes-wrappers revision guard', () => {
 });
 
 describe('track-changes-wrappers projected id cache', () => {
-  it('keeps default paired replacements as one aggregate public list item', () => {
+  it('projects combined replacement snapshots as public paired insert/delete rows', () => {
     const editor = makeEditor();
     const replacementSnapshot = {
       address: { kind: 'entity', entityType: 'trackedChange', entityId: 'tc-replacement-1' },
@@ -424,19 +424,30 @@ describe('track-changes-wrappers projected id cache', () => {
 
     const result = trackChangesListWrapper(editor);
 
-    expect(result.total).toBe(1);
-    expect(result.items).toHaveLength(1);
+    expect(result.total).toBe(2);
+    expect(result.items).toHaveLength(2);
+    expect(result.items.map((item) => [item.id, item.type, item.grouping, item.pairedWithChangeId])).toEqual([
+      ['tc-replacement-1#inserted', 'insert', 'replacement-pair', 'tc-replacement-1#deleted'],
+      ['tc-replacement-1#deleted', 'delete', 'replacement-pair', 'tc-replacement-1#inserted'],
+    ]);
+    expect(result.items.map((item) => item.handle.ref)).toEqual([
+      'tc::body::tc-replacement-1#inserted',
+      'tc::body::tc-replacement-1#deleted',
+    ]);
     expect(result.items[0]).toMatchObject({
-      id: 'tc-replacement-1',
-      type: 'insert',
-      grouping: 'aggregate',
+      address: { entityId: 'tc-replacement-1#inserted' },
       wordRevisionIds: { insert: '11', delete: '10' },
     });
-    expect(result.items[0]?.id).not.toContain('#');
+    expect(result.items[1]).toMatchObject({
+      address: { entityId: 'tc-replacement-1#deleted' },
+      wordRevisionIds: { insert: '11', delete: '10' },
+    });
 
     const deleteFiltered = trackChangesListWrapper(editor, { type: 'delete' });
-    expect(deleteFiltered.total).toBe(0);
-    expect(deleteFiltered.items).toEqual([]);
+    expect(deleteFiltered.total).toBe(1);
+    expect(deleteFiltered.items.map((item) => [item.id, item.type, item.grouping, item.pairedWithChangeId])).toEqual([
+      ['tc-replacement-1#deleted', 'delete', 'replacement-pair', 'tc-replacement-1#inserted'],
+    ]);
   });
 
   it('keeps independent replacement sides paired without aggregating them', () => {
