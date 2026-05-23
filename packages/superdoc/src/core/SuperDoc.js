@@ -865,7 +865,7 @@ export class SuperDoc extends EventEmitter {
     // Fallback: internal provider creation.
     // Start a socket for all documents and general metaMap for this SuperDoc
     if (collaborationModuleConfig.providerType === 'hocuspocus') {
-      this.config.socket = new HocuspocusProviderWebsocket({
+      /** @type {InternalConfig} */ (this.config).socket = new HocuspocusProviderWebsocket({
         url: /** @type {string} */ (collaborationModuleConfig.url),
       });
     }
@@ -874,10 +874,19 @@ export class SuperDoc extends EventEmitter {
     const processedDocuments = makeDocumentsCollaborative(this);
 
     // Optionally, initialize separate superdoc sync - for comments, view, etc.
-    if (commentsConfig.useInternalExternalComments && !commentsConfig.suppressInternalExternalComments) {
-      const { ydoc: sdYdoc, provider: sdProvider } = initSuperdocYdoc(this);
-      this.ydoc = markRaw(sdYdoc);
-      this.provider = markRaw(sdProvider);
+    if (
+      commentsConfig &&
+      commentsConfig.useInternalExternalComments &&
+      !commentsConfig.suppressInternalExternalComments
+    ) {
+      const sdResult = initSuperdocYdoc(this);
+      if (!sdResult) {
+        throw new Error(
+          'SuperDoc: `modules.comments.useInternalExternalComments` requires `superdocId` to be set in the config.',
+        );
+      }
+      this.ydoc = markRaw(sdResult.ydoc);
+      this.provider = markRaw(sdResult.provider);
     } else {
       this.ydoc = markRaw(processedDocuments[0].ydoc);
       this.provider = markRaw(processedDocuments[0].provider);
@@ -915,7 +924,7 @@ export class SuperDoc extends EventEmitter {
     this.provider = markRaw(provider);
 
     this.#assignUserColor();
-    this._cleanupAwareness = setupAwarenessHandler(provider, this, this.config.user);
+    this._cleanupAwareness = setupAwarenessHandler(provider, this, /** @type {InternalConfig} */ (this.config).user);
 
     /** @type {InternalConfig} */ (this.config).documents.forEach((doc) => {
       doc.ydoc = ydoc;
@@ -1008,7 +1017,7 @@ export class SuperDoc extends EventEmitter {
       // --- Seed the room authoritatively (while editor is still local) ---
       seedEditorStateToYDoc(sourceEditor, ydoc);
       overwriteRoomComments(ydoc, this.commentsStore.commentsList);
-      overwriteRoomLockState(ydoc, { isLocked: this.isLocked, lockedBy: this.lockedBy });
+      overwriteRoomLockState(ydoc, { isLocked: this.isLocked ?? false, lockedBy: this.lockedBy ?? null });
 
       // --- Attach collaboration config (awareness, flags, config.documents) ---
       /** @type {InternalConfig} */ (this.config).modules.collaboration = { ydoc, provider };
@@ -1750,7 +1759,7 @@ export class SuperDoc extends EventEmitter {
   }
 
   #setModeSuggesting() {
-    if (!['editor', 'suggester'].includes(this.config.role)) return this.#setModeViewing();
+    if (!['editor', 'suggester'].includes(this.config.role ?? '')) return this.#setModeViewing();
     if (this.superdocStore.documents.length > 0) {
       const firstEditor = this.superdocStore.documents[0]?.getEditor();
       if (firstEditor) this.setActiveEditor(firstEditor);
