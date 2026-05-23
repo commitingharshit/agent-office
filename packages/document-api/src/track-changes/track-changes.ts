@@ -48,10 +48,10 @@ export interface TrackChangesRangeInput {
 
 /**
  * Canonical decide input shape per
- * `plans/tracked-changes-comments/tracked-changes-spec.md` § 9. The legacy
- * `{ id }` and `{ scope: 'all' }` aliases are preserved during the migration
- * window so existing headless callers keep working; the executor normalizes
- * them into the canonical `{ kind: ... }` form before dispatch.
+ * `../labs/tests/requirements/specs/tracked-changes-comments/v3/tracked-changes-spec.md`
+ * § 9. The legacy `{ id }` and `{ scope: 'all' }` aliases are preserved during
+ * the migration window so existing headless callers keep working; the executor
+ * normalizes them into the canonical `{ kind: ... }` form before dispatch.
  */
 export type ReviewDecisionTarget =
   | { kind: 'id'; id: string; story?: StoryLocator }
