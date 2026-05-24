@@ -3,49 +3,68 @@
  * Single command to validate the published superdoc package's public
  * TypeScript surface end-to-end.
  *
- * Stages:
- *   1. tier-discipline:test - unit tests for the pure tier validator.
- *                             Cheap (~50ms). Verifies the validator
- *                             catches every failure class before the
- *                             next stage trusts its verdict.
- *   2. tier-discipline      - package.json#exports vs publicContract
- *                             tier coverage, routing, and legacy-raw
- *                             allowlist. Cheap (~10ms); runs early so
- *                             tier drift fails fast before the slow
- *                             build/matrix work.
- *   3. jsdoc-ratchet        - per-file checkJs gate for the curated
- *                             CHECKED_FILES list + ratchet over public-
- *                             reachable JSDoc files. Cheap; fails when
- *                             new public JSDoc files land without
- *                             `// @ts-check` or when the allowlist
- *                             carries empty/stale entries.
- *   4. build:superdoc       - vite build + the postbuild validator chain
- *                             (check-tsconfig-type-surface, ensure-types,
- *                             audit-bundle, audit-declarations,
- *                             check-export-coverage, verify-public-facade-emit,
- *                             report-declaration-reachability).
- *                             Skipped when `--skip-build` is passed (CI calls
- *                             `pnpm run build` separately in its own step).
- *   5. typecheck-matrix     - packs superdoc + installs the tarball into
- *                             tests/consumer-typecheck/node_modules/, then
- *                             runs every consumer scenario.
- *   6. deep-type-audit      - strict gate on the supported-root public
- *                             surface (must be 0 findings). Reuses the
- *                             install that stage 5 produced (no `--pack`).
- *   7. package-shape        - publint + attw against the packed manifest
- *                             (reuses the tarball from stage 5).
- *   8. snapshots            - super-editor / legacy / root no-growth
- *                             snapshots (reuses the install).
- *   9. closure              - root-classification closure gate:
- *                             no supported-root/legacy-root export
- *                             references an internal-candidate type.
+ * Ordering invariant: cheap policy/config gates first, then build,
+ * then packed-consumer gates, then gates that reuse the packed fixture.
+ * Contributor iteration cost stays low because tier or jsdoc drift
+ * fails in seconds instead of after a full build + install.
  *
- * Matrix runs BEFORE stages 6-9 on purpose: it packs `superdoc.tgz`
- * and installs the tarball into the consumer fixture once. Stages 6,
- * 8, and 9 (deep-type-audit, snapshots, closure) reuse the installed
- * fixture; stage 7 (package-shape-gate) reuses the packed tarball
- * directly. Without this ordering each downstream stage would
- * `--pack` separately and multiply the work.
+ * Stage names are display labels for logs only; the rerunnable command
+ * (printed on failure) is the actual cwd + cmd + args from the stage
+ * definition.
+ *
+ * Stages:
+ *   1. contract-tiers-test           - unit tests for the pure tier
+ *                                      validator. ~50ms. Verifies the
+ *                                      validator catches every failure
+ *                                      class before stage 2 trusts it.
+ *   2. contract-tiers                - package.json#exports vs
+ *                                      publicContract (tier coverage,
+ *                                      routing, legacy-raw allowlist).
+ *                                      ~10ms; fast-fails before the
+ *                                      slow build/matrix work.
+ *   3. jsdoc-ratchet                 - per-file checkJs on the curated
+ *                                      CHECKED_FILES list + ratchet over
+ *                                      public-reachable JSDoc files.
+ *                                      Fails when new public JSDoc files
+ *                                      land without `// @ts-check` or
+ *                                      when the allowlist carries
+ *                                      empty/stale entries.
+ *   4. build                         - vite build + the postbuild
+ *                                      validator chain
+ *                                      (check-tsconfig-type-surface,
+ *                                      ensure-types, audit-bundle,
+ *                                      audit-declarations,
+ *                                      check-export-coverage,
+ *                                      verify-public-facade-emit,
+ *                                      report-declaration-reachability).
+ *                                      Skipped when `--skip-build` is
+ *                                      passed (CI calls `pnpm run build`
+ *                                      separately in its own step).
+ *   5. consumer-typecheck-matrix     - packs superdoc + installs the
+ *                                      tarball into
+ *                                      tests/consumer-typecheck/
+ *                                      node_modules/, then runs every
+ *                                      consumer scenario.
+ *   6. deep-type-audit-supported-root - strict gate on the supported-
+ *                                      root public surface; fails on any
+ *                                      `any` leak. Reuses the install
+ *                                      from stage 5.
+ *   7. package-shape                 - publint + attw against the packed
+ *                                      manifest. Reuses the tarball
+ *                                      from stage 5.
+ *   8. export-snapshots              - super-editor / legacy / root
+ *                                      no-growth export snapshots.
+ *                                      Reuses the install.
+ *   9. root-classification-closure   - no supported-root or legacy-root
+ *                                      export references an internal-
+ *                                      candidate type in its public
+ *                                      declared shape (SD-3212 A1b).
+ *
+ * Why stage 5 runs before 6-9: stage 5 packs `superdoc.tgz` and
+ * installs the tarball into the consumer fixture once. Stages 6, 8,
+ * and 9 reuse the installed fixture; stage 7 reuses the packed tarball
+ * directly. Without this ordering each downstream stage would `--pack`
+ * separately and multiply the work.
  *
  * Local usage:
  *   pnpm check:public           (umbrella, runs SuperDoc + Document API)
@@ -69,9 +88,12 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const flags = new Set(process.argv.slice(2));
 const skipBuild = flags.has('--skip-build');
 
+// Stage names below are display labels for logs only; the actual rerun
+// command on failure is reconstructed from `cmd` + `args`. Renaming a
+// `name` is purely cosmetic.
 const stages = [
   {
-    name: 'tier-discipline:test',
+    name: 'contract-tiers-test',
     cwd: REPO_ROOT,
     cmd: 'node',
     args: ['--test', 'scripts/report-public-contract.test.mjs'],
@@ -81,7 +103,7 @@ const stages = [
       'trusts its verdict.',
   },
   {
-    name: 'tier-discipline',
+    name: 'contract-tiers',
     cwd: REPO_ROOT,
     cmd: 'node',
     args: ['scripts/report-public-contract.mjs', '--check'],
@@ -101,7 +123,7 @@ const stages = [
       'Cheap; runs before the slow build so JSDoc drift fails fast.',
   },
   {
-    name: 'build:superdoc',
+    name: 'build',
     cwd: REPO_ROOT,
     cmd: 'pnpm',
     args: ['run', 'build:superdoc'],
@@ -112,7 +134,7 @@ const stages = [
     skipReason: '--skip-build passed; CI Build step already ran this',
   },
   {
-    name: 'typecheck-matrix',
+    name: 'consumer-typecheck-matrix',
     cwd: resolve(REPO_ROOT, 'tests/consumer-typecheck'),
     cmd: 'node',
     args: ['typecheck-matrix.mjs'],
@@ -121,25 +143,25 @@ const stages = [
       'then runs every typecheck scenario.',
   },
   {
-    name: 'deep-type-audit --strict-supported-root',
+    name: 'deep-type-audit-supported-root',
     cwd: resolve(REPO_ROOT, 'tests/consumer-typecheck'),
     cmd: 'node',
     args: ['deep-type-audit.mjs', '--strict-supported-root'],
     blurb:
       'Strict gate on the supported-root public surface (must be 0 findings). ' +
-      'Reuses the install produced by typecheck-matrix.',
+      'Reuses the install produced by consumer-typecheck-matrix.',
   },
   {
-    name: 'package-shape-gate',
+    name: 'package-shape',
     cwd: resolve(REPO_ROOT, 'tests/consumer-typecheck'),
     cmd: 'node',
     args: ['package-shape-gate.mjs'],
     blurb:
       'External npm-package linters (publint + attw) against the packed manifest. ' +
-      'Reuses the tarball produced by typecheck-matrix (not the installed fixture).',
+      'Reuses the tarball produced by consumer-typecheck-matrix (not the installed fixture).',
   },
   {
-    name: 'snapshot --all --check',
+    name: 'export-snapshots',
     cwd: resolve(REPO_ROOT, 'tests/consumer-typecheck'),
     cmd: 'node',
     args: ['snapshot.mjs', '--all', '--check'],
@@ -148,7 +170,7 @@ const stages = [
       'Run with `node snapshot.mjs --family <name> --write` to regenerate intentionally.',
   },
   {
-    name: 'check-root-classification-closure',
+    name: 'root-classification-closure',
     cwd: resolve(REPO_ROOT, 'tests/consumer-typecheck'),
     cmd: 'node',
     args: ['check-root-classification-closure.mjs'],

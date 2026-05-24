@@ -105,14 +105,15 @@ it stopped running.
 | `report-declaration-reachability.cjs` | postbuild | Instrumentation (not a gate): per-bucket reachability ratio of emitted declarations. | Loses visibility into unreachable emit (the SD-2952 trim target). |
 | `check-jsdoc.cjs` | wrapper stage 3 (`jsdoc-ratchet`) | Two gates: (a) per-file checkJs on the hand-curated `CHECKED_FILES` (currently 6 files; each must carry `// @ts-check` and stay clean against tsc); (b) ratchet over the public-reachable .js JSDoc surface — every file must be in `CHECKED_FILES`, carry `// @ts-check`, be on `jsdoc-allowlist.cjs` with a reason, or be in `jsdoc-debt-snapshot.json` as known pre-existing debt. New public JSDoc files that aren't accounted for fail with a clear "add @ts-check or allowlist" message. Stale snapshot entries (file gone, gained @ts-check, moved out of public surface) also fail. The allowlist contract is enforced too: every entry must carry a non-empty reason, point at an existing file, and still resolve to a public-reachable JSDoc file. Refresh the snapshot with `pnpm --filter superdoc run check:jsdoc -- --write`. Runs as stage 3 of `check:public:superdoc`. | New public-reachable JSDoc files could land without type coverage; existing ones could lose their `// @ts-check` directive without surfacing as a regression; the allowlist could grow silent / typo-shaped exemptions. |
 
-The repo also has a top-level tier-discipline gate. One script,
+The repo also has a top-level public-contract tier gate. One script,
 `scripts/report-public-contract.mjs`, with two modes:
 
 - default (read-only report) - what `pnpm report:public:superdoc` runs.
-  Prints the tiers + a validator status block. Exit 0 always.
-- `--check` (gate) - runs as stage 2 of `check:public:superdoc` after
-  the validator's unit tests. Fails the build on any invariant
-  violation.
+  Prints the tiers + a validator status block. Report mode does not
+  fail on contract drift; load/runtime errors can still exit non-zero.
+- `--check` (gate) - runs as stage `contract-tiers` of
+  `check:public:superdoc` after the validator's unit tests
+  (`contract-tiers-test`). Fails the build on any invariant violation.
 
 Both modes share the pure `validatePublicContract` exported from the
 same file (unit-tested in `scripts/report-public-contract.test.mjs`).
@@ -144,17 +145,23 @@ what an actual consumer would see — not the workspace source.
 | `package-shape-gate.mjs` | External package-shape linters (publint + attw) against the packed tarball. | Catches condition ordering, masquerading exports, missing field declarations. |
 | `check-root-classification-closure.mjs` | Asserts no `supported-root` or `legacy-root` export references an `internal-candidate` symbol in its public declared type. | Closure rule from SD-3212. |
 
-`check:public:superdoc` runs all six in order (after the cheap
-tier-discipline stage at the top of the wrapper). `typecheck-matrix` packs
-`superdoc.tgz` and installs it into the consumer fixture. The rest
-reuse what matrix produced: `deep-type-audit`, `snapshot --all
---check`, and `check-root-classification-closure` read from the
-installed fixture in `node_modules/superdoc/`; `package-shape-gate`
-runs `publint` / `attw` against the packed tarball at
-`packages/superdoc/superdoc.tgz` directly. CI (`ci-superdoc.yml`) and
-release workflows (`release-superdoc.yml`, `release-stable.yml`) call
-`pnpm check:public:superdoc --skip-build` directly — no duplicated step
-lists.
+Of these, five run as wrapper stages of `check:public:superdoc`
+after the cheap policy gates (`contract-tiers-test`,
+`contract-tiers`, `jsdoc-ratchet`) and `build`:
+`consumer-typecheck-matrix`, `deep-type-audit-supported-root`,
+`package-shape`, `export-snapshots`, `root-classification-closure`.
+`consumer-typecheck-matrix` packs `superdoc.tgz` and installs it into
+the consumer fixture. The rest reuse what matrix produced:
+`deep-type-audit-supported-root`, `export-snapshots`, and
+`root-classification-closure` read from the installed fixture in
+`node_modules/superdoc/`; `package-shape` runs `publint` / `attw`
+against the packed tarball at `packages/superdoc/superdoc.tgz`
+directly. `check-all-public-types-fixture.mjs` is a fixture-build
+helper, not a wrapper stage.
+
+CI (`ci-superdoc.yml`) and release workflows (`release-superdoc.yml`,
+`release-stable.yml`) call `pnpm check:public:superdoc --skip-build`
+directly - no duplicated step lists.
 
 ---
 
