@@ -57,7 +57,10 @@
  * Adding to the allowlist (rare):
  *   Edit `packages/superdoc/scripts/jsdoc-allowlist.cjs`. Each entry must
  *   document WHY the file is exempt (e.g. third-party shim, vendored
- *   code, intentionally untyped boundary).
+ *   code, intentionally untyped boundary). The script enforces the
+ *   contract: every entry must carry a non-empty string reason, point at
+ *   a file that exists on disk, and still resolve to a public-reachable
+ *   JSDoc file. Empty reasons, typo paths, and dead entries all fail.
  */
 
 const fs = require('fs');
@@ -301,6 +304,32 @@ const checkedFileSet = new Set(CHECKED_FILES);
 const allowlist = loadAllowlist();
 const allowlistedSet = new Set(Object.keys(allowlist));
 
+// Validate the allowlist contract up-front. Every entry must:
+//   1. Carry a non-empty string reason (the whole point of the allowlist
+//      is to leave an explanation).
+//   2. Point at a file that exists on disk (a path-typo silently widening
+//      the exclusion set is exactly what this gate is meant to prevent).
+//   3. Still resolve to a public-reachable JSDoc file (an allowlist entry
+//      for a file that left the public surface is dead weight that hides
+//      what's actually being excluded).
+const allowlistFailures = [];
+for (const [rel, reason] of Object.entries(allowlist)) {
+  if (typeof reason !== 'string' || reason.trim().length === 0) {
+    allowlistFailures.push(`  - ${rel}: missing or empty reason (each entry must explain the exemption)`);
+    continue;
+  }
+  const abs = path.join(repoRoot, rel);
+  if (!fs.existsSync(abs)) {
+    allowlistFailures.push(`  - ${rel}: file does not exist on disk`);
+    continue;
+  }
+  if (!publicJsdocSet.has(rel)) {
+    allowlistFailures.push(
+      `  - ${rel}: no longer a public-reachable JSDoc file (allowlist entry is dead; remove it)`,
+    );
+  }
+}
+
 // A public JSDoc file is "accounted for" when it has `// @ts-check`
 // (we trust the per-file directive — broader checkJs catches drift),
 // or is on the allowlist, or is in CHECKED_FILES. The debt snapshot
@@ -386,12 +415,17 @@ if (staleDebt.length > 0) {
   );
 }
 
-if (preflightFailures.length > 0 || ratchetFailures.length > 0) {
+if (preflightFailures.length > 0 || allowlistFailures.length > 0 || ratchetFailures.length > 0) {
   console.log('[check-jsdoc] SuperDoc JSDoc ratchet');
   console.log(HR);
   if (preflightFailures.length > 0) {
     console.log('FAIL  CHECKED_FILES preflight:');
     for (const line of preflightFailures) console.log(line);
+    console.log();
+  }
+  if (allowlistFailures.length > 0) {
+    console.log('FAIL  jsdoc-allowlist.cjs contract violations:');
+    for (const line of allowlistFailures) console.log(line);
     console.log();
   }
   if (ratchetFailures.length > 0) {

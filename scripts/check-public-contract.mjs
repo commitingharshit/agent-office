@@ -13,31 +13,37 @@
  *                             allowlist. Cheap (~10ms); runs early so
  *                             tier drift fails fast before the slow
  *                             build/matrix work.
- *   3. build:superdoc       - vite build + the postbuild validator chain
+ *   3. jsdoc-ratchet        - per-file checkJs gate for the curated
+ *                             CHECKED_FILES list + ratchet over public-
+ *                             reachable JSDoc files. Cheap; fails when
+ *                             new public JSDoc files land without
+ *                             `// @ts-check` or when the allowlist
+ *                             carries empty/stale entries.
+ *   4. build:superdoc       - vite build + the postbuild validator chain
  *                             (check-tsconfig-type-surface, ensure-types,
  *                             audit-bundle, audit-declarations,
  *                             check-export-coverage, verify-public-facade-emit,
  *                             report-declaration-reachability).
  *                             Skipped when `--skip-build` is passed (CI calls
  *                             `pnpm run build` separately in its own step).
- *   4. typecheck-matrix     - packs superdoc + installs the tarball into
+ *   5. typecheck-matrix     - packs superdoc + installs the tarball into
  *                             tests/consumer-typecheck/node_modules/, then
  *                             runs every consumer scenario.
- *   5. deep-type-audit      - strict gate on the supported-root public
+ *   6. deep-type-audit      - strict gate on the supported-root public
  *                             surface (must be 0 findings). Reuses the
- *                             install that stage 4 produced (no `--pack`).
- *   6. package-shape        - publint + attw against the packed manifest
- *                             (reuses the tarball from stage 4).
- *   7. snapshots            - super-editor / legacy / root no-growth
+ *                             install that stage 5 produced (no `--pack`).
+ *   7. package-shape        - publint + attw against the packed manifest
+ *                             (reuses the tarball from stage 5).
+ *   8. snapshots            - super-editor / legacy / root no-growth
  *                             snapshots (reuses the install).
- *   8. closure              - root-classification closure gate:
+ *   9. closure              - root-classification closure gate:
  *                             no supported-root/legacy-root export
  *                             references an internal-candidate type.
  *
- * Matrix runs BEFORE stages 5-8 on purpose: it packs `superdoc.tgz`
- * and installs the tarball into the consumer fixture once. Stages 5,
- * 7, and 8 (deep-type-audit, snapshots, closure) reuse the installed
- * fixture; stage 6 (package-shape-gate) reuses the packed tarball
+ * Matrix runs BEFORE stages 6-9 on purpose: it packs `superdoc.tgz`
+ * and installs the tarball into the consumer fixture once. Stages 6,
+ * 8, and 9 (deep-type-audit, snapshots, closure) reuse the installed
+ * fixture; stage 7 (package-shape-gate) reuses the packed tarball
  * directly. Without this ordering each downstream stage would
  * `--pack` separately and multiply the work.
  *
@@ -83,6 +89,16 @@ const stages = [
       'Public-contract tier discipline: package.json#exports vs publicContract ' +
       '(tier coverage, routing, legacy-raw allowlist). Cheap; fast-fails before ' +
       'the slow build/matrix stages.',
+  },
+  {
+    name: 'jsdoc-ratchet',
+    cwd: REPO_ROOT,
+    cmd: 'pnpm',
+    args: ['--filter', 'superdoc', 'run', 'check:jsdoc'],
+    blurb:
+      'Per-file checkJs gate for the 6 hand-curated CHECKED_FILES + ratchet that ' +
+      'fails when new public-reachable JSDoc files land without // @ts-check. ' +
+      'Cheap; runs before the slow build so JSDoc drift fails fast.',
   },
   {
     name: 'build:superdoc',
