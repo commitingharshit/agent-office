@@ -79,18 +79,26 @@ const BUCKET_TO_TIER = {
 };
 
 /**
- * Pull the types path out of an exports entry. Accepts the conditional
- * shapes the SuperDoc package uses: a string, or an object with
- * `types: '...'` / `types: { import: '...', require: '...' }`.
+ * Pull every types path out of an exports entry. Returns a deduped
+ * array of candidate paths so routing rules can be validated against
+ * each conditional target (otherwise a divergent `types.require` could
+ * route through the wrong directory and the gate would miss it).
+ * Accepts the conditional shapes the SuperDoc package uses: a string,
+ * or an object with `types: '...'` / `types: { import: '...', require: '...' }`.
  */
-export function resolveTypesPath(entry) {
-  if (typeof entry === 'string') return entry;
+export function resolveTypesPaths(entry) {
+  if (typeof entry === 'string') return [entry];
   if (entry && typeof entry === 'object') {
     const t = entry.types;
-    if (typeof t === 'string') return t;
-    if (t && typeof t === 'object') return t.import ?? t.require ?? null;
+    if (typeof t === 'string') return [t];
+    if (t && typeof t === 'object') {
+      const out = [];
+      if (typeof t.import === 'string') out.push(t.import);
+      if (typeof t.require === 'string' && !out.includes(t.require)) out.push(t.require);
+      return out;
+    }
   }
-  return null;
+  return [];
 }
 
 /**
@@ -156,36 +164,42 @@ export function validatePublicContract(publicContract, exportsMap) {
     }
   }
 
-  // 5. Routing rules per tier.
+  // 5. Routing rules per tier. Each conditional types target
+  //    (types.import AND types.require) is validated independently
+  //    so a divergent CJS path can't slip through unchecked.
   for (const e of publicContract.supported ?? []) {
     if (!exportsMap[e.subpath]) continue;
-    const t = resolveTypesPath(exportsMap[e.subpath]);
-    if (!t) {
+    const paths = resolveTypesPaths(exportsMap[e.subpath]);
+    if (paths.length === 0) {
       fail(`supported "${e.subpath}": no types field on the exports entry`);
       continue;
     }
-    if (!t.startsWith(PUBLIC_DIR_PREFIX)) {
-      fail(
-        `supported "${e.subpath}": types resolve to "${t}" - expected to route through ${PUBLIC_DIR_PREFIX}**`,
-      );
-    } else if (t.startsWith(PUBLIC_LEGACY_PREFIX)) {
-      fail(
-        `supported "${e.subpath}": types resolve under ${PUBLIC_LEGACY_PREFIX}** - supported entries must not route through the legacy facade`,
-      );
+    for (const t of paths) {
+      if (!t.startsWith(PUBLIC_DIR_PREFIX)) {
+        fail(
+          `supported "${e.subpath}": types resolve to "${t}" - expected to route through ${PUBLIC_DIR_PREFIX}**`,
+        );
+      } else if (t.startsWith(PUBLIC_LEGACY_PREFIX)) {
+        fail(
+          `supported "${e.subpath}": types resolve to "${t}" under ${PUBLIC_LEGACY_PREFIX}** - supported entries must not route through the legacy facade`,
+        );
+      }
     }
   }
 
   for (const e of publicContract.legacy ?? []) {
     if (!exportsMap[e.subpath]) continue;
-    const t = resolveTypesPath(exportsMap[e.subpath]);
-    if (!t) {
+    const paths = resolveTypesPaths(exportsMap[e.subpath]);
+    if (paths.length === 0) {
       fail(`legacy "${e.subpath}": no types field on the exports entry`);
       continue;
     }
-    if (!t.startsWith(PUBLIC_LEGACY_PREFIX)) {
-      fail(
-        `legacy "${e.subpath}": types resolve to "${t}" - expected to route through ${PUBLIC_LEGACY_PREFIX}**`,
-      );
+    for (const t of paths) {
+      if (!t.startsWith(PUBLIC_LEGACY_PREFIX)) {
+        fail(
+          `legacy "${e.subpath}": types resolve to "${t}" - expected to route through ${PUBLIC_LEGACY_PREFIX}**`,
+        );
+      }
     }
   }
 
@@ -197,11 +211,12 @@ export function validatePublicContract(publicContract, exportsMap) {
       );
     }
     if (!exportsMap[e.subpath]) continue;
-    const t = resolveTypesPath(exportsMap[e.subpath]);
-    if (t && t.startsWith(PUBLIC_DIR_PREFIX)) {
-      fail(
-        `legacyRaw "${e.subpath}": types resolve under ${PUBLIC_DIR_PREFIX}** - promote to legacy (route through src/public/legacy/**) instead`,
-      );
+    for (const t of resolveTypesPaths(exportsMap[e.subpath])) {
+      if (t.startsWith(PUBLIC_DIR_PREFIX)) {
+        fail(
+          `legacyRaw "${e.subpath}": types resolve to "${t}" under ${PUBLIC_DIR_PREFIX}** - promote to legacy (route through src/public/legacy/**) instead`,
+        );
+      }
     }
   }
 

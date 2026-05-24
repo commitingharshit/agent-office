@@ -208,4 +208,46 @@ describe('validatePublicContract', () => {
       assert.deepEqual(failures, []);
     });
   });
+
+  describe('conditional types divergence', () => {
+    it('flags a supported entry whose types.require routes outside src/public/**', () => {
+      // types.import is routed correctly, types.require routes to the
+      // wrong directory. Earlier validator only checked types.import and
+      // missed this; both conditional branches must be checked now.
+      const exportsMap = {
+        '.': {
+          types: {
+            import: './dist/superdoc/src/public/index.d.ts',
+            require: './dist/superdoc/src/elsewhere/index.d.cts',
+          },
+        },
+      };
+      const failures = validatePublicContract(baseContract(), exportsMap);
+      assert.equal(failures.length, 1);
+      assert.match(
+        failures[0],
+        /supported "\.".*"\.\/dist\/superdoc\/src\/elsewhere\/index\.d\.cts".*expected to route through \.\/dist\/superdoc\/src\/public\/\*\*/,
+      );
+    });
+
+    it('flags a legacy entry whose types.require routes outside the legacy facade', () => {
+      const contract = baseContract();
+      contract.legacy.push({ subpath: './converter', tier: 'legacy', note: '' });
+      const exportsMap = {
+        ...baseExports(),
+        './converter': {
+          types: {
+            import: './dist/superdoc/src/public/legacy/converter.d.ts',
+            require: './dist/superdoc/src/public/converter.d.cts',
+          },
+        },
+      };
+      const failures = validatePublicContract(contract, exportsMap);
+      assert.equal(failures.length, 1);
+      assert.match(
+        failures[0],
+        /legacy "\.\/converter".*"\.\/dist\/superdoc\/src\/public\/converter\.d\.cts".*expected to route through \.\/dist\/superdoc\/src\/public\/legacy\/\*\*/,
+      );
+    });
+  });
 });
