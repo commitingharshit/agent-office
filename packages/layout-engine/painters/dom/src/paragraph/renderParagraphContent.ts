@@ -281,7 +281,8 @@ const applyBlockSdtChromeBounds = (
     const resolvedLine = content?.lines[index];
     const lineIndex = resolvedLine?.lineIndex ?? lineIndexBase + index;
     const lineOffset = resolveBlockSdtChromeLineOffset(block, line, resolvedLine, lineIndex);
-    const alignmentSlack = Math.max(0, fragmentWidth - lineOffset - lineWidth);
+    const availableWidth = resolveBlockSdtChromeAvailableWidth(block, line, fragmentWidth, lineOffset, resolvedLine);
+    const alignmentSlack = Math.max(0, availableWidth - lineWidth);
     const alignment = block.attrs?.alignment;
     const lineLeft =
       lineOffset + (alignment === 'center' ? alignmentSlack / 2 : alignment === 'right' ? alignmentSlack : 0);
@@ -339,6 +340,25 @@ const resolveBlockSdtChromeLineOffset = (
     return hanging;
   }
   return 0;
+};
+
+const resolveBlockSdtChromeAvailableWidth = (
+  block: ParagraphBlock,
+  line: Line,
+  fragmentWidth: number,
+  lineOffset: number,
+  resolvedLine: ResolvedParagraphContent['lines'][number] | undefined,
+): number => {
+  if (resolvedLine) {
+    return Math.max(0, resolvedLine.availableWidth);
+  }
+
+  const rightIndent = Math.max(0, block.attrs?.indent?.right ?? 0);
+  const fallbackAvailableWidth = Math.max(0, fragmentWidth - lineOffset - rightIndent);
+  if (line.maxWidth != null) {
+    return Math.min(line.maxWidth, fallbackAvailableWidth);
+  }
+  return fallbackAvailableWidth;
 };
 
 const renderResolvedLines = (
