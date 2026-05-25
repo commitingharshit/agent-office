@@ -92,6 +92,7 @@ import { applyEffectiveEditability, getProtectionStorage } from '../extensions/p
 import { getViewModeSelectionWithoutStructuredContent } from './helpers/getViewModeSelectionWithoutStructuredContent.js';
 import { resolveMainBodyEditor } from '../document-api-adapters/helpers/word-statistics.js';
 import { commitLiveStorySessionRuntimes } from '../document-api-adapters/story-runtime/live-story-session-runtime-registry.js';
+import { buildFilteredMetadataXml } from '../document-api-adapters/plan-engine/anchored-metadata-wrappers.js';
 
 declare const __APP_VERSION__: string | undefined;
 declare const version: string | undefined;
@@ -3393,6 +3394,13 @@ export class Editor extends EventEmitter<EditorEventMap> {
         const partData = this.converter.convertedXml[path];
         if (partData?.elements?.[0]) {
           updatedDocs[path] = String(this.converter.schemaToXml(partData.elements[0]));
+        }
+      }
+
+      if (isFinalDoc) {
+        const filteredMetadataParts = buildFilteredMetadataXml(this, this.converter.convertedXml, { finalDoc: true });
+        for (const [path, xml] of Object.entries(filteredMetadataParts)) {
+          updatedDocs[path] = xml;
         }
       }
 
