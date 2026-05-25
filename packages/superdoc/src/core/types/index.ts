@@ -102,9 +102,11 @@ export interface AwarenessState extends User {
   /** Yjs client identifier for the remote peer. */
   clientId?: number;
   /**
-   * Color assigned by SuperDoc's presence system. Overrides
-   * {@link User.color} when the presence system computes a stable
-   * palette assignment for the remote peer.
+   * Color assigned by SuperDoc's presence system. Spread onto the
+   * awareness entry after the user fields, so it takes precedence
+   * over any color the awareness user carried in (see
+   * {@link AwarenessUser.color}). Used when the presence system
+   * computes a stable palette assignment for the remote peer.
    */
   color?: string;
   /** Application-specific fields spread from the awareness provider. */
