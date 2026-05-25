@@ -144,12 +144,14 @@ what an actual consumer would see — not the workspace source.
 | `check-all-public-types-fixture.mjs` | Asserts every type-only root export has an `AssertNotAny<T>` line in `src/all-public-types.ts`. | Derives the expected set from `superdoc-root-classification.json`. |
 | `package-shape-gate.mjs` | External package-shape linters (publint + attw) against the packed tarball. | Catches condition ordering, masquerading exports, missing field declarations. |
 | `check-root-classification-closure.mjs` | Asserts no `supported-root` or `legacy-root` export references an `internal-candidate` symbol in its public declared type. | Closure rule from SD-3212. |
+| `check-public-method-coverage.mjs` | Obligation-based ratchet over public `SuperDoc` methods + getters. For each member the AST computes which obligations are meaningful (`parameters`, `returns`, or `call`); the gate fails when any required obligation is unsatisfied by a fixture under `src/` AND not on the debt snapshot. Catches the `search(text: string)` regression class — call sites do NOT satisfy `parameters`/`returns` on their own. | Snapshot at `public-method-coverage-debt-snapshot.json`; allowlist at `public-method-coverage-allowlist.cjs` (each entry validated: key must match a real member, value must be a non-empty reason). Refresh with `--write`. |
 
-Of these, five run as wrapper stages of `check:public:superdoc`
+Of these, six run as wrapper stages of `check:public:superdoc`
 after the cheap policy gates (`contract-tiers-test`,
-`contract-tiers`, `jsdoc-ratchet`) and `build`:
-`consumer-typecheck-matrix`, `deep-type-audit-supported-root`,
-`package-shape`, `export-snapshots`, `root-classification-closure`.
+`contract-tiers`, `jsdoc-ratchet`, `public-method-coverage`) and
+`build`: `consumer-typecheck-matrix`,
+`deep-type-audit-supported-root`, `package-shape`,
+`export-snapshots`, `root-classification-closure`.
 `consumer-typecheck-matrix` packs `superdoc.tgz` and installs it into
 the consumer fixture. The rest reuse what matrix produced:
 `deep-type-audit-supported-root`, `export-snapshots`, and

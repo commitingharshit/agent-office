@@ -29,16 +29,19 @@
  *                                      land without `// @ts-check` or
  *                                      when the allowlist carries
  *                                      empty/stale entries.
- *   4. public-method-coverage        - ratchet over public SuperDoc
- *                                      methods/getters: every member
- *                                      must have a Parameters<>,
- *                                      ReturnType<>, or call-site
- *                                      reference in a consumer fixture,
- *                                      or be on the debt snapshot.
- *                                      Catches new uncovered surface
- *                                      (the class of regression that
- *                                      shipped `search(text: string)`
- *                                      instead of `string | RegExp`).
+ *   4. public-method-coverage        - obligation-based ratchet over
+ *                                      public SuperDoc methods +
+ *                                      getters. For each member the
+ *                                      AST computes which obligations
+ *                                      are meaningful (parameters /
+ *                                      returns / call); each unmet
+ *                                      obligation must be on the debt
+ *                                      snapshot or the gate fails.
+ *                                      Call sites do NOT satisfy
+ *                                      parameters/returns obligations
+ *                                      on their own — that's why
+ *                                      `search(text: string)` shipped
+ *                                      under v1 of this gate.
  *   5. build                         - vite build + the postbuild
  *                                      validator chain
  *                                      (check-tsconfig-type-surface,
@@ -138,10 +141,11 @@ const stages = [
     cmd: 'node',
     args: ['tests/consumer-typecheck/check-public-method-coverage.mjs'],
     blurb:
-      'Ratchet over public SuperDoc methods/getters: every member must have ' +
-      'a Parameters<>/ReturnType<>/call-site reference in a consumer fixture, ' +
-      'or be on the debt snapshot. Catches new uncovered surface; existing ' +
-      'debt drains via snapshot refresh.',
+      'Obligation-based ratchet over public SuperDoc methods + getters. ' +
+      'Each member has computed obligations (parameters / returns / call) ' +
+      'that must be satisfied by a typed assertion in a consumer fixture, ' +
+      'or be on the debt snapshot. Call sites do NOT satisfy parameters/' +
+      'returns on their own (this is why search(text: string) shipped).',
   },
   {
     name: 'build',
