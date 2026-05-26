@@ -1602,8 +1602,14 @@ export class SuperDoc extends EventEmitter<SuperDocEventMap> {
     // user's Config.onException callback. SuperToolbar's event types are
     // not aligned with SuperDocEventMap, so this is intentionally a
     // local cast rather than going through the typed `#onConfig` helper.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.toolbar.on('exception', this.config.onException as any);
+    // Truthy guard mirrors `#onConfig`: skip absent callbacks (consumer
+    // passes `{ onException: undefined }` explicitly), but pass through
+    // truthy non-function values so eventemitter3 throws loudly at
+    // registration time.
+    if (this.config.onException) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      this.toolbar.on('exception', this.config.onException as any);
+    }
     // `this.toolbar` infers as `SuperToolbar | null` from the field's
     // first assignment in `#addToolbar` (the `null` placeholder a few
     // lines up). The closure registers after the SuperToolbar instance
