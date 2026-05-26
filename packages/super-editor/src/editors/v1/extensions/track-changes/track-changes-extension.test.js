@@ -1044,6 +1044,50 @@ describe('TrackChanges extension commands', () => {
     }
   });
 
+  it('interaction(docx): rejectTrackedChangesBetween keeps inserted inline structured content wrapper', () => {
+    const { editor: interactionEditor } = initTestEditor({
+      mode: 'docx',
+      content: '<p></p>',
+      user: { name: 'Track Tester', email: 'track@example.com' },
+    });
+
+    try {
+      interactionEditor.setDocumentMode('suggesting');
+      interactionEditor.commands.insertStructuredContentInline({
+        attrs: {
+          id: '101',
+          tag: 'meta-track-1',
+          alias: 'Anchored metadata',
+        },
+        text: 'Tracked SDT',
+      });
+
+      let hasStructuredContent = false;
+      interactionEditor.state.doc.descendants((node) => {
+        if (node.type.name === 'structuredContent' && node.attrs?.tag === 'meta-track-1') {
+          hasStructuredContent = true;
+          return false;
+        }
+      });
+      expect(hasStructuredContent).toBe(true);
+
+      interactionEditor.commands.rejectTrackedChangesBetween(0, interactionEditor.state.doc.content.size);
+
+      hasStructuredContent = false;
+      interactionEditor.state.doc.descendants((node) => {
+        if (node.type.name === 'structuredContent' && node.attrs?.tag === 'meta-track-1') {
+          hasStructuredContent = true;
+          return false;
+        }
+      });
+      // Current behavior: rejecting tracked insertion clears inserted text,
+      // but does not remove the inline SDT wrapper node itself.
+      expect(hasStructuredContent).toBe(true);
+    } finally {
+      interactionEditor.destroy();
+    }
+  });
+
   it('interaction: rejectTrackedChangeOnSelection reverts mixed marks + textStyle in suggesting mode', () => {
     const { editor: interactionEditor } = initTestEditor({
       mode: 'text',
