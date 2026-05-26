@@ -5,28 +5,10 @@ import { applyImageClipPath, readImageClipPathValue } from '../images/image-clip
 import type { RunRenderContext } from './types.js';
 import { applyRunDataAttributes } from './hash.js';
 import { sanitizeUrl } from './links.js';
-
-/**
- * Maximum allowed length for data URLs (10MB).
- * Prevents denial of service attacks from extremely large embedded images.
- */
-const MAX_DATA_URL_LENGTH = 10 * 1024 * 1024; // 10MB
-
-const VALID_IMAGE_DATA_URL_MIME_TYPES = new Set([
-  'image/png',
-  'image/jpeg',
-  'image/jpg',
-  'image/gif',
-  'image/svg+xml',
-  'image/webp',
-  'image/bmp',
-  'image/ico',
-  'image/tif',
-  'image/tiff',
-]);
+import { IMAGE_DATA_URL_MIME_TYPES, MAX_IMAGE_DATA_URL_LENGTH } from '@superdoc/url-validation';
 
 export function isValidImageDataUrl(src: string): boolean {
-  if (!src.startsWith('data:') || src.length > MAX_DATA_URL_LENGTH) {
+  if (!src.startsWith('data:') || src.length > MAX_IMAGE_DATA_URL_LENGTH) {
     return false;
   }
 
@@ -38,7 +20,7 @@ export function isValidImageDataUrl(src: string): boolean {
   const metadata = src.slice('data:'.length, metadataEnd);
   const [rawMimeType = '', ...rawParameters] = metadata.split(';');
   const mimeType = rawMimeType.toLowerCase();
-  if (!VALID_IMAGE_DATA_URL_MIME_TYPES.has(mimeType)) {
+  if (!IMAGE_DATA_URL_MIME_TYPES.includes(mimeType)) {
     return false;
   }
 
@@ -144,7 +126,7 @@ export const buildImageFilters = (source: ImageFilterSource): string[] => {
  *
  * SECURITY NOTES:
  * - Data URLs are validated against an allowlist of image MIME types
- * - Size limit (MAX_DATA_URL_LENGTH) prevents DoS attacks from extremely large images
+ * - Size limit prevents DoS attacks from extremely large images
  * - Only allows safe image MIME types; non-base64 data URLs are limited to SVG
  * - Non-data URLs are sanitized through sanitizeUrl to prevent XSS
  *
@@ -392,4 +374,4 @@ export const renderImageRun = (run: ImageRun, context: RunRenderContext): HTMLEl
   return context.buildImageHyperlinkAnchor(img, run.hyperlink, 'inline-block');
 };
 
-export { MAX_DATA_URL_LENGTH };
+export { MAX_IMAGE_DATA_URL_LENGTH };
