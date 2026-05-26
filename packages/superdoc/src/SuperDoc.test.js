@@ -547,6 +547,15 @@ describe('SuperDoc.vue', () => {
     await nextTick();
     expect(superdocStoreStub.isReady.value).toBe(true);
 
+    // SD-673: pin the list-definitions-change bridge. SuperDoc.vue's
+    // onEditorListdefinitionsChange is a verbatim pass-through to
+    // superdoc.emit, so the runtime shape is whatever the upstream editor
+    // emits (ListDefinitionsPayload). Catch a regression where the bridge
+    // starts re-shaping or dropping fields.
+    const listDefsPayload = { change: { kind: 'add' }, numbering: { nums: [] }, editor: editorMock };
+    options.onListDefinitionsChange(listDefsPayload);
+    expect(superdocStub.emit).toHaveBeenCalledWith('list-definitions-change', listDefsPayload);
+
     options.onDocumentLocked({ editor: editorMock, isLocked: true, lockedBy: { name: 'A' } });
     expect(superdocStub.lockSuperdoc).toHaveBeenCalledWith(true, { name: 'A' });
 
