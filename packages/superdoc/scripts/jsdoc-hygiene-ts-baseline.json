@@ -1,4 +1,0 @@
-{
-  "$comment": "Auto-managed by packages/superdoc/scripts/check-jsdoc-hygiene-ts.cjs. Each entry is \"file::enclosingSymbol::tagName::class::occurrenceIndex\"; line numbers are NOT part of the key, so the baseline survives unrelated edits that shift line numbers. The gate grandfathers these and fails on net-new violations. Refresh after intentional cleanup with --write. Goal is to drain to zero, then flip to \"zero allowed\" in a separate PR. See packages/superdoc/scripts/type-hygiene.md.",
-  "knownViolations": []
-}

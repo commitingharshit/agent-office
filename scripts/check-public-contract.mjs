@@ -43,9 +43,9 @@
  *                                      Companion to jsdoc-ratchet on the
  *                                      .ts side: enforces TS syntax as
  *                                      the single source of truth for
- *                                      shape. Grandfathers an existing
- *                                      baseline; fails on net-new
- *                                      type-bearing JSDoc. See
+ *                                      shape. Strict-zero gate (no
+ *                                      grandfathered baseline); fails
+ *                                      on any type-bearing JSDoc. See
  *                                      packages/superdoc/scripts/type-hygiene.md.
  *   6. public-method-coverage        - obligation-based ratchet over
  *                                      public SuperDoc methods +
@@ -173,11 +173,12 @@ const stages = [
     args: ['packages/superdoc/scripts/check-jsdoc-hygiene-ts.cjs'],
     blurb:
       'Type-bearing JSDoc gate for .ts source under packages/superdoc/src and ' +
-      'packages/super-editor/src. Grandfathers an existing baseline of violations ' +
-      'and fails on net-new type-bearing JSDoc tags (@param {T}, @returns {T}, ' +
+      'packages/super-editor/src. Strict-zero gate (no grandfathered baseline, ' +
+      'no --write): fails on any type-bearing JSDoc tag (@param {T}, @returns {T}, ' +
       '@type, @typedef, @template, etc.). See packages/superdoc/scripts/' +
-      'type-hygiene.md for the rule. Cheap; complements jsdoc-ratchet (which ' +
-      'covers .js files) by enforcing TS-as-single-source on the .ts side.',
+      'type-hygiene.md for the rule and fix patterns. Cheap; complements ' +
+      'jsdoc-ratchet (which covers .js files) by enforcing TS-as-single-source ' +
+      'on the .ts side.',
   },
   {
     name: 'public-method-coverage',

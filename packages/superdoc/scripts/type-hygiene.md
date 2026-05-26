@@ -164,18 +164,19 @@ type system via `// @ts-check`; that is enforced separately by
 `check-jsdoc.cjs`. Both gates can coexist: TS files use TS syntax for
 types, JS files use JSDoc for types, neither uses both.
 
-## Refreshing the baseline
+## Enforcement
 
-The scanner snapshot lives at
-`packages/superdoc/scripts/jsdoc-hygiene-ts-baseline.json`. It records
-the existing violations the gate grandfathers. New violations on top
-of the baseline fail CI.
+Strict zero. Every type-bearing JSDoc tag in scope is a violation;
+CI fails on any. There is no baseline, grandfathering, or `--write`
+mode.
 
-To refresh after intentional cleanup:
+Run the gate locally with:
 
 ```sh
-node packages/superdoc/scripts/check-jsdoc-hygiene-ts.cjs --write
+node packages/superdoc/scripts/check-jsdoc-hygiene-ts.cjs
 ```
 
-The goal is to drain the baseline to zero, then flip the gate to
-"zero allowed" (separate PR).
+If it fires on a tag you can't easily fix, fix the tag (see the patterns
+above) rather than reaching for a grandfathering escape hatch. The
+gate's failure message links back to this doc so the fix path is
+always one click away.
