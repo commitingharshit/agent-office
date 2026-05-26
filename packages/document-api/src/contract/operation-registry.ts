@@ -263,6 +263,32 @@ import type {
 } from '../bookmarks/bookmarks.types.js';
 
 import type {
+  CustomXmlPartsListInput,
+  CustomXmlPartsListResult,
+  CustomXmlPartsGetInput,
+  CustomXmlPartInfo,
+  CustomXmlPartsCreateInput,
+  CustomXmlPartsCreateResult,
+  CustomXmlPartsPatchInput,
+  CustomXmlPartsRemoveInput,
+  CustomXmlPartsMutationResult,
+} from '../customXml/customXml.types.js';
+
+import type {
+  AnchoredMetadataAttachInput,
+  AnchoredMetadataAttachResult,
+  AnchoredMetadataListInput,
+  AnchoredMetadataListResult,
+  AnchoredMetadataGetInput,
+  AnchoredMetadataInfo,
+  AnchoredMetadataUpdateInput,
+  AnchoredMetadataRemoveInput,
+  AnchoredMetadataResolveInput,
+  AnchoredMetadataMutationResult,
+  AnchoredMetadataResolveInfo,
+} from '../metadata/anchored-metadata.types.js';
+
+import type {
   FootnoteListInput,
   FootnotesListResult,
   FootnoteGetInput,
@@ -1544,6 +1570,65 @@ export interface OperationRegistry extends FormatInlineAliasOperationRegistry {
     options: MutationOptions;
     output: PermissionRangeMutationResult;
   };
+
+  // --- customXml.parts.* ---
+  'customXml.parts.list': {
+    input: CustomXmlPartsListInput | undefined;
+    options: never;
+    output: CustomXmlPartsListResult;
+  };
+  'customXml.parts.get': {
+    input: CustomXmlPartsGetInput;
+    options: never;
+    output: CustomXmlPartInfo | null;
+  };
+  'customXml.parts.create': {
+    input: CustomXmlPartsCreateInput;
+    options: MutationOptions;
+    output: CustomXmlPartsCreateResult;
+  };
+  'customXml.parts.patch': {
+    input: CustomXmlPartsPatchInput;
+    options: MutationOptions;
+    output: CustomXmlPartsMutationResult;
+  };
+  'customXml.parts.remove': {
+    input: CustomXmlPartsRemoveInput;
+    options: MutationOptions;
+    output: CustomXmlPartsMutationResult;
+  };
+
+  // --- metadata.* (anchored metadata) ---
+  'metadata.attach': {
+    input: AnchoredMetadataAttachInput;
+    options: MutationOptions;
+    output: AnchoredMetadataAttachResult;
+  };
+  'metadata.list': {
+    input: AnchoredMetadataListInput | undefined;
+    options: never;
+    output: AnchoredMetadataListResult;
+  };
+  'metadata.get': {
+    input: AnchoredMetadataGetInput;
+    options: never;
+    output: AnchoredMetadataInfo | null;
+  };
+  'metadata.update': {
+    input: AnchoredMetadataUpdateInput;
+    options: MutationOptions;
+    output: AnchoredMetadataMutationResult;
+  };
+  'metadata.remove': {
+    input: AnchoredMetadataRemoveInput;
+    options: MutationOptions;
+    output: AnchoredMetadataMutationResult;
+  };
+  'metadata.resolve': {
+    input: AnchoredMetadataResolveInput;
+    options: never;
+    output: AnchoredMetadataResolveInfo | null;
+  };
 }
 
 // --- Bidirectional completeness checks ---
@@ -1561,13 +1646,24 @@ type _NoExtraRegistryKeys = Assert<keyof OperationRegistry extends OperationId ?
 
 /**
  * Typed invoke request. TypeScript narrows input and options based on operationId.
+ *
+ * When an operation has no options (`options: never` in the registry), the
+ * request shape forbids `options` via `options?: never` rather than via an
+ * intersection with `Record<string, never>` (which would also forbid
+ * `operationId` and `input`, making the typed overload unmatchable and
+ * silently falling through to the dynamic `unknown` return).
  */
-export type InvokeRequest<T extends OperationId> = {
-  operationId: T;
-  input: OperationRegistry[T]['input'];
-} & (OperationRegistry[T]['options'] extends never
-  ? Record<string, never>
-  : { options?: OperationRegistry[T]['options'] });
+export type InvokeRequest<T extends OperationId> = OperationRegistry[T]['options'] extends never
+  ? {
+      operationId: T;
+      input: OperationRegistry[T]['input'];
+      options?: never;
+    }
+  : {
+      operationId: T;
+      input: OperationRegistry[T]['input'];
+      options?: OperationRegistry[T]['options'];
+    };
 
 /**
  * Typed invoke result, narrowed by operationId.

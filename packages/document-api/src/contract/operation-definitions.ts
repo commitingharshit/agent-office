@@ -66,7 +66,9 @@ export type ReferenceGroupKey =
   | 'selection'
   | 'diff'
   | 'protection'
-  | 'permissionRanges';
+  | 'permissionRanges'
+  | 'customXml'
+  | 'metadata';
 
 // ---------------------------------------------------------------------------
 // Entry shape
@@ -395,7 +397,7 @@ export const INTENT_GROUP_META: Record<string, IntentGroupMeta> = {
     toolName: 'superdoc_comment',
     description:
       'Manage document comment threads: create, read, update, and delete. ' +
-      'To create a comment, first use superdoc_search to find the target text, then pass action "create" with the comment text and a target: {kind:"text", blockId:"<blockId>", range:{start:<N>, end:<N>}} using the blockId and highlightRange from the search result. ' +
+      'To create a comment, first use superdoc_search to find the target text, then pass action "create" with the comment text and a target built from items[0].blocks. For a single-block match use {kind:"text", blockId: items[0].blocks[0].blockId, range: items[0].blocks[0].range}. For a cross-block match use {kind:"text", segments: items[0].blocks.map(b => ({blockId: b.blockId, range: b.range}))}. Do NOT use items[0].highlightRange (snippet-relative, not block-relative) or items[0].target (a SelectionTarget, not accepted by comments.create). ' +
       'For threaded replies, pass "parentId" with the parent comment ID. ' +
       'Action "list" returns all comments with optional pagination (limit, offset) and filtering (includeResolved:true to include resolved). ' +
       'Action "get" retrieves a single comment by ID. Action "update" changes status to "resolved" or marks as internal. Action "delete" removes a comment or reply by ID. ' +
@@ -1454,7 +1456,8 @@ export const OPERATION_DEFINITIONS = {
   },
   'format.paragraph.setAlignment': {
     memberPath: 'format.paragraph.setAlignment',
-    description: 'Set paragraph alignment (justification) on a paragraph-like block.',
+    description:
+      'Set visual paragraph alignment on a paragraph-like block. For RTL paragraphs, left/right are translated to Word-compatible stored justification values.',
     expectedResult: 'Returns a ParagraphMutationResult; reports NO_OP if the alignment already matches.',
     requiresDocumentContext: true,
     metadata: mutationOperation({
@@ -6258,6 +6261,182 @@ export const OPERATION_DEFINITIONS = {
     referenceDocPath: 'permission-ranges/update-principal.mdx',
     referenceGroup: 'permissionRanges',
     skipAsATool: true,
+  },
+
+  // -------------------------------------------------------------------------
+  // Custom XML Parts (ECMA-376 Part 1 §15.2.5, §15.2.6, §22.5)
+  // -------------------------------------------------------------------------
+
+  'customXml.parts.list': {
+    memberPath: 'customXml.parts.list',
+    description:
+      'List Custom XML Data Storage Parts in the document, optionally filtered by root namespace or schema reference.',
+    expectedResult: 'Returns a CustomXmlPartsListResult with summary entries (no content); fetch content via get.',
+    requiresDocumentContext: true,
+    metadata: readOperation({
+      idempotency: 'idempotent',
+      throws: T_REF_READ_LIST,
+    }),
+    referenceDocPath: 'custom-xml/parts/list.mdx',
+    referenceGroup: 'customXml',
+  },
+  'customXml.parts.get': {
+    memberPath: 'customXml.parts.get',
+    description:
+      'Get a single Custom XML Data Storage Part by itemID or package part name, including its full content. ' +
+      'v1 partName targeting is limited to Word-style customXml/itemN.xml paths.',
+    expectedResult:
+      'Returns a CustomXmlPartInfo with id, partName, namespaces, schemaRefs, and content; or null if not found.',
+    requiresDocumentContext: true,
+    metadata: readOperation({
+      throws: T_NOT_FOUND_CAPABLE,
+    }),
+    referenceDocPath: 'custom-xml/parts/get.mdx',
+    referenceGroup: 'customXml',
+  },
+  'customXml.parts.create': {
+    memberPath: 'customXml.parts.create',
+    description:
+      'Add a new Custom XML Data Storage Part to the document. Generates a fresh itemID GUID and emits the Properties Part.',
+    expectedResult: 'Returns a CustomXmlPartsCreateResult with the generated id and package part names on success.',
+    requiresDocumentContext: true,
+    metadata: mutationOperation({
+      idempotency: 'non-idempotent',
+      supportsDryRun: true,
+      supportsTrackedMode: false,
+      possibleFailureCodes: ['INVALID_INPUT'],
+      throws: T_REF_INSERT,
+    }),
+    referenceDocPath: 'custom-xml/parts/create.mdx',
+    referenceGroup: 'customXml',
+  },
+  'customXml.parts.patch': {
+    memberPath: 'customXml.parts.patch',
+    description:
+      'Replace the content and/or schemaRefs of an existing Custom XML Data Storage Part. ' +
+      'At least one of content or schemaRefs is required. ' +
+      'v1 partName targeting is limited to Word-style customXml/itemN.xml paths.',
+    expectedResult: 'Returns a CustomXmlPartsMutationResult indicating success with the resolved target or a failure.',
+    requiresDocumentContext: true,
+    metadata: mutationOperation({
+      idempotency: 'idempotent',
+      supportsDryRun: true,
+      supportsTrackedMode: false,
+      possibleFailureCodes: ['TARGET_NOT_FOUND', 'INVALID_INPUT'],
+      throws: T_REF_MUTATION,
+    }),
+    referenceDocPath: 'custom-xml/parts/patch.mdx',
+    referenceGroup: 'customXml',
+  },
+  'customXml.parts.remove': {
+    memberPath: 'customXml.parts.remove',
+    description:
+      'Remove a Custom XML Data Storage Part and clean up all linked package files (item, props, rels, content-types entry). ' +
+      'v1 partName targeting is limited to Word-style customXml/itemN.xml paths.',
+    expectedResult: 'Returns a CustomXmlPartsMutationResult indicating success or a failure.',
+    requiresDocumentContext: true,
+    metadata: mutationOperation({
+      idempotency: 'non-idempotent',
+      supportsDryRun: true,
+      supportsTrackedMode: false,
+      possibleFailureCodes: ['TARGET_NOT_FOUND'],
+      throws: T_REF_MUTATION_REMOVE,
+    }),
+    referenceDocPath: 'custom-xml/parts/remove.mdx',
+    referenceGroup: 'customXml',
+  },
+
+  // -------------------------------------------------------------------------
+  // Anchored metadata (composition over customXml.parts + contentControls)
+  // -------------------------------------------------------------------------
+
+  'metadata.attach': {
+    memberPath: 'metadata.attach',
+    description:
+      'Anchor a JSON metadata payload to a span of text. ' +
+      'Wraps the target range in a hidden inline content control whose w:tag carries a stable id, and stores the payload in a namespaced Custom XML Data Storage Part. ' +
+      'v1 supports text-range anchors only.',
+    expectedResult:
+      'Returns an AnchoredMetadataAttachResult with the assigned id and the backing Storage Part name on success.',
+    requiresDocumentContext: true,
+    metadata: mutationOperation({
+      idempotency: 'non-idempotent',
+      supportsDryRun: true,
+      supportsTrackedMode: false,
+      possibleFailureCodes: ['TARGET_NOT_FOUND', 'INVALID_TARGET', 'INVALID_INPUT'],
+      throws: [...T_REF_INSERT, 'REVISION_MISMATCH'],
+    }),
+    referenceDocPath: 'metadata/attach.mdx',
+    referenceGroup: 'metadata',
+  },
+  'metadata.list': {
+    memberPath: 'metadata.list',
+    description:
+      'List anchored-metadata entries in the document, optionally filtered by consumer namespace and/or a `within` selection (returns only entries whose anchor overlaps `within`).',
+    expectedResult: 'Returns an AnchoredMetadataListResult with summary entries (no payload); fetch payload via get.',
+    requiresDocumentContext: true,
+    metadata: readOperation({
+      idempotency: 'idempotent',
+      throws: T_REF_READ_LIST,
+    }),
+    referenceDocPath: 'metadata/list.mdx',
+    referenceGroup: 'metadata',
+  },
+  'metadata.get': {
+    memberPath: 'metadata.get',
+    description: 'Get a single anchored-metadata entry by id, including its JSON payload.',
+    expectedResult: 'Returns an AnchoredMetadataInfo with id, namespace, partName, and payload; or null if not found.',
+    requiresDocumentContext: true,
+    metadata: readOperation({
+      throws: T_NOT_FOUND_CAPABLE,
+    }),
+    referenceDocPath: 'metadata/get.mdx',
+    referenceGroup: 'metadata',
+  },
+  'metadata.update': {
+    memberPath: 'metadata.update',
+    description:
+      'Replace the JSON payload of an existing anchored-metadata entry. Replace semantics; no merge. The anchor is left untouched.',
+    expectedResult: 'Returns an AnchoredMetadataMutationResult with the entry id on success or a failure.',
+    requiresDocumentContext: true,
+    metadata: mutationOperation({
+      idempotency: 'idempotent',
+      supportsDryRun: true,
+      supportsTrackedMode: false,
+      possibleFailureCodes: ['TARGET_NOT_FOUND', 'INVALID_INPUT'],
+      throws: [...T_REF_MUTATION, 'REVISION_MISMATCH'],
+    }),
+    referenceDocPath: 'metadata/update.mdx',
+    referenceGroup: 'metadata',
+  },
+  'metadata.remove': {
+    memberPath: 'metadata.remove',
+    description:
+      'Remove an anchored-metadata entry. Strips the anchor content-control wrapper (its content stays in the document) and deletes the payload entry from the Storage Part. In v1 these writes are sequenced, not transactional: the adapter resolves the target up-front so missing-target failures land before any state change, but a crash strictly between the two writes can leave a dangling payload. When the backing part has no remaining entries, the part itself is removed.',
+    expectedResult: 'Returns an AnchoredMetadataMutationResult with the removed entry id on success or a failure.',
+    requiresDocumentContext: true,
+    metadata: mutationOperation({
+      idempotency: 'non-idempotent',
+      supportsDryRun: true,
+      supportsTrackedMode: false,
+      possibleFailureCodes: ['TARGET_NOT_FOUND'],
+      throws: [...T_REF_MUTATION_REMOVE, 'REVISION_MISMATCH'],
+    }),
+    referenceDocPath: 'metadata/remove.mdx',
+    referenceGroup: 'metadata',
+  },
+  'metadata.resolve': {
+    memberPath: 'metadata.resolve',
+    description:
+      'Find where an anchored-metadata entry is anchored in the document. Returns the SelectionTarget covering the anchor content.',
+    expectedResult:
+      'Returns an AnchoredMetadataResolveInfo with id and target SelectionTarget; or null if the anchor is no longer present.',
+    requiresDocumentContext: true,
+    metadata: readOperation({
+      throws: T_NOT_FOUND_CAPABLE,
+    }),
+    referenceDocPath: 'metadata/resolve.mdx',
+    referenceGroup: 'metadata',
   },
 } as const satisfies Record<string, OperationDefinitionEntry>;
 

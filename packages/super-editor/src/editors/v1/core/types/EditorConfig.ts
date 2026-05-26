@@ -209,11 +209,18 @@ export interface Awareness {
 /**
  * Collaboration provider interface.
  * Accepts any Yjs-compatible provider (HocuspocusProvider, LiveblocksYjsProvider, TiptapCollabProvider, etc.)
+ *
+ * `on`/`off` use `(event: string, handler: (...args: unknown[]) => void)`
+ * to match the established pattern on `Awareness` above and the internal
+ * `ProviderEventHandler` cast in `helpers/collaboration-provider-sync.ts`.
+ * Consumers narrow `args` before reading; this is a TS-only tightening
+ * (no runtime change) that drains 32 SD-3213 supported-root any[]
+ * findings on EditorConfig.d.ts in a single source edit.
  */
 export interface CollaborationProvider {
   awareness?: Awareness | null;
-  on?(event: any, handler: (...args: any[]) => void): void;
-  off?(event: any, handler: (...args: any[]) => void): void;
+  on?(event: string, handler: (...args: unknown[]) => void): void;
+  off?(event: string, handler: (...args: unknown[]) => void): void;
   disconnect?(): void;
   destroy?(): void;
   /** Whether provider is synced - some use `synced`, others `isSynced` */
@@ -432,6 +439,9 @@ export interface EditorOptions {
   /** Concrete header/footer surface kind for child editors */
   headerFooterType?: 'header' | 'footer';
 
+  /** OOXML relationship id for this header/footer part (e.g. `rId7`). */
+  headerFooterRefId?: string;
+
   /** Optional pagination metadata */
   lastSelection?: unknown | null;
 
@@ -523,8 +533,15 @@ export interface EditorOptions {
   /** Called when editor is destroyed */
   onDestroy?: () => void;
 
-  /** Called when there's a content error */
-  onContentError?: (params: { editor: Editor; error: Error }) => void;
+  /**
+   * Called when there's a content error. `error` is `unknown` because
+   * the emit sites do not normalize uniformly: `Editor.ts` wraps caught
+   * values in `Error`, but `insertContentAt` forwards the raw caught
+   * value. `disableCollaboration` is provided by the insertion path so
+   * callers can recover by detaching collaboration; absent on the
+   * Editor.ts emit.
+   */
+  onContentError?: (params: { editor: Editor; error: unknown; disableCollaboration?: () => void }) => void;
 
   /** Called when tracked changes update */
   onTrackedChangesUpdate?: (params: { changes: unknown }) => void;

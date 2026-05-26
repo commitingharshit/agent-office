@@ -2583,6 +2583,48 @@ const bookmarkAddressSchema: JsonSchema = objectSchema(
 
 const bookmarkMutation = refMutationSchemas({ bookmark: bookmarkAddressSchema }, ['bookmark']);
 
+// --- Custom XML part schemas ---
+const customXmlPartTargetSchema: JsonSchema = {
+  oneOf: [
+    // Empty strings are runtime-rejected (target validator requires
+    // non-zero length); reflect that in the contract so generated SDKs
+    // and tool callers see the same constraint.
+    objectSchema({ id: { type: 'string', minLength: 1 } }, ['id']),
+    objectSchema({ partName: { type: 'string', minLength: 1 } }, ['partName']),
+  ],
+};
+
+const customXmlPartMutation = refMutationSchemas(
+  {
+    target: customXmlPartTargetSchema,
+    // Optional: surfaced when patch resolves or mints an itemID. See
+    // CustomXmlPartsMutationSuccess JSDoc for the patch-foreign-part case.
+    id: { type: 'string', minLength: 1 },
+  },
+  ['target'],
+);
+
+const customXmlPartCreateMutation = refMutationSchemas(
+  {
+    id: { type: 'string' },
+    partName: { type: 'string' },
+    propsPartName: { type: 'string' },
+  },
+  ['id', 'partName', 'propsPartName'],
+);
+
+// --- Anchored-metadata schemas (metadata.*) ---
+const anchoredMetadataAttachMutation = refMutationSchemas(
+  {
+    id: { type: 'string', minLength: 1 },
+    namespace: { type: 'string', minLength: 1 },
+    partName: { type: 'string', minLength: 1 },
+  },
+  ['id', 'namespace', 'partName'],
+);
+
+const anchoredMetadataMutation = refMutationSchemas({ id: { type: 'string', minLength: 1 } }, ['id']);
+
 // --- Footnote schemas ---
 const footnoteAddressSchema: JsonSchema = objectSchema(
   { kind: { const: 'entity' }, entityType: { const: 'footnote' }, noteId: { type: 'string' } },
@@ -3356,10 +3398,17 @@ const operationSchemas: Record<OperationId, OperationSchemaSet> = {
     failure: paragraphMutationFailureSchemaFor('format.paragraph.resetDirectFormatting'),
   },
   'format.paragraph.setAlignment': {
-    input: objectSchema({ target: paragraphTargetSchema, alignment: { enum: [...PARAGRAPH_ALIGNMENTS] } }, [
-      'target',
-      'alignment',
-    ]),
+    input: objectSchema(
+      {
+        target: paragraphTargetSchema,
+        alignment: {
+          enum: [...PARAGRAPH_ALIGNMENTS],
+          description:
+            "Visual paragraph alignment. In RTL paragraphs, 'left' stores w:jc='right' and 'right' stores w:jc='left' so Word displays the requested side.",
+        },
+      },
+      ['target', 'alignment'],
+    ),
     output: paragraphMutationResultSchemaFor('format.paragraph.setAlignment'),
     success: paragraphMutationSuccessSchema,
     failure: paragraphMutationFailureSchemaFor('format.paragraph.setAlignment'),
@@ -7627,6 +7676,88 @@ const operationSchemas: Record<OperationId, OperationSchemaSet> = {
     output: { type: 'object' },
     success: { type: 'object' },
     failure: { type: 'object' },
+  },
+
+  // --- customXml.parts.* ---
+  'customXml.parts.list': {
+    input: objectSchema({
+      ...refListQueryProperties,
+      rootNamespace: { type: 'string' },
+      schemaRef: { type: 'string' },
+    }),
+    output: discoveryOutputSchema,
+  },
+  'customXml.parts.get': {
+    input: objectSchema({ target: customXmlPartTargetSchema }, ['target']),
+    output: { oneOf: [{ type: 'object' }, { type: 'null' }] },
+  },
+  'customXml.parts.create': {
+    input: objectSchema(
+      {
+        content: { type: 'string', minLength: 1 },
+        schemaRefs: { type: 'array', items: { type: 'string', minLength: 1 } },
+      },
+      ['content'],
+    ),
+    ...customXmlPartCreateMutation,
+  },
+  'customXml.parts.patch': {
+    // `target` is required; `content` and `schemaRefs` are both optional
+    // but at least one MUST be present. Encoded via JSON Schema's `anyOf`.
+    input: {
+      type: 'object',
+      properties: {
+        target: customXmlPartTargetSchema,
+        content: { type: 'string', minLength: 1 },
+        schemaRefs: { type: 'array', items: { type: 'string', minLength: 1 } },
+      },
+      required: ['target'],
+      anyOf: [{ required: ['content'] }, { required: ['schemaRefs'] }],
+      additionalProperties: false,
+    },
+    ...customXmlPartMutation,
+  },
+  'customXml.parts.remove': {
+    input: objectSchema({ target: customXmlPartTargetSchema }, ['target']),
+    ...customXmlPartMutation,
+  },
+
+  // --- metadata.* (anchored metadata) ---
+  'metadata.attach': {
+    input: objectSchema(
+      {
+        target: selectionTargetSchema,
+        namespace: { type: 'string', minLength: 1 },
+        payload: {},
+        id: { type: 'string', minLength: 1 },
+      },
+      ['target', 'namespace', 'payload'],
+    ),
+    ...anchoredMetadataAttachMutation,
+  },
+  'metadata.list': {
+    input: objectSchema({
+      ...refListQueryProperties,
+      namespace: { type: 'string' },
+      within: selectionTargetSchema,
+    }),
+    output: discoveryOutputSchema,
+  },
+  'metadata.get': {
+    input: objectSchema({ id: { type: 'string', minLength: 1 } }, ['id']),
+    output: { oneOf: [{ type: 'object' }, { type: 'null' }] },
+  },
+  'metadata.update': {
+    input: objectSchema({ id: { type: 'string', minLength: 1 }, payload: {} }, ['id', 'payload']),
+    ...anchoredMetadataMutation,
+  },
+  'metadata.remove': {
+    input: objectSchema({ id: { type: 'string', minLength: 1 } }, ['id']),
+    ...anchoredMetadataMutation,
+  },
+  'metadata.resolve': {
+    input: objectSchema({ id: { type: 'string', minLength: 1 } }, ['id']),
+    output: { oneOf: [{ type: 'object' }, { type: 'null' }] },
   },
 };
 

@@ -1,9 +1,11 @@
 // @ts-nocheck
+import { TextSelection } from 'prosemirror-state';
 import { Mark } from '@core/Mark.js';
 import { Attribute } from '@core/Attribute.js';
 import { getMarkRange } from '@core/helpers/getMarkRange.js';
 import { findOrCreateRelationship } from '@core/parts/adapters/relationships-mutation.js';
 import { sanitizeHref, encodeTooltip, UrlValidationConstants } from '@superdoc/url-validation';
+import { TRANSIENT_HYPERLINK_STYLE_IDS } from '@extensions/run/calculateInlineRunPropertiesPlugin.js';
 
 /**
  * Target frame options
@@ -227,9 +229,34 @@ export const Link = Mark.create({
           }
 
           if (linkMarkType) tr = tr.removeMark(from, to, linkMarkType);
-          if (underlineMarkType) tr = tr.removeMark(from, to, underlineMarkType);
 
-          if (underlineMarkType) tr = tr.addMark(from, to, underlineMarkType.create());
+          if (underlineMarkType) {
+            const rangesMissingUnderline = [];
+            const negationMarksToRemove = [];
+            tr.doc.nodesBetween(from, to, (node, pos) => {
+              if (!node.isText || node.nodeSize <= 0) return;
+              // underlineType: 'none' is a negation marker (renders as <span>, not <u>),
+              // not a visible underline — treat it as missing so the link gets one.
+              const existing = node.marks.find((mark) => mark.type === underlineMarkType);
+              const hasVisibleUnderline = existing && existing.attrs?.underlineType !== 'none';
+              if (hasVisibleUnderline) return;
+
+              const rangeFrom = Math.max(pos, from);
+              const rangeTo = Math.min(pos + node.nodeSize, to);
+              if (rangeFrom >= rangeTo) return;
+              if (existing && existing.attrs?.underlineType === 'none') {
+                negationMarksToRemove.push({ from: rangeFrom, to: rangeTo, mark: existing });
+              }
+              rangesMissingUnderline.push({ from: rangeFrom, to: rangeTo });
+            });
+
+            negationMarksToRemove.forEach((range) => {
+              tr = tr.removeMark(range.from, range.to, range.mark);
+            });
+            rangesMissingUnderline.forEach((range) => {
+              tr = tr.addMark(range.from, range.to, underlineMarkType.create({ autoAdded: true }));
+            });
+          }
 
           let rId = null;
           if (editor.options.mode === 'docx') {
@@ -258,11 +285,122 @@ export const Link = Mark.create({
        */
       unsetLink:
         () =>
-        ({ chain }) => {
-          return chain()
-            .unsetMark('underline', { extendEmptyMarkRange: true })
+        ({ chain, state, editor }) => {
+          const { selection } = state;
+          const linkMarkType = editor.schema.marks.link;
+          const underlineMarkType = editor.schema.marks.underline;
+
+          let { from, to } = selection;
+
+          if (selection.empty && linkMarkType) {
+            const initialRange = getMarkRange(selection.$from, linkMarkType);
+            if (initialRange) {
+              from = initialRange.from;
+              to = initialRange.to;
+            } else {
+              // Imported DOCX links can sit at node boundaries where getMarkRange misses.
+              const doc = state.doc;
+              const docSize = doc.content.size;
+              const probePositions = [selection.from - 1, selection.from, selection.from + 1].filter(
+                (pos) => pos >= 0 && pos <= docSize,
+              );
+
+              for (const pos of probePositions) {
+                const range = getMarkRange(doc.resolve(pos), linkMarkType);
+                if (range) {
+                  from = range.from;
+                  to = range.to;
+                  break;
+                }
+              }
+            }
+          }
+
+          const commandChain = chain();
+          if (selection.empty && linkMarkType && from !== to) {
+            commandChain.command(({ tr }) => {
+              tr.setSelection(TextSelection.create(tr.doc, from, to));
+              return true;
+            });
+          }
+
+          return commandChain
             .unsetColor()
             .unsetMark('link', { extendEmptyMarkRange: true })
+            .command(({ tr }) => {
+              if (underlineMarkType) {
+                tr.doc.nodesBetween(from, to, (node, pos) => {
+                  if (!node.isText) return;
+                  node.marks.forEach((mark) => {
+                    if (mark.type !== underlineMarkType) return;
+                    if (mark.attrs?.autoAdded !== true) return;
+                    tr.removeMark(pos, pos + node.nodeSize, mark);
+                  });
+                });
+              }
+
+              const textStyleMarkType = tr.doc.type.schema.marks.textStyle;
+              if (textStyleMarkType) {
+                tr.doc.nodesBetween(from, to, (node, pos) => {
+                  if (!node.isText) return;
+
+                  node.marks.forEach((mark) => {
+                    if (mark.type !== textStyleMarkType) return;
+                    if (!TRANSIENT_HYPERLINK_STYLE_IDS.has(mark.attrs?.styleId)) return;
+
+                    const clearedAttrs = { ...mark.attrs, styleId: null };
+                    tr.removeMark(pos, pos + node.nodeSize, mark);
+                    tr.addMark(pos, pos + node.nodeSize, textStyleMarkType.create(clearedAttrs));
+                  });
+                });
+              }
+
+              const runNodesToUpdate = [];
+              tr.doc.nodesBetween(from, to, (node, pos) => {
+                if (node.type.name !== 'run') return;
+                if (!TRANSIENT_HYPERLINK_STYLE_IDS.has(node.attrs?.runProperties?.styleId)) return;
+                runNodesToUpdate.push({ node, pos });
+              });
+
+              runNodesToUpdate
+                .sort((a, b) => b.pos - a.pos)
+                .forEach(({ node, pos }) => {
+                  const mappedPos = tr.mapping.map(pos);
+                  tr.setNodeMarkup(
+                    mappedPos,
+                    node.type,
+                    {
+                      ...node.attrs,
+                      runProperties: { ...node.attrs.runProperties, styleId: null },
+                    },
+                    node.marks,
+                  );
+                });
+
+              // Imported DOCX links can still exist as run node marks, remove too.
+              if (linkMarkType) {
+                const runNodeMarkRemovals = [];
+                tr.doc.nodesBetween(from, to, (node, pos) => {
+                  if (node.type.name !== 'run') return;
+                  if (!node.marks.some((mark) => mark.type === linkMarkType)) return;
+                  runNodeMarkRemovals.push(pos);
+                });
+
+                runNodeMarkRemovals.reverse().forEach((pos) => {
+                  const mappedPos = tr.mapping.map(pos);
+                  const runNode = tr.doc.nodeAt(mappedPos);
+                  if (!runNode) return;
+                  tr.setNodeMarkup(
+                    mappedPos,
+                    runNode.type,
+                    runNode.attrs,
+                    runNode.marks.filter((mark) => mark.type !== linkMarkType),
+                  );
+                });
+              }
+
+              return true;
+            })
             .run();
         },
 

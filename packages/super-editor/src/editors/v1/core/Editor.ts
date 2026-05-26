@@ -18,6 +18,11 @@ import { ExtensionService } from './ExtensionService.js';
 import { CommandService } from './CommandService.js';
 import { Attribute } from './Attribute.js';
 import { SuperConverter } from '@core/super-converter/SuperConverter.js';
+import type {
+  ConvertedXmlPart,
+  EditorConverterSurface,
+  EditorExtensionServiceSurface,
+} from './types/EditorPublicSurfaces.js';
 import {
   Commands,
   Editable,
@@ -257,10 +262,8 @@ export class Editor extends EventEmitter<EditorEventMap> {
    */
   #commandService!: CommandService;
 
-  /**
-   * Service for managing extensions
-   */
-  extensionService!: ExtensionService;
+  /** Extension service. See `EditorExtensionServiceSurface`. SD-3240. */
+  extensionService!: EditorExtensionServiceSurface;
 
   /**
    * Storage for extension data
@@ -269,9 +272,17 @@ export class Editor extends EventEmitter<EditorEventMap> {
 
   /**
    * ProseMirror schema for the editor.
+   *
+   * Typed as `Schema<string, string>` rather than bare `Schema` to
+   * drop the implicit `Schema<any, any>` default through the SD-3213
+   * supported-root audit. Node and mark name spaces are typed as
+   * `string` (the established ProseMirror constraint shape); consumer
+   * schemas with literal-typed names like `Schema<'paragraph', 'em'>`
+   * remain assignable.
+   *
    * @deprecated Direct ProseMirror access will be removed in a future version. Use the Document API (`editor.doc`) instead.
    */
-  schema!: Schema;
+  schema!: Schema<string, string>;
 
   /**
    * ProseMirror view instance.
@@ -344,7 +355,8 @@ export class Editor extends EventEmitter<EditorEventMap> {
   /**
    * The document converter instance
    */
-  converter!: SuperConverter;
+  /** Document converter handle. See `EditorConverterSurface`. SD-3240. */
+  converter!: EditorConverterSurface;
 
   /**
    * Toolbar instance (if attached)
@@ -428,7 +440,7 @@ export class Editor extends EventEmitter<EditorEventMap> {
     onFocus: () => null,
     onBlur: () => null,
     onDestroy: () => null,
-    onContentError: ({ error }: { editor: Editor; error: Error }) => {
+    onContentError: ({ error }: { editor: Editor; error: unknown; disableCollaboration?: () => void }) => {
       throw error;
     },
     onTrackedChangesUpdate: () => null,
@@ -652,7 +664,7 @@ export class Editor extends EventEmitter<EditorEventMap> {
       if (!this.#telemetry || this.#documentOpenTracked) return;
 
       try {
-        const documentCreatedAt = this.converter?.getDocumentCreatedTimestamp?.() || null;
+        const documentCreatedAt = this.converter?.getDocumentCreatedTimestamp?.() ?? null;
         this.#telemetry.trackDocumentOpen(documentId, documentCreatedAt);
         this.#documentOpenTracked = true;
       } catch {
@@ -1115,7 +1127,14 @@ export class Editor extends EventEmitter<EditorEventMap> {
   #initProtectionState(): void {
     const protStorage = getProtectionStorage(this);
     if (!protStorage) return;
-    const settingsRoot = this.converter ? readSettingsRoot(this.converter) : null;
+    // SD-3240: readSettingsRoot accepts a narrow `ConverterWithDocumentSettings`
+    // shape that overlaps with EditorConverterSurface but uses a
+    // different `pageStyles` typing (alternateHeaders flag). Cast to
+    // the local narrow interface. Both shapes are honest no-`any`
+    // contracts on the same runtime instance.
+    const settingsRoot = this.converter
+      ? readSettingsRoot(this.converter as unknown as Parameters<typeof readSettingsRoot>[0])
+      : null;
     protStorage.state = parseProtectionState(settingsRoot);
     protStorage.initialized = true;
   }
@@ -1962,10 +1981,22 @@ export class Editor extends EventEmitter<EditorEventMap> {
 
   /**
    * Register PM plugin.
+   *
+   * `PluginState` is a call-site generic so the incoming plugin's
+   * state shape is preserved into the `handlePlugins` callback's
+   * `plugin` argument. The existing plugin list is heterogeneous
+   * (each entry can have a different state type) so it stays as
+   * `Plugin<unknown>[]` instead of being inferred under one specific
+   * state. Default `PluginState = unknown` removes the previous
+   * implicit `Plugin<any>` SD-3213 supported-root finding.
+   *
    * @param plugin PM plugin.
    * @param handlePlugins Optional function for handling plugin merge.
    */
-  registerPlugin(plugin: Plugin, handlePlugins?: (plugin: Plugin, plugins: Plugin[]) => Plugin[]): void {
+  registerPlugin<PluginState = unknown>(
+    plugin: Plugin<PluginState>,
+    handlePlugins?: (plugin: Plugin<PluginState>, plugins: Plugin<unknown>[]) => Plugin<unknown>[],
+  ): void {
     if (this.isDestroyed) return;
     if (!this.state?.plugins) return;
     const plugins =
@@ -2110,7 +2141,15 @@ export class Editor extends EventEmitter<EditorEventMap> {
 
     const isolatedExternalExtensions = externalExtensions.map((extension) => cloneExtensionInstance(extension));
 
-    this.extensionService = ExtensionService.create(allExtensions, isolatedExternalExtensions, this);
+    // SD-3240: ExtensionService.d.ts uses a `[key: string]: any` catchall
+    // for internal-implementation members. The runtime instance has the
+    // surface members; the cast bridges the structural gap without
+    // reintroducing `any` on the public field type.
+    this.extensionService = ExtensionService.create(
+      allExtensions,
+      isolatedExternalExtensions,
+      this,
+    ) as unknown as EditorExtensionServiceSurface;
   }
 
   /**
@@ -2126,8 +2165,12 @@ export class Editor extends EventEmitter<EditorEventMap> {
    * Create the document converter as this.converter.
    */
   #createConverter(): void {
+    // SD-3240: SuperConverter.d.ts uses a `[key: string]: any` catchall
+    // for internal-implementation members. The runtime instance has the
+    // surface members; the cast bridges the structural gap without
+    // reintroducing `any` on the public field type.
     if (this.options.converter) {
-      this.converter = this.options.converter as SuperConverter;
+      this.converter = this.options.converter as unknown as EditorConverterSurface;
     } else {
       this.converter = new SuperConverter({
         docx: this.options.content,
@@ -2140,7 +2183,7 @@ export class Editor extends EventEmitter<EditorEventMap> {
         mockDocument: this.options.mockDocument ?? null,
         isNewFile: this.options.isNewFile ?? false,
         trackedChangesOptions: this.options.trackedChanges ?? null,
-      });
+      }) as unknown as EditorConverterSurface;
     }
   }
 
@@ -2362,7 +2405,10 @@ export class Editor extends EventEmitter<EditorEventMap> {
 
     const suppressedNames = new Set(
       (this.extensionService?.extensions || [])
-        .filter((ext: { config?: { excludeFromSummaryJSON?: boolean } }) => {
+        .filter((ext) => {
+          // SD-3240: extension entries are typed but `excludeFromSummaryJSON`
+          // is a runtime opt-in on the config record (Options/Storage generics
+          // hide it). Cast at the read site to access the optional flag.
           const config = (ext as { config?: { excludeFromSummaryJSON?: boolean } })?.config;
           const suppressFlag = config?.excludeFromSummaryJSON;
           return Boolean(suppressFlag);
@@ -2561,7 +2607,12 @@ export class Editor extends EventEmitter<EditorEventMap> {
    *       the cursor is inside a table cell, in which case the cell width is returned.
    */
   getMaxContentSize(): { width?: number; height?: number } {
-    if (!this.converter) return {};
+    const localPageStyles = this.converter?.pageStyles;
+    const parentPageStyles = this.options.parentEditor?.converter?.pageStyles;
+    const localPageSize = localPageStyles?.pageSize;
+    const pageStyles =
+      localPageSize?.width && localPageSize?.height ? localPageStyles : (parentPageStyles ?? localPageStyles);
+    if (!pageStyles) return {};
 
     // When the cursor is inside a table cell, constrain width to the cell's content
     // width so images inserted into a cell are never wider than that cell.
@@ -2587,7 +2638,7 @@ export class Editor extends EventEmitter<EditorEventMap> {
       return {};
     }
 
-    const { pageSize = {}, pageMargins = {} } = this.converter.pageStyles ?? {};
+    const { pageSize = {}, pageMargins = {} } = pageStyles;
     const { width, height } = pageSize;
 
     if (!width || !height) return {};
@@ -3167,16 +3218,20 @@ export class Editor extends EventEmitter<EditorEventMap> {
    *
    * Return type depends on flags:
    * - `exportXmlOnly: true` → `string` (raw XML)
-   * - `exportJsonOnly: true` → `string` (JSON string)
+   * - `exportJsonOnly: true` → `ConvertedXmlPart` (the xml-js intermediate
+   *   tree; recursive `name` / `attributes` / `elements` shape, NOT a JSON
+   *   string). SD-3248: this overload previously typed as `Promise<string>`,
+   *   which did not match runtime. Consumers should walk the returned tree
+   *   directly; calling `JSON.parse` on it would never have worked.
    * - `getUpdatedDocs: true` → `Record<string, string | null>` (file map)
    * - Default → `Blob` (browser) or `Buffer` (Node.js headless). The runtime
    *   value is determined by the editor's `isHeadless` option at construction
-   *   time, which the type system cannot see — so the default overload is
+   *   time, which the type system cannot see, so the default overload is
    *   generic with `Blob` as the default. Browser consumers get `Blob`
    *   automatically; Node headless consumers opt in with `exportDocx<Buffer>()`.
    */
   async exportDocx(params: ExportDocxParams & { exportXmlOnly: true }): Promise<string>;
-  async exportDocx(params: ExportDocxParams & { exportJsonOnly: true }): Promise<string>;
+  async exportDocx(params: ExportDocxParams & { exportJsonOnly: true }): Promise<ConvertedXmlPart>;
   async exportDocx(params: ExportDocxParams & { getUpdatedDocs: true }): Promise<Record<string, string | null>>;
   async exportDocx<T extends Blob | Buffer = Blob>(
     params?: ExportDocxParams & { exportXmlOnly?: false; exportJsonOnly?: false; getUpdatedDocs?: false },
@@ -3190,7 +3245,9 @@ export class Editor extends EventEmitter<EditorEventMap> {
     getUpdatedDocs = false,
     fieldsHighlightColor = null,
     compression,
-  }: ExportDocxParams = {}): Promise<Blob | Buffer | Record<string, string | null> | string | undefined> {
+  }: ExportDocxParams = {}): Promise<
+    Blob | Buffer | Record<string, string | null> | string | ConvertedXmlPart | undefined
+  > {
     try {
       const exportHostEditor = resolveMainBodyEditor(this);
       commitLiveStorySessionRuntimes(exportHostEditor);
@@ -3266,7 +3323,7 @@ export class Editor extends EventEmitter<EditorEventMap> {
       });
 
       const numberingData = this.converter.convertedXml['word/numbering.xml'];
-      const numbering = this.converter.schemaToXml(numberingData.elements[0]);
+      const numbering = numberingData?.elements?.[0] ? this.converter.schemaToXml(numberingData.elements[0]) : null;
 
       const appXmlData = this.converter.convertedXml['docProps/app.xml'];
       const appXml = appXmlData?.elements?.[0] ? this.converter.schemaToXml(appXmlData.elements[0]) : null;
@@ -3280,7 +3337,7 @@ export class Editor extends EventEmitter<EditorEventMap> {
         'word/document.xml': String(documentXml),
         'docProps/custom.xml': String(customXml),
         'word/_rels/document.xml.rels': String(rels),
-        'word/numbering.xml': String(numbering),
+        ...(numbering ? { 'word/numbering.xml': String(numbering) } : {}),
         'word/styles.xml': String(styles),
         ...updatedHeadersFooters,
         ...(appXml ? { 'docProps/app.xml': String(appXml) } : {}),
@@ -3346,6 +3403,24 @@ export class Editor extends EventEmitter<EditorEventMap> {
         const partData = this.converter.convertedXml[path] as { elements?: unknown[] } | undefined;
         if (partData?.elements?.[0]) {
           updatedDocs[path] = String(this.converter.schemaToXml(partData.elements[0]));
+        }
+      }
+
+      // Emit ZIP tombstones for custom XML parts that were removed via the
+      // Document API but originated in the imported DOCX. Without this,
+      // the exporter would copy the original zip entry through, and the
+      // removed part would reappear on the next import.
+      // AIDEV-NOTE: `removedCustomXmlPaths` is set by `removeCustomXmlPart`
+      // (super-converter/custom-xml-parts.js) on the converter instance.
+      // Typed via cast rather than on SuperConverter.d.ts because adding
+      // an explicit field there triggers weak-type errors against
+      // ConverterWithDocumentSettings / ConverterLike structural types in
+      // sibling files that don't reference this field.
+      const removedCustomXmlPaths = (this.converter as unknown as { removedCustomXmlPaths?: Set<string> })
+        .removedCustomXmlPaths;
+      if (removedCustomXmlPaths instanceof Set) {
+        for (const path of removedCustomXmlPaths) {
+          updatedDocs[path] = null;
         }
       }
 
@@ -3912,6 +3987,13 @@ export class Editor extends EventEmitter<EditorEventMap> {
     if (!this.options.ydoc) {
       this.#initComments();
     }
+
+    // AIDEV-NOTE: In collaboration mode, parts are seeded into Y.Doc directly
+    // (not through `mutateParts`), so no `partChanged` fires on this client.
+    // Remote tabs refresh via the consumer → `mutateParts` → `partChanged` path,
+    // but the importer relies on this signal to rebuild header/footer state
+    // bound to the previous document (SD-2643).
+    this.emit('documentReplaced', { editor: this });
   }
 
   /**
