@@ -1542,19 +1542,14 @@ export class SuperDoc extends EventEmitter<SuperDocEventMap> {
    * Used by downstream consumers (toolbar, context menu, commands) to keep
    * tracked-change affordances consistent with customer overrides.
    *
-   * `comment` and `trackedChange` carry an open index signature because
-   * the function forwards the full payload to `isAllowed()`; tracked-change
-   * payloads from the editor include `type`, `attrs`, `from`, `to`,
-   * `segments`, and the comment objects passed by consumers vary in shape.
-   * The named fields below are the ones this method reads directly.
+   * The `comment` and `trackedChange` fields on the input carry open
+   * index signatures because the function forwards the full payload to
+   * `isAllowed()`; tracked-change payloads from the editor include
+   * `type`, `attrs`, `from`, `to`, `segments`, and consumer comment
+   * shapes vary. The fields read directly here are documented on the
+   * input type itself.
    *
-   * @param {{
-   *   permission?: string,
-   *   role?: string,
-   *   isInternal?: boolean,
-   *   comment?: (object & Record<string, unknown>) | null,
-   *   trackedChange?: ({ id?: string, commentId?: string, comment?: unknown } & Record<string, unknown>) | null,
-   * }} [params]
+   * @see {@link CanPerformPermissionParams} for the input shape.
    */
   canPerformPermission({
     permission,

@@ -1005,9 +1005,9 @@ type PermissionResolverParams = {
  * because the runtime forwards the full payload to the resolver
  * context, and consumer comment / tracked-change shapes vary; the
  * named fields below are the ones the method itself reads. Distinct
- * from the internal `PermissionResolverParams`, which is what the
- * resolver callback receives (with resolved `currentUser` and
- * `superdoc` context attached).
+ * from the non-exported `PermissionResolverParams` helper, which
+ * models the resolver callback payload with resolved `currentUser`
+ * and `superdoc` context attached.
  */
 export interface CanPerformPermissionParams {
   /** The permission key to check (e.g. `'comment.create'`). Required at runtime; omitting returns `false`. */
