@@ -21,8 +21,11 @@
  * unreadable package.json prevents the audit from producing a
  * meaningful inventory; in that case the script exits non-zero so a
  * broken input pipeline is distinguishable from a clean "zero
- * unaccounted" run. Requires `pnpm build` (or `pnpm run type-check`
- * to emit declarations only) to have run first.
+ * unaccounted" run. Requires `pnpm build` to have run first.
+ * `pnpm run type-check` is NOT a substitute: it writes superdoc
+ * declarations to `dist-types/` (per
+ * `packages/superdoc/tsconfig.types.json`), while this audit walks
+ * `packages/superdoc/dist/` (the consumer-visible tree).
  *
  * Sources of truth this script consumes:
  *   - `packages/superdoc/package.json` and
@@ -155,7 +158,7 @@ function walkPackage(packageRoot) {
     // but dist not built" so a missing-dist run gives an actionable hint.
     if (missingTargets.length > 0) {
       return {
-        error: `dist incomplete for ${packageName}: ${missingTargets.length} typed export target(s) missing on disk; run \`pnpm run type-check\` (or \`pnpm build\`) first`,
+        error: `dist incomplete for ${packageName}: ${missingTargets.length} typed export target(s) missing on disk; run \`pnpm build\` first`,
       };
     }
     return { error: `no typed exports in ${packageName}` };
@@ -382,9 +385,9 @@ console.log(
 if (structuralFailure) {
   console.log('');
   console.log('FAIL  one or more packages skipped (missing dist or unreadable input).');
-  console.log('      Run `pnpm build` (or `pnpm run type-check` to emit declarations only)');
-  console.log('      and retry. The audit cannot produce a meaningful inventory with');
-  console.log('      partial inputs.');
+  console.log('      Run `pnpm build` and retry. (`pnpm run type-check` is not a');
+  console.log('      substitute: superdoc declarations go to dist-types/, not dist/.)');
+  console.log('      The audit cannot produce a meaningful inventory with partial inputs.');
   process.exit(1);
 }
 process.exit(0);
