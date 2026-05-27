@@ -551,10 +551,19 @@ describe('SuperDoc.vue', () => {
     // onEditorListdefinitionsChange is a verbatim pass-through to
     // superdoc.emit, so the runtime shape is whatever the upstream editor
     // emits (ListDefinitionsPayload). Catch a regression where the bridge
-    // starts re-shaping or dropping fields.
+    // starts re-shaping, dropping, or mutating fields before emit.
+    //
+    // Reference equality (.toBe) pins the verbatim pass-through; the
+    // separate Object.keys snapshot pins the key set in case the bridge
+    // ever mutates the payload in place before forwarding (a deep-equal
+    // assertion against the same reference would pass trivially).
     const listDefsPayload = { change: { kind: 'add' }, numbering: { nums: [] }, editor: editorMock };
     options.onListDefinitionsChange(listDefsPayload);
-    expect(superdocStub.emit).toHaveBeenCalledWith('list-definitions-change', listDefsPayload);
+    const listDefsCall = superdocStub.emit.mock.calls.find(([name]) => name === 'list-definitions-change');
+    expect(listDefsCall).toBeDefined();
+    const [, emittedListDefsPayload] = listDefsCall;
+    expect(emittedListDefsPayload).toBe(listDefsPayload);
+    expect(Object.keys(emittedListDefsPayload).sort()).toEqual(['change', 'editor', 'numbering']);
 
     options.onDocumentLocked({ editor: editorMock, isLocked: true, lockedBy: { name: 'A' } });
     expect(superdocStub.lockSuperdoc).toHaveBeenCalledWith(true, { name: 'A' });
