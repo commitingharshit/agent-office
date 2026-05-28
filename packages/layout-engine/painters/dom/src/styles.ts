@@ -784,6 +784,35 @@ const SDT_CONTAINER_STYLES = `
   background-color: transparent;
 }
 
+/* Global content-control chrome opt-out: preserve SDT wrappers/datasets while
+ * suppressing built-in visual chrome on structured-content controls. Their
+ * label elements are not emitted by renderer/helpers when this class is
+ * present (DOM non-emission), and these rules neutralize
+ * border/padding/hover/selection visuals. documentSection chrome (e.g. the
+ * locked-section tooltip) is intentionally preserved and not in scope. */
+.superdoc-cc-chrome-none .superdoc-structured-content-inline,
+.superdoc-cc-chrome-none .superdoc-structured-content-block {
+  border: none;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.superdoc-cc-chrome-none .superdoc-structured-content-inline:hover,
+.superdoc-cc-chrome-none .superdoc-structured-content-block:hover,
+.superdoc-cc-chrome-none .superdoc-structured-content-block.sdt-group-hover,
+.superdoc-cc-chrome-none .superdoc-structured-content-block[data-lock-mode].sdt-group-hover,
+.superdoc-cc-chrome-none .superdoc-structured-content-inline[data-lock-mode]:hover {
+  border: none;
+  background: none;
+}
+
+.superdoc-cc-chrome-none .superdoc-structured-content-inline.ProseMirror-selectednode,
+.superdoc-cc-chrome-none .superdoc-structured-content-block.ProseMirror-selectednode {
+  border-color: transparent;
+  background: none;
+}
+
 /* Hover highlight for SDT containers.
  * Hover adds background highlight and z-index boost.
  * Block SDTs use .sdt-group-hover class (event delegation for multi-fragment coordination).
@@ -807,6 +836,35 @@ const SDT_CONTAINER_STYLES = `
 
 .superdoc-structured-content-block[data-lock-mode].sdt-group-hover:not(.ProseMirror-selectednode)::before {
   background-color: var(--sd-content-controls-lock-hover-bg, rgba(98, 155, 231, 0.08));
+}
+
+/* Chrome opt-out for block SDTs. Main paints block chrome through ::before
+ * (background) and ::after (border) pseudo-elements, which the element-level
+ * .superdoc-cc-chrome-none rules above cannot reach. Suppress the pseudo
+ * chrome directly, including the selected-node border and the lock-hover
+ * ::before background. Declared after every chrome-showing pseudo rule so
+ * source order resolves equal-specificity ties, the same way the
+ * viewing-mode rules below do. */
+.superdoc-cc-chrome-none .superdoc-structured-content-block::before,
+.superdoc-cc-chrome-none .superdoc-structured-content-block:hover::before,
+.superdoc-cc-chrome-none .superdoc-structured-content-block.sdt-group-hover::before,
+.superdoc-cc-chrome-none .superdoc-structured-content-block[data-lock-mode].sdt-group-hover::before {
+  background: none;
+}
+
+.superdoc-cc-chrome-none .superdoc-structured-content-block::after,
+.superdoc-cc-chrome-none .superdoc-structured-content-block:hover::after,
+.superdoc-cc-chrome-none .superdoc-structured-content-block.sdt-group-hover::after,
+.superdoc-cc-chrome-none .superdoc-structured-content-block.ProseMirror-selectednode::after {
+  border: none;
+}
+
+/* Reset the lock-hover z-index boost so a suppressed SDT does not stack
+ * above host-attached custom UI. Mirrors the base lock-hover selectors with
+ * the chrome-none prefix so specificity stays above the boost rule. */
+.superdoc-cc-chrome-none .superdoc-structured-content-block[data-lock-mode].sdt-group-hover:not(.ProseMirror-selectednode),
+.superdoc-cc-chrome-none .superdoc-structured-content-inline[data-lock-mode]:hover:not(.ProseMirror-selectednode, [data-appearance='hidden']) {
+  z-index: auto;
 }
 
 /* Viewing mode: remove structured content affordances */
