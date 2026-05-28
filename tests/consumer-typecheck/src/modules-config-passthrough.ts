@@ -1,12 +1,14 @@
 /**
  * Consumer typecheck: realistic Config with `modules.*` pass-through fields.
  *
- * The runtime spreads consumer-provided module configs into downstream
- * stores (comments-store, SuperToolbar, etc.), so each `modules.X` shape
- * is intentionally open: typed fields for IDE help on documented options,
+ * The runtime spreads many consumer-provided module configs into downstream
+ * stores (comments-store, SuperToolbar, etc.), so those `modules.X` shapes
+ * are intentionally open: typed fields for IDE help on documented options,
  * plus an index-signature intersection to accept additional keys that the
  * runtime forwards. This fixture pins that contract so a future PR cannot
- * silently re-narrow these into closed object literals.
+ * silently re-narrow them into closed object literals. Configs that forward
+ * nothing (e.g. `contentControls`, with a single real option) are instead
+ * intentionally exact; this fixture pins that shape too.
  *
  * Past regressions covered here:
  *   - SD-2869 review pass flagged `Modules.comments` rejecting
