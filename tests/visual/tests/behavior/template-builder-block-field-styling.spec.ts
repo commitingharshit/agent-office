@@ -89,10 +89,12 @@ test('inline and block structured content field chrome use Template Builder fiel
       el.classList.remove('sdt-group-hover');
     });
 
+    const inlineBackground = await inline.evaluate((el) => getComputedStyle(el).backgroundColor);
     await expect(block).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
     const blockBackground = await block.evaluate((el) => getComputedStyle(el, '::before').backgroundColor);
 
-    expect(blockBackground).not.toBe('rgba(0, 0, 0, 0)');
+    expect(inlineBackground).toBe(blockBackground);
+    expect(inlineBackground).not.toBe('rgba(0, 0, 0, 0)');
   };
 
   const expectSelectedStateBackgrounds = async (fieldType: 'owner' | 'signer') => {
