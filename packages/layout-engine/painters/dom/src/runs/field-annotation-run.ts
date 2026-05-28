@@ -1,10 +1,9 @@
 import type { FieldAnnotationRun } from '@superdoc/contracts';
-import { sanitizeHref } from '@superdoc/url-validation';
+import { sanitizeHref, isValidImageDataUrl } from '@superdoc/url-validation';
 import { DOM_CLASS_NAMES } from '../constants.js';
 import { assertPmPositions } from '../pm-position-validation.js';
 import type { RunRenderContext } from './types.js';
 import { BROWSER_DEFAULT_FONT_SIZE } from './text-run.js';
-import { isValidImageDataUrl } from './image-run.js';
 
 /**
  * Renders a FieldAnnotationRun as an inline "pill" element matching super-editor's visual appearance.

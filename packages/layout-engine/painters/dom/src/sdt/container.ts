@@ -1,4 +1,4 @@
-import type { SdtMetadata, StructuredContentLockMode } from '@superdoc/contracts';
+import type { SdtMetadata, StructuredContentMetadata } from '@superdoc/contracts';
 export {
   getSdtContainerKey,
   getSdtContainerKeyForBlock,
@@ -31,13 +31,7 @@ export type SdtAncestorOptions = {
   ancestorContainerSdts?: readonly (SdtMetadata | null | undefined)[];
 };
 
-export function isStructuredContentMetadata(sdt: SdtMetadata | null | undefined): sdt is {
-  type: 'structuredContent';
-  scope: 'inline' | 'block';
-  alias?: string | null;
-  lockMode?: StructuredContentLockMode;
-  appearance?: string | null;
-} {
+export function isStructuredContentMetadata(sdt: SdtMetadata | null | undefined): sdt is StructuredContentMetadata {
   return (
     sdt !== null && sdt !== undefined && typeof sdt === 'object' && 'type' in sdt && sdt.type === 'structuredContent'
   );

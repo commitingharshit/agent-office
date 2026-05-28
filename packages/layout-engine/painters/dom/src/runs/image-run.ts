@@ -352,5 +352,3 @@ export const renderImageRun = (run: ImageRun, context: RunRenderContext): HTMLEl
 
   return context.buildImageHyperlinkAnchor(img, run.hyperlink, 'inline-block');
 };
-
-export { isValidImageDataUrl };
