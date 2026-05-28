@@ -285,6 +285,30 @@ superdoc.on('content-control:click', ({ target, source }) => {
 });
 ```
 
+Both are also available as config callbacks: `onContentControlActiveChange`
+and `onContentControlClick`.
+
+### Building custom content-control UI
+
+Use these events (or `ui.contentControls.observe()`) to know **what** is
+active, and `ui.contentControls.getRect({ id })` to know **where** to draw your
+own UI. A typical custom field affordance subscribes to
+`content-control:active-change` for the active control, then calls `getRect`
+to anchor an element over it. Disable the built-in chrome with
+`modules.contentControls.chrome: 'none'` when you want your UI to fully replace
+it. See the `contract-templates` demo for a working example.
+
+### Requirements and limitations
+
+- **An `id` is required.** Payloads key off the control's `id`. Controls
+  imported from a `.docx` that has no `w:id` resolve to a null id and do **not**
+  emit these events. Controls created through SuperDoc (commands / document API)
+  get an id automatically, and Word-authored controls normally carry `w:id`.
+- **`active` is the primary (deepest) control.** When controls are nested (for
+  example an inline field inside a block clause), `active` is the innermost
+  control. Use `ui.contentControls.observe()` (which exposes the full active
+  stack) when you need the surrounding controls as well.
+
 ## Comments events
 
 ### `comments-update`

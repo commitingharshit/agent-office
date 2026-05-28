@@ -68,6 +68,8 @@ import type {
   CanPerformPermissionParams,
   CollaborationProvider,
   Config,
+  ContentControlActiveChangePayload,
+  ContentControlClickPayload,
   DocumentMode,
   Editor,
   EditorUpdateEvent,
@@ -119,29 +121,6 @@ interface SuperDocContentErrorPayload {
   error: unknown;
   editor: Editor;
 }
-interface SuperDocEditorUpdatePayload {
-  editor?: Editor;
-  sourceEditor?: Editor;
-  surface: string;
-  headerId: string | null;
-  sectionType: string | null;
-}
-interface SuperDocSdtRef {
-  id: string;
-  tag?: string;
-  alias?: string;
-  controlType: string;
-  scope: 'inline' | 'block';
-}
-interface SuperDocContentControlActiveChangePayload {
-  active: SuperDocSdtRef | null;
-  previous: SuperDocSdtRef | null;
-  source: 'keyboard' | 'pointer';
-}
-interface SuperDocContentControlClickPayload {
-  target: SuperDocSdtRef;
-  source: 'pointer';
-}
 
 /**
  * SuperDoc lifecycle event registry. Keys are event names emitted via
@@ -165,8 +144,8 @@ interface SuperDocEventMap {
   'pagination-update': [SuperDocPaginationPayload];
   'list-definitions-change': [ListDefinitionsPayload];
   'comments-update': [SuperDocCommentsUpdatePayload];
-  'content-control:active-change': [SuperDocContentControlActiveChangePayload];
-  'content-control:click': [SuperDocContentControlClickPayload];
+  'content-control:active-change': [ContentControlActiveChangePayload];
+  'content-control:click': [ContentControlClickPayload];
   'collaboration-ready': [SuperDocEditorPayload];
   'awareness-update': [SuperDocAwarenessUpdatePayload];
   locked: [SuperDocLockedPayload];

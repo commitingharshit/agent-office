@@ -402,6 +402,13 @@ const transactionTouchesTrackedReviewState = (state: EditorState, tr: Transactio
   const docs = (tr as unknown as { docs?: PmNode[] }).docs ?? [];
   return tr.steps.some((step, index) => stepTouchesTrackedReviewState(step, docs[index] ?? state.doc));
 };
+// Best-effort heuristic for labeling a content-control event's `source`. A
+// click sets `uiEvent: 'click'` on its selection transaction (the precise
+// signal); this window is the fallback for selection changes that don't carry
+// that meta but follow a recent pointerDown. It is deliberately generous (a
+// click can be followed by async selection settling); the trade-off is that a
+// keyboard move within this window of a click is labeled 'pointer'. Source is
+// advisory metadata, not a correctness guarantee.
 const CONTENT_CONTROL_POINTER_WINDOW_MS = 800;
 
 type ExtensionInstanceLike = {
@@ -1420,6 +1427,13 @@ export class Editor extends EventEmitter<EditorEventMap> {
 
     // Reset internal state
     this._state = undefined!;
+
+    // Reset content-control event tracking. These track the active SDT and the
+    // last pointer-down for the *current* document; leaving them set would leak
+    // a stale `previous` into the first content-control event of the next
+    // document opened on this instance (or skip the first focus if ids collide).
+    this.#lastActiveContentControlRef = null;
+    this.#lastPointerDownAt = 0;
   }
 
   /**
