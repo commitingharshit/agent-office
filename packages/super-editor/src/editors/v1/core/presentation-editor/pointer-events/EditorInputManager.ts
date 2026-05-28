@@ -2186,10 +2186,19 @@ export class EditorInputManager {
     const elementsFromPoint = doc.elementsFromPoint?.bind(doc);
     if (!elementsFromPoint) return null;
 
-    for (const element of elementsFromPoint(event.clientX, event.clientY)) {
+    const pointElements = elementsFromPoint(event.clientX, event.clientY);
+    const topElement = doc.elementFromPoint?.(event.clientX, event.clientY) ?? pointElements[0] ?? null;
+
+    for (const element of pointElements) {
       if (!(element instanceof HTMLElement)) continue;
       const label = element.closest?.(SDT_LABEL_SELECTOR) as HTMLElement | null;
-      if (label && this.#isStructuredContentLabelOwned(label)) return label;
+      if (
+        label &&
+        this.#isStructuredContentLabelOwned(label) &&
+        this.#isStructuredContentLabelTopHit(label, topElement)
+      ) {
+        return label;
+      }
     }
 
     for (const label of Array.from(doc.querySelectorAll<HTMLElement>(SDT_LABEL_SELECTOR))) {
@@ -2203,13 +2212,18 @@ export class EditorInputManager {
         event.clientX >= rect.left &&
         event.clientX <= rect.right &&
         event.clientY >= rect.top &&
-        event.clientY <= rect.bottom
+        event.clientY <= rect.bottom &&
+        this.#isStructuredContentLabelTopHit(label, topElement)
       ) {
         return label;
       }
     }
 
     return null;
+  }
+
+  #isStructuredContentLabelTopHit(label: HTMLElement, topElement: Element | null): boolean {
+    return Boolean(topElement && (label === topElement || label.contains(topElement)));
   }
 
   #isStructuredContentLabelOwned(label: HTMLElement): boolean {

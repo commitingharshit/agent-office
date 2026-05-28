@@ -624,6 +624,53 @@ describe('EditorInputManager structured content clicks', () => {
     expect(mockTextSelectionCreate).not.toHaveBeenCalled();
   });
 
+  it('ignores block structured content labels covered by another click target', () => {
+    mountWithDoc('plainSdt');
+    const wrapper = document.createElement('div');
+    wrapper.className = 'superdoc-structured-content-block';
+    wrapper.dataset.pmStart = '10';
+    wrapper.dataset.pmEnd = '31';
+    const label = document.createElement('div');
+    label.className = 'superdoc-structured-content__label';
+    label.dataset.pmStart = '10';
+    wrapper.appendChild(label);
+    viewportHost.appendChild(wrapper);
+
+    const overlayButton = document.createElement('button');
+    mountRoot.appendChild(overlayButton);
+
+    const originalElementsFromPoint = document.elementsFromPoint;
+    Object.defineProperty(document, 'elementsFromPoint', {
+      configurable: true,
+      value: vi.fn(() => [overlayButton, label]),
+    });
+
+    const event = new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 24,
+      clientY: 24,
+    });
+
+    try {
+      overlayButton.dispatchEvent(event);
+    } finally {
+      if (originalElementsFromPoint) {
+        Object.defineProperty(document, 'elementsFromPoint', {
+          configurable: true,
+          value: originalElementsFromPoint,
+        });
+      } else {
+        Reflect.deleteProperty(document, 'elementsFromPoint');
+      }
+    }
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(mockNodeSelectionCreate).not.toHaveBeenCalled();
+    expect(mockEditor.view.dispatch).not.toHaveBeenCalled();
+    expect(scheduleSelectionUpdate).not.toHaveBeenCalled();
+  });
+
   it('clears a pending structured content label gesture on pointercancel', () => {
     mountWithDoc('plainSdt');
     const wrapper = document.createElement('div');
