@@ -48,12 +48,16 @@ test.describe('SDT Delete inside the leading edge - Word parity', () => {
     test(`${mode}: each Delete removes one character from the front; wrapper preserved`, async ({ superdoc }) => {
       const sdt = await setupInsideLeading(superdoc, FIXTURE[mode]);
       const original = sdt.content;
-      await pressN(superdoc, 'Delete', 3);
-      const s = await getInlineSdtSnapshot(superdoc.page, sdt.id);
-      expect(s.sdtExists).toBe(true);
-      expect(s.empty).toBe(true);
-      expect(s.sdtContent!.length).toBe(original.length - 3); // three chars gone from the front
-      expect(original.endsWith(s.sdtContent!)).toBe(true); // deleted from the leading edge
+      // Step-based, matching the contract: one character gone per press.
+      for (let i = 1; i <= 3; i++) {
+        await superdoc.press('Delete');
+        await superdoc.waitForStable();
+        const s = await getInlineSdtSnapshot(superdoc.page, sdt.id);
+        expect(s.sdtExists).toBe(true); // wrapper preserved throughout
+        expect(s.empty).toBe(true); // collapsed caret
+        expect(s.sdtContent!.length).toBe(original.length - i); // one char gone per press
+        expect(original.endsWith(s.sdtContent!)).toBe(true); // removed from the leading edge
+      }
     });
   }
 

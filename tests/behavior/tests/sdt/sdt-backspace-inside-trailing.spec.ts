@@ -50,12 +50,16 @@ test.describe('SDT Backspace inside the trailing edge - Word parity', () => {
     test(`${mode}: each Backspace deletes one character; wrapper preserved`, async ({ superdoc }) => {
       const sdt = await setupInsideTrailing(superdoc, FIXTURE[mode]);
       const original = sdt.content;
-      await pressN(superdoc, 'Backspace', 3);
-      const s = await getInlineSdtSnapshot(superdoc.page, sdt.id);
-      expect(s.sdtExists).toBe(true); // wrapper preserved
-      expect(s.empty).toBe(true); // collapsed caret
-      expect(s.sdtContent!.length).toBe(original.length - 3); // three chars gone from the end
-      expect(original.startsWith(s.sdtContent!)).toBe(true); // trailing chars removed, leading prefix kept
+      // Step-based, matching the contract: one character gone per press.
+      for (let i = 1; i <= 3; i++) {
+        await superdoc.press('Backspace');
+        await superdoc.waitForStable();
+        const s = await getInlineSdtSnapshot(superdoc.page, sdt.id);
+        expect(s.sdtExists).toBe(true); // wrapper preserved throughout
+        expect(s.empty).toBe(true); // collapsed caret
+        expect(s.sdtContent!.length).toBe(original.length - i); // one char gone per press
+        expect(original.startsWith(s.sdtContent!)).toBe(true); // removed from the trailing edge
+      }
     });
   }
 
