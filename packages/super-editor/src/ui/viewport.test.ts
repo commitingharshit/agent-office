@@ -555,3 +555,55 @@ describe('ui.viewport.contextAt - bundle composition', () => {
     ui.destroy();
   });
 });
+
+describe('ui.viewport.observe — geometry invalidation (SD-3311)', () => {
+  // The rAF flush resolves within a frame; a short real-timer wait covers both
+  // the requestAnimationFrame path and the setTimeout fallback.
+  const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 30));
+
+  it('fires once per frame on scroll (reason "scroll") and stops after unsubscribe', async () => {
+    const { superdoc } = makeStubs();
+    const ui = createSuperDocUI({ superdoc });
+    const events: Array<{ reason: string }> = [];
+    const unsubscribe = ui.viewport.observe((e) => events.push(e));
+
+    // Burst in one frame -> a single coalesced notification.
+    window.dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new Event('scroll'));
+    await nextFrame();
+    expect(events).toEqual([{ reason: 'scroll' }]);
+
+    unsubscribe();
+    window.dispatchEvent(new Event('scroll'));
+    await nextFrame();
+    expect(events).toHaveLength(1); // no notification after unsubscribe
+
+    ui.destroy();
+  });
+
+  it('coalesces different reasons in the same frame to "mixed"', async () => {
+    const { superdoc } = makeStubs();
+    const ui = createSuperDocUI({ superdoc });
+    const events: Array<{ reason: string }> = [];
+    ui.viewport.observe((e) => events.push(e));
+
+    window.dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new Event('resize'));
+    await nextFrame();
+    expect(events).toEqual([{ reason: 'mixed' }]);
+
+    ui.destroy();
+  });
+
+  it('does not notify after the UI is destroyed', async () => {
+    const { superdoc } = makeStubs();
+    const ui = createSuperDocUI({ superdoc });
+    const events: Array<{ reason: string }> = [];
+    ui.viewport.observe((e) => events.push(e));
+
+    ui.destroy();
+    window.dispatchEvent(new Event('resize'));
+    await nextFrame();
+    expect(events).toEqual([]);
+  });
+});
