@@ -379,6 +379,32 @@ describe('ui.comments — actions route through editor.doc.*', () => {
     ui.destroy();
   });
 
+  it('createFromCapture accepts a Document API SelectionInfo (the pending-event shape) without a cast', () => {
+    const { superdoc, mocks } = makeStubs();
+    const ui = createSuperDocUI({ superdoc });
+
+    // Shape of `pendingSelection` on a pending `comments-update` event:
+    // a SelectionInfo (target + text), NOT a full SelectionCapture (no
+    // selectionTarget / quotedText). The widened CommentAnchorCapture
+    // input accepts it directly — no cast here, so this also pins the
+    // type widening at compile time.
+    const pendingSelection = {
+      empty: false,
+      target: { kind: 'text' as const, segments: [{ blockId: 'p1', range: { start: 0, end: 4 } }] },
+      activeMarks: [],
+      activeCommentIds: [],
+      activeChangeIds: [],
+      text: 'word',
+    };
+
+    const receipt = ui.comments.createFromCapture(pendingSelection, { text: 'from pending' });
+
+    expect(receipt.success).toBe(true);
+    expect(mocks.create).toHaveBeenCalledWith({ target: pendingSelection.target, text: 'from pending' });
+
+    ui.destroy();
+  });
+
   it('reply forwards to comments.create with parentCommentId set and no target', () => {
     const { superdoc, mocks } = makeStubs();
     const ui = createSuperDocUI({ superdoc });

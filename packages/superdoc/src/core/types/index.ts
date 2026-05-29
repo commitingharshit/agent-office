@@ -31,6 +31,7 @@ import type {
   FontsResolvedPayload,
   ListDefinitionsPayload,
   ProofingProvider,
+  SelectionInfo,
   User,
 } from '@superdoc/super-editor';
 
@@ -1416,6 +1417,19 @@ export interface SuperDocCommentsUpdatePayload {
   comment?: Comment;
   /** Per-field change set when the update is a mutation. */
   changes?: Array<{ key: string; commentId: string; fileId?: string | null }>;
+  /**
+   * The Document API selection snapshot captured at the moment a
+   * `'pending'` comment was started, before the pending mark is
+   * inserted (which clears the live DOM selection). Present only on the
+   * `'pending'` event. Forward it straight to
+   * `ui.comments.createFromCapture(pendingSelection, { text })` to build
+   * the comment from a custom composer — it removes the need to track
+   * the selection yourself ahead of the floating-bubble click. A
+   * non-text or empty selection still yields a `SelectionInfo` whose
+   * `target` is `null`; the field itself is `null` only when there's no
+   * active editor.
+   */
+  pendingSelection?: SelectionInfo | null;
 }
 
 export interface EditorTransactionEvent {

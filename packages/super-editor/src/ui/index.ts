@@ -115,6 +115,7 @@ export type {
   UIToolbarCommandState,
 
   // Comments
+  CommentAnchorCapture,
   CommentsHandle,
   CommentsSlice,
 
