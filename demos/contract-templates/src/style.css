@@ -97,7 +97,10 @@ button { cursor: pointer; }
 
 .row { display: block; margin-bottom: 10px; }
 .row-label {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   font-size: var(--sd-font-size-200, 12px);
   color: var(--demo-text-muted);
   margin-bottom: 4px;
@@ -132,6 +135,23 @@ input:focus {
   border-color: var(--demo-accent-hover);
 }
 .btn:disabled { color: var(--demo-text-muted); cursor: not-allowed; opacity: 0.55; }
+
+/* "Locate" — scroll a field/clause control into view (ui.contentControls.scrollIntoView). */
+.clause-actions { display: flex; align-items: center; gap: 8px; }
+.locate {
+  font: inherit;
+  font-size: var(--sd-font-size-100, 11px);
+  line-height: 1;
+  padding: 3px 8px;
+  border: 1px solid var(--demo-border);
+  border-radius: var(--sd-radius-50, 4px);
+  background: transparent;
+  color: var(--demo-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.locate:hover { color: var(--demo-text); border-color: var(--demo-accent); }
+.locate:focus-visible { outline: 1px solid var(--demo-accent); outline-offset: 1px; }
 
 #fields-panel .btn { width: 100%; margin-top: 12px; }
 
