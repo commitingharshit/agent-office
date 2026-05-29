@@ -186,10 +186,11 @@ input:focus {
 /* -----------------------------------------------------------------------
    Clause library (Template tab)
 
-   A catalog of governed clauses. Each card echoes the in-document block clause
-   (amber left rail, soft border, faint amber fill) and shows its metadata and
-   how many times it's placed. Drag a card in, or click to insert at the cursor.
-   The clauses themselves are locked blocks.
+   A single-use catalog of governed clauses. Each card echoes the in-document
+   block clause (blue left rail, soft border, faint blue fill) and shows its
+   metadata plus a status: an available clause ("Add clause") drags or clicks in,
+   while one already in the contract ("In contract") is a quieter card that
+   clicks to reveal the existing section. The clauses themselves are locked blocks.
    ----------------------------------------------------------------------- */
 
 .clauses-section { margin-top: 16px; }
@@ -201,19 +202,48 @@ input:focus {
   background-color: var(--tag-block-bg);
   padding: 7px 10px;
   margin-bottom: 6px;
-  cursor: grab;
 }
 .clause:hover { background-color: var(--tag-block-bg-hover); }
-.clause:active { cursor: grabbing; }
 .clause.is-active { box-shadow: 0 0 0 2px var(--tag-color); }
+/* Available clauses drag/click to add; clauses already in the contract are a
+   quieter card you click to reveal the existing section. */
+.clause.is-available { cursor: grab; }
+.clause.is-available:active { cursor: grabbing; }
+.clause.is-present { cursor: pointer; }
+.clause.is-present { background-color: var(--tag-block-bg); }
+.clause-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
 .clause-label {
   margin: 0;
+  flex: 1;
+  min-width: 0;
   font-size: var(--sd-font-size-300, 13px);
   font-weight: 600;
   color: var(--demo-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.clause-status {
+  flex-shrink: 0;
+  font-size: var(--sd-font-size-100, 10px);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.clause.is-present .clause-status {
+  color: var(--demo-text-muted);
+  background: color-mix(in srgb, var(--demo-text-muted) 14%, transparent);
+}
+.clause.is-available .clause-status {
+  color: var(--tag-fg);
+  background: var(--tag-bg);
 }
 .clause-meta {
   margin: 2px 0 0;
@@ -244,18 +274,16 @@ input:focus {
 /* Smart-tag token look, shared by the in-editor inline SDT and the Smart-tags
    palette chips so a sidebar tag and the field it inserts read as one object. */
 :root {
-  /* Template fields wear a deliberate amber identity, distinct from the
-     SuperDoc-blue UI accent (--demo-accent), so a reader can see "this is a
-     template variable" at a glance. Amber isn't a built-in --sd-* token, so
-     this is an intentional demo-local accent (the theming the demo is showing
-     off, per demos/AGENTS.md). One token set, applied to both the palette chip
-     and the painted in-editor field. */
-  --tag-color: var(--sd-color-amber-600, #d97706);
+  /* Template fields use the SuperDoc brand blue (brand.md: blue-500 / blue-600),
+     via the --sd-color-blue-* tokens. One token set, applied to both the palette
+     chip and the painted in-editor field. Fields read as tinted/outlined pills,
+     so they stay distinct from the solid-blue primary buttons. */
+  --tag-color: var(--sd-color-blue-500, #1355ff);
   --tag-border: var(--tag-color);
   --tag-bg: color-mix(in srgb, var(--tag-color) 12%, transparent);
-  --tag-fg: var(--sd-color-amber-700, #b45309);
+  --tag-fg: var(--sd-color-blue-600, #0f44cc);
   --tag-bg-hover: color-mix(in srgb, var(--tag-color) 22%, transparent);
-  /* Block clauses are large regions, so they wear the amber language quietly:
+  /* Block clauses are large regions, so they wear the same blue quietly:
      a left rail + a faint fill + a soft border, lighter than the inline pill. */
   --tag-block-border: color-mix(in srgb, var(--tag-color) 30%, var(--demo-border));
   --tag-block-bg: color-mix(in srgb, var(--tag-color) 4%, var(--demo-bg));
@@ -274,7 +302,7 @@ input:focus {
 }
 .superdoc-cc-chrome-none .superdoc-structured-content-inline[data-sdt-tag*='smartField']:hover {
   /* Under chrome:'none' SuperDoc resets the field's border + fill (including on
-     hover) so the consumer owns the look. We re-assert the amber box so hover
+     hover) so the consumer owns the look. We re-assert the box so hover
      never moves or recolors the field. The !important wins over that reset
      without coupling to SuperDoc's selector specificity — a custom-UI styling
      rough edge today (no first-class per-control styling hook yet). */
@@ -283,8 +311,8 @@ input:focus {
 }
 /* Selecting a field is a ProseMirror NodeSelection (.ProseMirror-selectednode).
    Under chrome:'none' SuperDoc resets the border + fill to transparent in that
-   state too; without re-asserting, the field loses its amber and the box can
-   shift (~2px) on click. Keep the same box and a controlled amber "selected"
+   state too; without re-asserting, the field loses its fill and the box can
+   shift (~2px) on click. Keep the same box and a controlled blue "selected"
    fill so hover/click/selected stay on-brand and never move the field. */
 .superdoc-cc-chrome-none .superdoc-structured-content-inline[data-sdt-tag*='smartField'].ProseMirror-selectednode {
   /* !important to win over the chrome-none reset; same rough edge as hover. */
@@ -336,9 +364,9 @@ input:focus {
 .smart-tag.is-active { box-shadow: 0 0 0 2px var(--demo-accent); }
 .smart-tag:focus-visible { outline: 1px solid var(--demo-accent); outline-offset: 1px; }
 
-/* Block clauses: a quiet card with an amber left rail — same field language as
+/* Block clauses: a quiet card with a blue left rail, same field language as
    the inline pills, but a region not a token: soft border, faint fill, a 4px
-   amber spine. */
+   blue spine. */
 .superdoc-cc-chrome-none .superdoc-structured-content-block[data-sdt-tag*='reusableSection'] {
   border: 1px solid var(--tag-block-border);
   border-left: 4px solid var(--tag-color);

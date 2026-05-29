@@ -18,11 +18,13 @@
  *   - Every control is `contentLocked`, so it can't be edited by typing in the
  *     document. This is a locked template surface; the custom UI drives changes.
  *   - Template tab = the building-block library. Two catalogs: smart-field chips
- *     and clause cards (each with category / jurisdiction / version and a "used
- *     N times" count). Drag or click a chip to insert an inline field, or a card
- *     to insert a block clause. An unfilled field shows its field-name token
- *     (e.g. DISCLOSING_PARTY) as a stand-in placeholder - literal text content,
- *     not a native SDT placeholder.
+ *     (reusable variables) and clause cards (governed sections, single-use). A
+ *     chip drags/clicks in as an inline field. A clause card shows category /
+ *     jurisdiction / version and a status: "Add clause" when available (drag or
+ *     click to add) or "In contract" once placed (click reveals the existing one
+ *     - a clause appears once, like an inclusion checklist). An unfilled field
+ *     shows its field-name token (e.g. DISCLOSING_PARTY) as a stand-in
+ *     placeholder - literal text content, not a native SDT placeholder.
  *   - A clause is assembled from structured `parts`: prose plus `{ field }`
  *     slots. Inserting it creates the block and wraps each slot as a nested,
  *     locked inline smart field - so an inserted "Permitted Use" carries real
@@ -113,7 +115,8 @@ type ClauseId =
   | 'termination'
   | 'governingLaw'
   | 'limitationOfLiability'
-  | 'indemnification';
+  | 'indemnification'
+  | 'returnOfMaterials';
 
 type ClauseCategory = 'Core' | 'Confidentiality' | 'Termination' | 'Risk Allocation';
 
@@ -202,7 +205,7 @@ const CLAUSE_LIBRARY: LibraryClause[] = [
     parts: ['Each party’s aggregate liability under this Agreement is limited to fees paid in the twelve (12) months preceding the claim.'],
   },
   {
-    // A library-only clause: not in the seeded document, so it starts "Used 0".
+    // A library-only clause: not in the seeded document, so it starts "Add clause".
     // Insert it to add a new governed section to the contract.
     id: 'indemnification',
     label: 'Indemnification',
@@ -210,6 +213,20 @@ const CLAUSE_LIBRARY: LibraryClause[] = [
     jurisdiction: 'General',
     version: 'v1',
     parts: ['Each party will indemnify and hold the other harmless from third-party claims arising out of its breach of this Agreement.'],
+  },
+  {
+    // Library-only and carries a nested field slot: adding it shows that an
+    // inserted clause's embedded variables become real, broadcast-linked SDTs.
+    id: 'returnOfMaterials',
+    label: 'Return of Materials',
+    category: 'Confidentiality',
+    jurisdiction: 'General',
+    version: 'v1',
+    parts: [
+      'Upon termination or at the disclosing party’s request, ',
+      { field: 'receivingParty' },
+      ' will promptly return or destroy all Confidential Information in its possession.',
+    ],
   },
 ];
 
@@ -592,7 +609,7 @@ async function insertClause(clauseId: ClauseId, blockId: string): Promise<void> 
   }
 
   // Lock the clause now that its slots are wrapped, then refresh the cards
-  // ("Used N") and scroll the new clause into view.
+  // (the card flips to "In contract") and scroll the new clause into view.
   reportMutation(doc.contentControls.setLockMode({ target: clauseTarget, lockMode: 'contentLocked' }), 'Lock clause');
   renderClausesPanel();
   void ui.contentControls.scrollIntoView({ id: clauseTarget.nodeId, block: 'center' });
@@ -602,9 +619,14 @@ async function insertClause(clauseId: ClauseId, blockId: string): Promise<void> 
 function insertClauseAtCursor(clauseId: ClauseId): void {
   const ui = state.ui;
   if (!ui || !state.editor?.doc) return;
+  // Single-use: if it's already in the contract, reveal it instead of duplicating.
+  if (isClauseInDocument(clauseId)) {
+    revealClause(clauseId);
+    return;
+  }
   const seg = ui.selection.capture()?.target?.segments?.[0];
   if (!seg) {
-    setStatus('Place the cursor in the document (or drag the clause in), then click a clause to insert it.');
+    setStatus('Place the cursor in the document, then click a clause to add it.');
     return;
   }
   void insertClause(clauseId, seg.blockId);
@@ -651,7 +673,10 @@ function setupPaletteDragDrop(): () => void {
       insertField(field.key, field.label, { kind: 'selection', start: point, end: point });
     } else if (clauseId) {
       const clause = CLAUSE_LIBRARY.find((c) => c.id === clauseId);
-      if (clause) void insertClause(clause.id, hit.point.blockId); // offset 0 (block boundary)
+      if (!clause) return;
+      // Single-use: a clause already in the contract reveals instead of duplicating.
+      if (isClauseInDocument(clause.id)) revealClause(clause.id);
+      else void insertClause(clause.id, hit.point.blockId); // offset 0 (block boundary)
     }
   };
 
@@ -785,8 +810,10 @@ function highlightActiveClause(): void {
 
 /**
  * Template tab: the contract's building blocks. Two catalogs - inline Smart tags
- * (variable chips) and block Clauses (cards with metadata + usage count). Both
- * drag or click to insert; values are filled on the Values tab.
+ * (reusable variable chips, drag or click to insert) and block Clauses (governed,
+ * single-use cards with metadata + a status; an available clause adds by drag or
+ * click, one already in the contract reveals it). Values are filled on the
+ * Values tab.
  */
 function renderFieldsPanel(): void {
   fieldsPanelEl.innerHTML = '';
@@ -797,7 +824,7 @@ function renderFieldsPanel(): void {
 /**
  * Clauses section of the Template tab: a search + the clause cards. Mirrors the
  * Smart-tags section's style (group header, search) but the clauses render as
- * compact amber cards, not pills, since they're block controls. Creates the
+ * compact blue cards, not pills, since they're block controls. Creates the
  * list container (clausesListEl) that renderClausesPanel re-renders into.
  */
 function renderClausesSection(): void {
@@ -873,11 +900,11 @@ function renderValuesPanel(): void {
 
 /**
  * Render the clause cards: one card per clause, styled like the in-document
- * block clause (amber left rail). Like the smart-tag chips, a card is draggable
+ * block clause (blue left rail). Like the smart-tag chips, a card is draggable
  * into the document or click-to-insert at the cursor (insertClause snaps to a
  * block boundary). A card highlights when its clause is clicked in the document.
  */
-/** Every control in the document for a given clause (a clause can be placed more than once). */
+/** Every control in the document for a given clause (used internally for counts). */
 function clauseControls(clauseId: ClauseId): ContentControlInfo[] {
   const doc = state.editor?.doc;
   if (!doc) return [];
@@ -887,32 +914,51 @@ function clauseControls(clauseId: ClauseId): ContentControlInfo[] {
   });
 }
 
+/** A clause is single-use: it's either in the contract or available to add. */
+function isClauseInDocument(clauseId: ClauseId): boolean {
+  return clauseControls(clauseId).length > 0;
+}
+
+/** Scroll the clause's placement into view and highlight its card. */
+function revealClause(clauseId: ClauseId): void {
+  const ctrl = clauseControls(clauseId)[0];
+  if (!state.ui || !ctrl) return;
+  state.activeClauseId = clauseId;
+  highlightActiveClause();
+  void state.ui.contentControls.scrollIntoView({ id: ctrl.target.nodeId, block: 'center' });
+}
+
 /**
- * Render the clause library catalog: a card per available clause with its
- * category / jurisdiction / version and how many times it's placed in the
- * document. A card wears the in-document block clause's amber look. Drag a card
- * in, or click to insert it at the cursor; the card highlights when its clause
- * is clicked in the document.
+ * Render the clause library as a single-use inclusion checklist. Each card shows
+ * the clause's category / jurisdiction / version and whether it's "In contract"
+ * or available to "Add clause". A clause is governed and appears once: a card
+ * that's already in the contract can't be inserted again - clicking it reveals
+ * the existing clause instead; an available card inserts (click) or drags in.
  */
 function renderClausesPanel(): void {
   const list = clausesListEl;
   if (!list) return;
   list.innerHTML = '';
   for (const clause of CLAUSE_LIBRARY) {
-    const used = clauseControls(clause.id).length;
-    const usedText = used === 0 ? 'Not used' : `Used ${used} time${used === 1 ? '' : 's'}`;
+    const inDoc = isClauseInDocument(clause.id);
     const card = document.createElement('article');
-    card.className = 'clause' + (clause.id === state.activeClauseId ? ' is-active' : '');
+    card.className =
+      'clause ' + (inDoc ? 'is-present' : 'is-available') + (clause.id === state.activeClauseId ? ' is-active' : '');
     card.dataset.clauseId = clause.id;
-    card.draggable = true;
-    card.title = `Drag into the document, or click to insert the ${clause.label} clause at the cursor`;
+    card.draggable = !inDoc; // single-use: can't drag a clause that's already in
+    card.title = inDoc
+      ? `${clause.label} is in the contract — click to reveal it`
+      : `Drag into the document, or click to add the ${clause.label} clause at the cursor`;
     card.innerHTML = `
-      <h3 class="clause-label">${escapeHtml(clause.label)}</h3>
-      <p class="clause-meta">${escapeHtml(clause.category)} · ${escapeHtml(clause.jurisdiction)} · ${escapeHtml(clause.version)} · ${escapeHtml(usedText)}</p>
+      <div class="clause-head">
+        <h3 class="clause-label">${escapeHtml(clause.label)}</h3>
+        <span class="clause-status">${inDoc ? 'In contract' : 'Add clause'}</span>
+      </div>
+      <p class="clause-meta">${escapeHtml(clause.category)} · ${escapeHtml(clause.jurisdiction)} · ${escapeHtml(clause.version)}</p>
     `;
-    card.addEventListener('click', () => insertClauseAtCursor(clause.id));
+    card.addEventListener('click', () => (isClauseInDocument(clause.id) ? revealClause(clause.id) : insertClauseAtCursor(clause.id)));
     card.addEventListener('dragstart', (event) => {
-      if (!event.dataTransfer) return;
+      if (!event.dataTransfer || isClauseInDocument(clause.id)) return;
       event.dataTransfer.setData(CLAUSE_MIME, clause.id);
       event.dataTransfer.effectAllowed = 'copy';
     });

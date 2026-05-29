@@ -12,8 +12,8 @@ The starting document is `public/nda-template.docx`: inline plain-text fields an
 
 **Template tab, the building-block library.** Two catalogs, fields and clauses, each styled to match what it inserts:
 
-- Smart-field chips wear the same amber token look as the in-document field (CSS on `.superdoc-structured-content-inline[data-sdt-tag*='smartField']`). Drag a chip onto the document, or click to insert it at the cursor. An unfilled field shows its field-name token (e.g. `DISCLOSING_PARTY`) as a stand-in placeholder. That token is literal text content, not a native SDT placeholder.
-- Clause cards wear the same amber block look as the in-document clause and carry metadata: category, jurisdiction, version, and how many times the clause is placed ("Used 2 times"). The catalog includes clauses that aren't in the document yet. Drag a card onto the document, or click to insert it at the cursor.
+- Smart-field chips wear the same blue token look as the in-document field (CSS on `.superdoc-structured-content-inline[data-sdt-tag*='smartField']`). Drag a chip onto the document, or click to insert it at the cursor. An unfilled field shows its field-name token (e.g. `DISCLOSING_PARTY`) as a stand-in placeholder. That token is literal text content, not a native SDT placeholder.
+- Clause cards wear the same blue block look as the in-document clause and carry metadata (category, jurisdiction, version) and a status. A clause is single-use, like an inclusion checklist: a card already in the contract reads **In contract** and clicking it reveals the existing clause; an available card reads **Add clause** and drags or clicks in. The catalog includes clauses that aren't in the document yet (e.g. Indemnification, Return of Materials).
 
 Inserts resolve the drop point with `ui.viewport.positionAt({ x, y })` and create the control with `editor.doc.create.contentControl({ kind, at, content, tag, lockMode })`. A field inserts inline at the exact caret; a clause snaps to a block boundary so it lands as a clean section instead of splitting a paragraph. Clicking a control in the document highlights its chip or card (`content-control:click`).
 

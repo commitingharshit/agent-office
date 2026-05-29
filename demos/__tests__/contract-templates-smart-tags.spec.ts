@@ -132,7 +132,7 @@ test('a smart-field pill does not shift its box on hover or click (no jitter)', 
   }
 });
 
-test('a block clause keeps its amber left rail and box across hover/select (no jitter)', async ({ page }) => {
+test('a block clause keeps its left rail and box across hover/select (no jitter)', async ({ page }) => {
   test.skip(process.env.DEMO !== 'contract-templates', 'contract-templates demo only');
 
   await page.route('**/ingest.superdoc.dev/**', (r) =>
@@ -148,7 +148,7 @@ test('a block clause keeps its amber left rail and box across hover/select (no j
   await page.waitForSelector(sel);
 
   // Block SDTs strip border + fill on .sdt-group-hover / .ProseMirror-selectednode;
-  // the demo overrides them. Guard the 4px amber left rail and box stay constant.
+  // the demo overrides them. Guard the 4px left rail and box stay constant.
   const box = () =>
     page.evaluate((s) => {
       const el = document.querySelector(s) as HTMLElement;
@@ -289,7 +289,7 @@ test('a field value broadcasts to every occurrence, including one nested in a lo
     .toBe(2);
 });
 
-test('clicking a clause card inserts a locked block clause at the cursor', async ({ page }) => {
+test('the clause library is single-use: seeded clauses are In contract, others Add clause', async ({ page }) => {
   test.skip(process.env.DEMO !== 'contract-templates', 'contract-templates demo only');
 
   await page.route('**/ingest.superdoc.dev/**', (r) =>
@@ -303,37 +303,14 @@ test('clicking a clause card inserts a locked block clause at the cursor', async
   );
   await page.waitForSelector('.clause[data-clause-id]');
 
-  // Caret in the (unlocked) title so the clause inserts at a clean block boundary.
-  await page.evaluate(() => {
-    (window as any).__demo.superdoc.activeEditor.commands?.setTextSelection?.({ from: 6, to: 6 });
-  });
-
-  const sectionId = await page.getAttribute('.clause[data-clause-id]', 'data-clause-id');
-  expect(sectionId).toBeTruthy();
-
-  // Count controls for this clause + confirm they're all locked.
-  const clauseInfo = () =>
-    page.evaluate((sid) => {
-      const doc = (window as any).__demo.doc();
-      const items = doc.contentControls.list({}).items.filter((c: any) => {
-        try {
-          return JSON.parse(c.properties?.tag ?? '{}').sectionId === sid;
-        } catch {
-          return false;
-        }
-      });
-      return { count: items.length, allLocked: items.every((c: any) => c.lockMode === 'contentLocked') };
-    }, sectionId);
-
-  const before = await clauseInfo();
-  await page.click(`.clause[data-clause-id="${sectionId}"]`);
-
-  // A new block clause for this section appears, and every occurrence is locked.
-  await expect.poll(async () => (await clauseInfo()).count, { timeout: 6_000 }).toBe(before.count + 1);
-  expect((await clauseInfo()).allLocked).toBe(true);
+  // A seeded clause is already in the contract; a library-only one is available.
+  await expect(page.locator('.clause[data-clause-id="permittedUse"] .clause-status')).toHaveText('In contract');
+  await expect(page.locator('.clause[data-clause-id="permittedUse"]')).toHaveClass(/is-present/);
+  await expect(page.locator('.clause[data-clause-id="indemnification"] .clause-status')).toHaveText('Add clause');
+  await expect(page.locator('.clause[data-clause-id="indemnification"]')).toHaveClass(/is-available/);
 });
 
-test('inserting Permitted Use nests real smart fields that fill from the form', async ({ page }) => {
+test('clicking an available clause adds it once (single-use, then In contract)', async ({ page }) => {
   test.skip(process.env.DEMO !== 'contract-templates', 'contract-templates demo only');
 
   await page.route('**/ingest.superdoc.dev/**', (r) =>
@@ -345,15 +322,60 @@ test('inserting Permitted Use nests real smart fields that fill from the form', 
     null,
     { timeout: 30_000 },
   );
-  await page.waitForSelector('.clause[data-clause-id="permittedUse"]');
+  await page.waitForSelector('.clause[data-clause-id="indemnification"]');
 
-  // Caret in the (unlocked) title so the clause inserts at a clean block boundary.
+  // Caret in the (unlocked) title so the clause adds at a clean block boundary.
   await page.evaluate(() => {
     (window as any).__demo.superdoc.activeEditor.commands?.setTextSelection?.({ from: 6, to: 6 });
   });
 
-  // Count Receiving party smart fields in the document (an inline structuredContent
-  // whose tag carries that key) - the Permitted Use clause carries one as a slot.
+  const indemnificationInfo = () =>
+    page.evaluate(() => {
+      const doc = (window as any).__demo.doc();
+      const items = doc.contentControls.list({}).items.filter((c: any) => {
+        try {
+          return JSON.parse(c.properties?.tag ?? '{}').sectionId === 'indemnification';
+        } catch {
+          return false;
+        }
+      });
+      return { count: items.length, allLocked: items.every((c: any) => c.lockMode === 'contentLocked') };
+    });
+
+  expect((await indemnificationInfo()).count).toBe(0);
+  await page.click('.clause[data-clause-id="indemnification"]');
+
+  // It's added once, locked, and the card flips to In contract.
+  await expect.poll(async () => (await indemnificationInfo()).count, { timeout: 6_000 }).toBe(1);
+  expect((await indemnificationInfo()).allLocked).toBe(true);
+  await expect(page.locator('.clause[data-clause-id="indemnification"] .clause-status')).toHaveText('In contract');
+
+  // Clicking again does NOT duplicate it (single-use; reveals the existing one).
+  await page.click('.clause[data-clause-id="indemnification"]');
+  await page.waitForTimeout(500);
+  expect((await indemnificationInfo()).count).toBe(1);
+});
+
+test('adding the Return of Materials clause nests a real smart field that fills from the form', async ({ page }) => {
+  test.skip(process.env.DEMO !== 'contract-templates', 'contract-templates demo only');
+
+  await page.route('**/ingest.superdoc.dev/**', (r) =>
+    r.fulfill({ status: 204, contentType: 'application/json', body: '{}' }),
+  );
+  await page.goto('/');
+  await page.waitForFunction(
+    () => (window as any).__demo?.state?.ui?.contentControls?.getSnapshot()?.items?.length > 0,
+    null,
+    { timeout: 30_000 },
+  );
+  await page.waitForSelector('.clause[data-clause-id="returnOfMaterials"]');
+
+  // Caret in the (unlocked) title so the clause adds at a clean block boundary.
+  await page.evaluate(() => {
+    (window as any).__demo.superdoc.activeEditor.commands?.setTextSelection?.({ from: 6, to: 6 });
+  });
+
+  // Receiving party smart fields in the document (Return of Materials carries one).
   const receivingPartyControls = () =>
     page.evaluate(() => {
       const doc = (window as any).__demo.doc();
@@ -362,13 +384,13 @@ test('inserting Permitted Use nests real smart fields that fill from the form', 
     });
 
   const before = (await receivingPartyControls()).length; // 2 seeded
-  await page.click('.clause[data-clause-id="permittedUse"]');
+  await page.click('.clause[data-clause-id="returnOfMaterials"]');
 
-  // Inserting the clause adds a real nested Receiving party SDT (not plain text).
+  // Adding the clause creates a real nested Receiving party SDT (not plain text).
   await expect.poll(async () => (await receivingPartyControls()).length, { timeout: 6_000 }).toBe(before + 1);
 
   // Filling Receiving party in the Values form reaches every occurrence,
-  // including the one just nested inside the inserted clause.
+  // including the one just nested inside the added clause.
   await page.click('.tab[data-tab="values"]');
   await page.fill('input[data-field="receivingParty"]', 'Beacon Bio');
   await expect
