@@ -1907,7 +1907,7 @@ export interface ViewportHandle {
    * Look up entities painted under a viewport coordinate. Used by
    * right-click menus and hover tooltips to ask "what's at this point?"
    * without consumers reading `data-track-change-id` /
-   * `data-comment-ids` off the painted DOM themselves; the
+   * `data-comment-ids` / `data-sdt-id` off the painted DOM themselves; the
    * data-attribute layout is an implementation detail of the painter
    * that consumers shouldn't depend on.
    *
@@ -1924,11 +1924,12 @@ export interface ViewportHandle {
    * ids from the other's DOM, and post-destroy calls return `[]`
    * rather than stale ids from cached painted nodes.
    *
-   * Today the supported entity types are `comment` and `trackedChange`.
-   * `link`, `image`, and `tableCell` are reserved for follow-ups;
-   * adding them is purely additive (new union members), so callers can
-   * `switch` on `hit.type` and the default branch remains forward
-   * compatible.
+   * Today the supported entity types are `comment`, `trackedChange`, and
+   * `contentControl` (content controls / SDT fields, whose hit also carries
+   * `scope` and `tag`). `link`, `image`, and `tableCell` are reserved for
+   * follow-ups; adding them is purely additive (new union members), so
+   * callers can `switch` on `hit.type` and the default branch remains
+   * forward compatible.
    */
   entityAt(input: ViewportEntityAtInput): ViewportEntityHit[];
   /**
