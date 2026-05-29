@@ -481,6 +481,16 @@ export class PresentationEditor extends EventEmitter {
    * this unset so they don't fight the user's scroll position.
    */
   #shouldScrollSelectionIntoView = false;
+  /**
+   * SD-3315: while a search-owned scrollToPosition({ suppressSelectionSyncScroll: true }) is in
+   * flight (set before its sync scroll, cleared in its RAF re-assert), selection-sync must NOT
+   * scroll the viewport. Find navigation owns the scroll for that window; the spurious
+   * selectionUpdate fired by the find-input focus restore (which reverts the editor selection to
+   * its pre-search caret) would otherwise yank the viewport to that stale caret, producing a
+   * jump/flash on every navigation. The selection overlay still renders during the window; only
+   * #scrollActiveEndIntoView is skipped.
+   */
+  #suppressSelectionScrollUntilRaf = false;
   /** PM position for transient drag/drop insertion preview, rendered even while editor focus is elsewhere. */
   #dragDropIndicatorPos: number | null = null;
   #epochMapper = new EpochPositionMapper();
@@ -3534,11 +3544,20 @@ export class PresentationEditor extends EventEmitter {
    * @param options.behavior - Scroll behavior ('auto' | 'smooth')
    * @param options.ifNeeded - When true, skip movement if the target is already fully visible
    *   (downgrades to 'nearest'); off-screen targets still use `block`. Used by search navigation.
+   * @param options.suppressSelectionSyncScroll - When true, selection-sync auto-scroll is
+   *   suppressed until this scroll's RAF re-assert runs, so it cannot fight this intentional
+   *   scroll. Used by search navigation, whose find-input focus restore otherwise scrolls the
+   *   viewport to a reverted/stale caret.
    * @returns True if the position could be mapped and scrolling was applied
    */
   scrollToPosition(
     pos: number,
-    options: { block?: 'start' | 'center' | 'end' | 'nearest'; behavior?: ScrollBehavior; ifNeeded?: boolean } = {},
+    options: {
+      block?: 'start' | 'center' | 'end' | 'nearest';
+      behavior?: ScrollBehavior;
+      ifNeeded?: boolean;
+      suppressSelectionSyncScroll?: boolean;
+    } = {},
   ): boolean {
     // Cancel any pending focus-scroll RAF so this intentional scroll is not undone
     // by the wrapOffscreenEditorFocus safety net (e.g. search navigation after focus).
@@ -3625,9 +3644,16 @@ export class PresentationEditor extends EventEmitter {
           // and is cheap.
           const win = this.#visibleHost.ownerDocument?.defaultView;
           if (win) {
+            // SD-3315: own the scroll until the RAF re-assert. The find-input focus restore fires
+            // a selectionUpdate that reverts the editor selection and would selection-sync-scroll
+            // the viewport to that stale caret before this RAF runs. Suppress that here and
+            // release after re-asserting, so normal selection scroll resumes next frame. Paired
+            // with the RAF below (set inside `if (win)` so it is always cleared).
+            if (options.suppressSelectionSyncScroll) this.#suppressSelectionScrollUntilRaf = true;
             win.requestAnimationFrame(() => {
               elToScroll.scrollIntoView({ block, inline: 'nearest', behavior });
               this.#shouldScrollSelectionIntoView = false;
+              this.#suppressSelectionScrollUntilRaf = false;
             });
           }
           return true;
@@ -3805,11 +3831,17 @@ export class PresentationEditor extends EventEmitter {
    * @param options.behavior - Scroll behavior ('auto' | 'smooth')
    * @param options.ifNeeded - When true, skip movement if the target is already fully visible
    *   (downgrades to 'nearest'); off-screen targets still use `block`. Used by search navigation.
+   * @param options.suppressSelectionSyncScroll - Forwarded to scrollToPosition; see there.
    * @returns Promise resolving to true if scrolling succeeded, false otherwise
    */
   async scrollToPositionAsync(
     pos: number,
-    options: { block?: 'start' | 'center' | 'end' | 'nearest'; behavior?: ScrollBehavior; ifNeeded?: boolean } = {},
+    options: {
+      block?: 'start' | 'center' | 'end' | 'nearest';
+      behavior?: ScrollBehavior;
+      ifNeeded?: boolean;
+      suppressSelectionSyncScroll?: boolean;
+    } = {},
   ): Promise<boolean> {
     // Fast path: try sync scroll first (works if page already mounted)
     if (this.scrollToPosition(pos, options)) {
@@ -7305,6 +7337,12 @@ export class PresentationEditor extends EventEmitter {
    * page into view to trigger mount; the next selection update handles precise scroll.
    */
   #scrollActiveEndIntoView(pageIndex: number): void {
+    // SD-3315: a search-owned scroll is in flight (find next/previous). Do not let selection-sync
+    // scroll the viewport to the (reverted/stale) caret — the search scroll and its RAF re-assert
+    // own positioning for this window. The selection overlay still renders in #updateSelection;
+    // only this scroll is skipped. Cleared on the search scroll's RAF, so normal keyboard/pointer
+    // selection scroll resumes the next frame.
+    if (this.#suppressSelectionScrollUntilRaf) return;
     // Check if the target page is mounted before trusting rendered element positions.
     const pageIsMounted = !!this.#painterHost.querySelector(`[data-page-index="${pageIndex}"]`);
     if (!pageIsMounted) {
