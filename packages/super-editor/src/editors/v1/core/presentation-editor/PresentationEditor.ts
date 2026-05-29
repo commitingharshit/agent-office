@@ -3884,8 +3884,12 @@ export class PresentationEditor extends EventEmitter {
       return false;
     }
 
-    // Retry now that page is mounted
-    return this.scrollToPosition(pos, options);
+    // Retry now that page is mounted. Reaching this path means the target was on an unmounted
+    // (off-screen) page at call time, and #scrollPageIntoView above only scrolled the page into
+    // view — not the specific match, which can now sit at a viewport edge. Force ifNeeded:false so
+    // the match centers, instead of letting the now-edge-visible match downgrade to 'nearest' and
+    // skip centering (SD-3315 review). suppressSelectionSyncScroll is preserved via the spread.
+    return this.scrollToPosition(pos, { ...options, ifNeeded: false });
   }
 
   /**
@@ -3989,7 +3993,9 @@ export class PresentationEditor extends EventEmitter {
   async focusContentControl(
     entityId: string,
     options: { block?: 'start' | 'center' | 'end' | 'nearest'; behavior?: ScrollBehavior } = {},
-  ): Promise<{ success: true } | { success: false; reason: 'not-ready' | 'invalid-id' | 'not-found' | 'not-reachable' }> {
+  ): Promise<
+    { success: true } | { success: false; reason: 'not-ready' | 'invalid-id' | 'not-found' | 'not-reachable' }
+  > {
     const editor = this.#editor;
     if (!editor) return { success: false, reason: 'not-ready' };
     if (typeof entityId !== 'string' || entityId.length === 0) return { success: false, reason: 'invalid-id' };

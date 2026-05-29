@@ -649,6 +649,51 @@ describe('PresentationEditor - scrollToPosition', () => {
       expect(result).toBe(true);
     });
 
+    it('centers a virtualized match after mount even with ifNeeded (SD-3315)', async () => {
+      // Reaching the async/mount path means the target was off-screen at call time, so it should
+      // center once mounted. The post-mount retry forces ifNeeded:false; without that, a match
+      // that ends up edge-visible after the page scrolls into view would downgrade to 'nearest'
+      // and skip centering. Pin innerHeight so the span counts as "visible" (where the old
+      // forwarded ifNeeded:true would have downgraded).
+      const originalInnerHeight = window.innerHeight;
+      Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true });
+      try {
+        editor = new PresentationEditor({ element: container, documentId: 'test-doc' });
+        await vi.waitFor(() => expect(mockIncrementalLayout).toHaveBeenCalled());
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        const pagesHost = container.querySelector('.presentation-editor__pages') as HTMLElement;
+        const span = document.createElement('span');
+        span.dataset.pmStart = '140';
+        span.dataset.pmEnd = '160';
+        span.scrollIntoView = vi.fn();
+        span.getBoundingClientRect = vi.fn(
+          () => ({ top: 100, bottom: 120, left: 0, right: 0, width: 0, height: 20 }) as DOMRect,
+        );
+        // Mount page index 1 (covers pos 150) after the async call starts.
+        setTimeout(() => {
+          const mockPage = document.createElement('div');
+          mockPage.setAttribute('data-page-index', '1');
+          mockPage.scrollIntoView = vi.fn();
+          mockPage.appendChild(span);
+          pagesHost.appendChild(mockPage);
+        }, 100);
+
+        const result = await editor.scrollToPositionAsync(150, {
+          block: 'center',
+          ifNeeded: true,
+          suppressSelectionSyncScroll: true,
+        });
+
+        expect(result).toBe(true);
+        // Post-mount retry must center the now-visible match, not downgrade to 'nearest'.
+        expect(span.scrollIntoView).toHaveBeenCalledWith({ block: 'center', inline: 'nearest', behavior: 'auto' });
+        expect(span.scrollIntoView).not.toHaveBeenCalledWith(expect.objectContaining({ block: 'nearest' }));
+      } finally {
+        Object.defineProperty(window, 'innerHeight', { value: originalInnerHeight, configurable: true });
+      }
+    });
+
     it('should return false and warn when page fails to mount within timeout', async () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
