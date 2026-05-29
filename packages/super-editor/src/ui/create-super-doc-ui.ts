@@ -2250,6 +2250,43 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
         target: { kind: 'entity', entityType: 'contentControl', entityId: id },
       });
     },
+    async scrollIntoView({
+      id,
+      block,
+      behavior,
+    }: {
+      id: string;
+      block?: 'start' | 'center' | 'end' | 'nearest';
+      behavior?: 'auto' | 'smooth';
+    }): Promise<ScrollIntoViewOutput> {
+      if (typeof id !== 'string' || id.length === 0) return { success: false };
+      // Resolve through the host editor — `presentationEditor` lives on the
+      // body/host, not a routed child story editor. Same posture as
+      // `viewport.getRect` / `runScrollIntoView`. The model-aware scroll is
+      // body-only, so a control in a header/footer/note resolves to a no-op
+      // `{ success: false }`. We call the presentation method directly rather
+      // than routing a content-control target through `viewport.scrollIntoView`
+      // — content controls are UI-local and deliberately absent from the
+      // Document API `ScrollIntoViewInput` address union (mirrors `getRect`).
+      const editor = resolveHostEditor(superdoc);
+      const presentation = editor?.presentationEditor as
+        | {
+            scrollContentControlIntoView?: (
+              id: string,
+              opts: { block?: 'start' | 'center' | 'end' | 'nearest'; behavior?: 'auto' | 'smooth' },
+            ) => Promise<boolean>;
+          }
+        | null
+        | undefined;
+      if (!presentation || typeof presentation.scrollContentControlIntoView !== 'function') {
+        return { success: false };
+      }
+      const ok = await presentation.scrollContentControlIntoView(id, {
+        block: block ?? 'center',
+        behavior: behavior ?? 'smooth',
+      });
+      return { success: Boolean(ok) };
+    },
   };
 
   // Resolve a metadata id (= the SDT's w:tag) to the SDT's content-

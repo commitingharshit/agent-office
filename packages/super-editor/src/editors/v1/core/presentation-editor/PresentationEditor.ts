@@ -3816,6 +3816,74 @@ export class PresentationEditor extends EventEmitter {
   }
 
   /**
+   * Scroll a content control (SDT field/clause) into view by its id.
+   *
+   * Model-aware: the control's position is resolved from the document
+   * model, not the painted DOM, so this works even when the control sits
+   * on a not-yet-rendered (virtualized) page — `scrollToPositionAsync`
+   * mounts the page first, then scrolls. This is why it cannot reuse the
+   * paint-only `getEntityRects` rect path.
+   *
+   * Scroll-only: it does NOT move the selection or place the caret inside
+   * the control. Focusing/activating a control is a separate concern.
+   *
+   * v1 is body-only: it searches the body editor, and `scrollToPositionAsync`
+   * only scrolls in body mode, so a control inside a header/footer/note
+   * story does not resolve and returns `false`.
+   *
+   * @returns `true` once scrolled; `false` when the id is empty/unknown,
+   *   the control is in a non-body story, or no editor is available.
+   */
+  async scrollContentControlIntoView(
+    entityId: string,
+    options: { block?: 'start' | 'center' | 'end' | 'nearest'; behavior?: ScrollBehavior } = {},
+  ): Promise<boolean> {
+    const editor = this.#editor;
+    if (!editor || typeof entityId !== 'string' || entityId.length === 0) return false;
+
+    let found: { pos: number; node: ReturnType<typeof editor.state.doc.nodeAt> } | null = null;
+    editor.state.doc.descendants((node, pos) => {
+      if (found) return false;
+      const name = node.type?.name;
+      // Normalize the node id to a string before comparing. The id a
+      // consumer passes comes from the list / painted `data-sdt-id` (always
+      // a string), but the PM attr can be numeric, so a strict `===` would
+      // miss it. Matches the painted-DOM (`getRect`) id convention.
+      if ((name === 'structuredContent' || name === 'structuredContentBlock') && String(node.attrs?.id) === entityId) {
+        found = { pos, node };
+        return false;
+      }
+      return true;
+    });
+    if (!found) return false;
+
+    // Resolve the first *text* position inside the control. Only text
+    // positions reliably map to a layout fragment; wrapper boundaries
+    // (block, paragraph, run) sit between fragments and make
+    // `scrollToPositionAsync` fail. A deep `descendants` walk handles
+    // inline (`run > text`) and block (`paragraph > run > text`) nesting
+    // uniformly. `descendants` yields each child's position relative to
+    // the node's content, so the absolute position is `found.pos + 1 + rel`.
+    // Scroll-only: this does NOT move the selection or focus.
+    let contentPos = found.pos + 1;
+    let textFound = false;
+    found.node?.descendants((child, rel) => {
+      if (textFound) return false;
+      if (child.isText) {
+        contentPos = found.pos + 1 + rel;
+        textFound = true;
+        return false;
+      }
+      return true;
+    });
+
+    return this.scrollToPositionAsync(contentPos, {
+      behavior: options.behavior ?? 'smooth',
+      block: options.block ?? 'center',
+    });
+  }
+
+  /**
    * Scrolls a specific page into view.
    *
    * This method supports virtualized rendering: if the target page is not currently

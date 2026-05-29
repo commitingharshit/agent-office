@@ -462,9 +462,10 @@ export interface ContentControlsSlice {
  * directly, matching the architectural rule that this handle is a UI
  * surface, not a parallel mutation contract.
  *
- * The handle does not include `scrollIntoView` in v1: that path
- * widens `ui.viewport.scrollIntoView` and is a separate slice from
- * `ui.viewport.getRect` (SD-3156).
+ * The handle includes `scrollIntoView` via a dedicated model-aware
+ * path. It does NOT widen `ui.viewport.scrollIntoView`: content controls
+ * stay UI-local and out of the Document API address union, mirroring how
+ * `getRect` resolves a content control through a UI-local address.
  */
 export interface ContentControlsHandle {
   /** Snapshot the current content-controls slice synchronously. */
@@ -496,6 +497,28 @@ export interface ContentControlsHandle {
    * failure reason).
    */
   getRect(input: { id: string }): ViewportRectResult;
+  /**
+   * Scroll the content control identified by `id` into view. The
+   * control's position is resolved from the document model (not the
+   * painted DOM), so it works even when the control sits on a
+   * not-yet-rendered (virtualized) page — the page is mounted, then
+   * scrolled. Scroll-only: it does not move the selection or place the
+   * caret inside the control.
+   *
+   * Returns the same `ScrollIntoViewOutput` shape as
+   * `ui.viewport.scrollIntoView`: `{ success: true }` once scrolled, or
+   * `{ success: false }` when `id` is empty/unknown or the presentation
+   * layer isn't ready. `block` defaults to `'center'`, `behavior` to
+   * `'smooth'`.
+   *
+   * v1 is body-only: a control inside a header/footer/note story does
+   * not resolve and returns `{ success: false }`.
+   */
+  scrollIntoView(input: {
+    id: string;
+    block?: 'start' | 'center' | 'end' | 'nearest';
+    behavior?: 'auto' | 'smooth';
+  }): Promise<import('@superdoc/document-api').ScrollIntoViewOutput>;
 }
 
 /**

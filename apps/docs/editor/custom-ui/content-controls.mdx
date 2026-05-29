@@ -39,14 +39,16 @@ The event tells you *what* is active; `getRect` tells you *where* to draw. `acti
 | Full live list and active stack | `ui.contentControls.observe()` / `getSnapshot()` |
 | Read one control | `ui.contentControls.get({ id })` |
 | Position your UI | `ui.contentControls.getRect({ id })` |
+| Scroll a control into view | `ui.contentControls.scrollIntoView({ id })` |
 | Hover and right-click hit-testing | `ui.viewport.entityAt()` / `contextAt()` |
 | Change content, tags, or locks | `editor.doc.contentControls.*` |
 
 `active` is the innermost control. For nested controls (an inline field inside a block clause), `activePath` carries the full stack, innermost first, so you don't also need `observe()` just to read the nesting.
 
+`scrollIntoView` resolves the control's position from the document, so it works even when the control is on a page that hasn't rendered yet (the page mounts, then scrolls). It scrolls only - it does not move the cursor into the control.
+
 ## Current limits
 
-- No built-in scroll-to-control. Read the position with `getRect()` and scroll your container.
 - No geometry-change subscription. Re-read `getRect()` on scroll, resize, and the `pagination-update` / `zoomChange` events.
 - No focus-by-id helper. Clicking a control in the document still drives selection.
 
