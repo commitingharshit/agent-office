@@ -312,8 +312,9 @@ it. See the `contract-templates` demo for a working example.
   get an id automatically, and Word-authored controls normally carry `w:id`.
 - **`active` is the primary (deepest) control.** When controls are nested (for
   example an inline field inside a block clause), `active` is the innermost
-  control. Use `ui.contentControls.observe()` (which exposes the full active
-  stack) when you need the surrounding controls as well.
+  control and `activePath` carries the full stack. Use
+  `ui.contentControls.observe()` when you need ongoing list/value reactivity,
+  not just the active nesting for a single event.
 
 ## Comments events
 
