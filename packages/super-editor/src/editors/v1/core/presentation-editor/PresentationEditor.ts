@@ -108,8 +108,8 @@ import { resolveStoryRuntime } from '../../document-api-adapters/story-runtime/r
 import { BODY_STORY_KEY, buildStoryKey, parseStoryKey } from '../../document-api-adapters/story-runtime/story-key.js';
 import { createStoryEditor } from '../story-editor-factory.js';
 import { buildEndnoteBlocks } from './layout/EndnotesBuilder.js';
-import { toFlowBlocks, FlowBlockCache } from '@superdoc/pm-adapter';
-import type { ConverterContext } from '@superdoc/pm-adapter/converter-context.js';
+import { toFlowBlocks, FlowBlockCache } from '@core/layout-adapter';
+import type { ConverterContext } from '@core/layout-adapter/converter-context.js';
 import { readSettingsRoot, readDefaultTableStyle } from '../../document-api-adapters/document-settings.js';
 import {
   incrementalLayout,
@@ -4607,7 +4607,7 @@ export class PresentationEditor extends EventEmitter {
           transaction.docChanged &&
           (ySyncMeta?.isChangeOrigin || inputType === 'historyUndo' || inputType === 'historyRedo');
         if (shouldBypassFastRevision) {
-          this.#flowBlockCache?.setHasExternalChanges(true);
+          this.#flowBlockCache?.setHasExternalChanges?.(true);
         }
       }
       if (trackedChangesChanged || transaction?.docChanged) {
@@ -4738,7 +4738,7 @@ export class PresentationEditor extends EventEmitter {
     // These modify the OOXML part and derived cache but don't change the PM document,
     // so the normal 'update' event won't trigger a layout refresh.
     const handleNotesPartChanged = (event?: { source?: unknown }) => {
-      this.#flowBlockCache.setHasExternalChanges(true);
+      this.#flowBlockCache.setHasExternalChanges?.(true);
       this.#pendingDocChange = true;
       this.#selectionSync.onLayoutStart();
       this.#scheduleRerender();
@@ -5342,7 +5342,7 @@ export class PresentationEditor extends EventEmitter {
             refId: headerId,
           });
           this.#headerFooterSession?.invalidateLayoutForRefs([headerId]);
-          this.#flowBlockCache.setHasExternalChanges(true);
+          this.#flowBlockCache.setHasExternalChanges?.(true);
           this.#pendingDocChange = true;
           this.#selectionSync.onLayoutStart();
           this.#scheduleRerender();
@@ -6181,7 +6181,7 @@ export class PresentationEditor extends EventEmitter {
    */
   #refreshHeaderFooterStructureThenRerender(options?: { purgeCachedEditors?: boolean }): void {
     this.#headerFooterSession?.refreshStructure(options);
-    this.#flowBlockCache.setHasExternalChanges(true);
+    this.#flowBlockCache.setHasExternalChanges?.(true);
     this.#pendingDocChange = true;
     this.#selectionSync.onLayoutStart();
     this.#scheduleRerender();
