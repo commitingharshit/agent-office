@@ -163,6 +163,25 @@ export class FontRegistry {
    */
   register(descriptor: FontFaceDescriptor): RegisteredFace {
     const { family, source, descriptors } = descriptor;
+    // A face's identity is family|weight|style; a bare register (no descriptors) is 400/normal.
+    const weight = normalizeWeight(descriptors?.weight as string | undefined);
+    const style = normalizeStyle(descriptors?.style as string | undefined);
+    const key = faceKeyOf(family, weight, style);
+    // Duplicate-face guard (the registry is the central registrar for bundled AND customer faces):
+    // re-registering the IDENTICAL string source is idempotent - return without adding a second
+    // FontFace - but a DIFFERENT source for the same face is rejected. Silently overwriting a
+    // user-provided font source would make rendering depend on registration order. Binary sources
+    // have no comparable identity here and are not de-duped.
+    if (typeof source === 'string') {
+      const existingSource = this.#faceSources.get(key);
+      if (existingSource === source) return { family, status: this.getStatus(family) };
+      if (existingSource !== undefined) {
+        throw new Error(
+          `[superdoc] font face "${key}" is already registered from a different source ` +
+            `("${existingSource}"); a registered face's source cannot be replaced`,
+        );
+      }
+    }
     if (this.#FontFaceCtor && this.#fontSet) {
       const face = new this.#FontFaceCtor(family, source, descriptors);
       this.#fontSet.add(face);
@@ -174,11 +193,7 @@ export class FontRegistry {
       this.#sources.set(family, list);
     }
     if (!this.#status.has(family)) this.#status.set(family, 'unloaded');
-    // Seed face-level status so the gate can await this exact weight/style. A bare
-    // register (no weight/style descriptors) seeds the 400/normal face.
-    const weight = normalizeWeight(descriptors?.weight as string | undefined);
-    const style = normalizeStyle(descriptors?.style as string | undefined);
-    const key = faceKeyOf(family, weight, style);
+    // Seed face-level status so the gate can await this exact weight/style.
     this.#trackFace(family, key);
     if (!this.#faceStatus.has(key)) this.#faceStatus.set(key, 'unloaded');
     if (typeof source === 'string' && !this.#faceSources.has(key)) this.#faceSources.set(key, source);
