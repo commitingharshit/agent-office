@@ -545,7 +545,8 @@ export class PresentationEditor extends EventEmitter {
    * so two documents with different mappings can never share a measure or reuse each other's
    * painted DOM. This is the per-document isolation foundation the customer write API
    * (`fonts.map`/`add`/`preload`) builds on; PR1 wires the seam with no public mutators yet, so
-   * the signature stays '' and every path is byte-identical to the prior global behavior.
+   * the signature stays '' and the resolver is seeded with the same bundled map - behavior-
+   * preserving by construction (resolved families, cache keys, and paint versions are unchanged).
    */
   readonly #fontResolver = createFontResolver();
   /** Layout blocks for the current render, stashed so the gate's planner reads the live set. */
@@ -986,8 +987,8 @@ export class PresentationEditor extends EventEmitter {
         // fonts are not fetched. Reads the blocks stashed just before each gate await.
         getRequiredFaces: () => planRequiredFontFaces(this.#fontPlanBlocks, this.#fontResolver),
         // The document's resolver: the gate derives the family-path resolution from it and
-        // resolves its report through it (load + diagnostics). Measure/paint do not read it
-        // yet - threading them is the remaining step before load/measure/paint fully agree.
+        // resolves its report through it (load + diagnostics). Measure and paint resolve through
+        // the same instance, so load, measure, paint, and diagnostics all agree.
         fontResolver: this.#fontResolver,
         // Register the bundled substitute pack (Carlito) into the document's registry the
         // first time it resolves, so the substitute is available with no manual setup.

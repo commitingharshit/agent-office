@@ -44,7 +44,7 @@ export type ResolveLayoutInput = {
   /**
    * The document's font-mapping signature, folded into each block's paint-reuse version so a
    * runtime `fonts.map` change repaints (the same way a font load busts reuse via the global
-   * epoch). Omitted/'' for default documents, leaving versions byte-identical to before.
+   * epoch). Omitted/'' for default documents, leaving the version unchanged from before.
    */
   fontSignature?: string;
 };
