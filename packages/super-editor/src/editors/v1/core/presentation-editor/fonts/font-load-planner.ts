@@ -110,9 +110,10 @@ function collectBlock(out: Map<string, FontFaceRequest>, block: FlowBlock): void
 }
 
 /**
- * The deduped physical face requests the given layout blocks actually render. Footnote and
- * endnote blocks are included by passing them in `blocks` (the caller appends them to the
- * layout block list before measurement, so they are ordinary paragraphs here).
+ * The deduped physical face requests the given layout blocks actually render. The caller
+ * passes every block this render measures - body, notes, header/footer, and (in paginated
+ * mode) footnotes - so each measured face is planned; this function only walks what it is
+ * given.
  */
 export function planRequiredFontFaces(blocks: readonly FlowBlock[] | null | undefined): FontFaceRequest[] {
   const out = new Map<string, FontFaceRequest>();

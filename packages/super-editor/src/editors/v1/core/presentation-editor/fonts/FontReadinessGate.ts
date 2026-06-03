@@ -392,7 +392,6 @@ function summarize(results: FontLoadResult[]): FontLoadSummary {
   return summary;
 }
 
-/** Summarize face results (counts are per-FACE; `results` keeps the physical family name). */
 // Status precedence for rolling per-face outcomes up to a family: a settled failure must
 // never be masked by a loaded sibling. Mirrors FontRegistry.getStatus's rollup order.
 const FACE_STATUS_PRIORITY: FontLoadStatus[] = ['failed', 'timed_out', 'fallback_used', 'loaded', 'loading', 'unloaded'];
