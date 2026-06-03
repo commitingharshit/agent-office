@@ -852,6 +852,13 @@ describe('DomPainter', () => {
         pmEnd: 1,
       },
     ]);
+
+    // Sharper than just "no overlay": the field's own underline must not be suppressed. The overlay's
+    // suppression path forces textDecorationLine to 'none' on the run's element; with the overlay off
+    // it keeps its native value.
+    const fieldEl = mount.querySelector('[aria-label="Field annotation"]') as HTMLElement;
+    expect(fieldEl).toBeTruthy();
+    expect(fieldEl.style.textDecorationLine).not.toBe('none');
   });
 
   it('paints one measured overlay for underlined text + tabs on the segment-positioned path', () => {
