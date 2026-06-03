@@ -5,7 +5,10 @@ import {
   DEFAULT_FONT_LOAD_TIMEOUT_MS,
   type FontRegistry,
   type FontLoadResult,
+  type FontFaceRequest,
+  type FontFaceLoadResult,
   type FontLoadSummary,
+  type FontLoadStatus,
   type FontResolutionRecord,
 } from '@superdoc/font-system';
 
@@ -26,8 +29,16 @@ export interface FontEnvironment {
 }
 
 export interface FontReadinessGateOptions {
-  /** Logical font families the current document uses. Cheap to call per render. */
+  /** Logical font families the current document DECLARES (fontTable). Used for diagnostics. */
   getDocumentFonts: () => string[];
+  /**
+   * The exact physical FACES (family + weight + style) the current document RENDERS, from
+   * the planner walking layout input. When provided, the gate awaits these faces instead of
+   * declared families - so bold/italic load before measure and declared-but-unused fonts are
+   * not fetched. Falls back to the {@link getDocumentFonts} + {@link resolveFamilies} family
+   * path when omitted (tests / non-layout callers).
+   */
+  getRequiredFaces?: () => FontFaceRequest[];
   /** Trigger a re-measure + re-layout + repaint (PresentationEditor's immediate render). */
   requestReflow: () => void;
   /**
@@ -76,6 +87,7 @@ export interface FontReadinessGateOptions {
  */
 export class FontReadinessGate {
   readonly #getDocumentFonts: () => string[];
+  readonly #getRequiredFaces: (() => FontFaceRequest[]) | null;
   readonly #resolveFamilies: (families: string[]) => string[];
   readonly #requestReflow: () => void;
   readonly #getFontEnvironment: () => FontEnvironment | null;
@@ -90,13 +102,18 @@ export class FontReadinessGate {
   #fontConfigVersion = 0;
   #requiredSignature = '';
   #requiredFamilies = new Set<string>();
-  /** Families observed available, so the late-load handler fires at most once per face. */
+  /** Required face keys (family|weight|style) for the face path's late-load matching. */
+  #requiredFaceKeys = new Set<string>();
+  /** Families observed available, so the family-path late-load handler fires once per face. */
   readonly #seenAvailable = new Set<string>();
+  /** Face keys observed available, so the face-path late-load handler fires once per face. */
+  readonly #seenAvailableFaces = new Set<string>();
   #lastSummary: FontLoadSummary | null = null;
   #loadingDoneHandler: ((event: FontFaceSetLoadEvent) => void) | null = null;
 
   constructor(options: FontReadinessGateOptions) {
     this.#getDocumentFonts = options.getDocumentFonts;
+    this.#getRequiredFaces = options.getRequiredFaces ?? null;
     this.#resolveFamilies = options.resolveFamilies ?? ((families) => families);
     this.#requestReflow = options.requestReflow;
     this.#getFontEnvironment = options.getFontEnvironment ?? defaultFontEnvironment;
@@ -143,6 +160,59 @@ export class FontReadinessGate {
    * must not break layout.
    */
   async ensureReadyForMeasure(): Promise<FontLoadSummary> {
+    if (this.#getRequiredFaces) return this.#ensureFacesReady(this.#getRequiredFaces);
+    return this.#ensureFamiliesReady();
+  }
+
+  /** Face-aware path: await the exact physical faces the rendered document uses. */
+  async #ensureFacesReady(getRequiredFaces: () => FontFaceRequest[]): Promise<FontLoadSummary> {
+    const registry = this.#resolveContext().registry;
+
+    let required: FontFaceRequest[];
+    try {
+      required = getRequiredFaces();
+    } catch {
+      // Face planning is pure traversal, so a throw here is a bug - but if it ever does,
+      // degrade to the family path (which still awaits the resolved physical families,
+      // e.g. Calibri -> Carlito) rather than skipping load and letting fallback metrics
+      // reach measurement.
+      return this.#ensureFamiliesReady();
+    }
+
+    const keyed = required.map((r) => ({ request: r, key: faceKeyOf(r.family, r.weight, r.style) }));
+    const signature = keyed
+      .map((k) => k.key)
+      .sort()
+      .join('|');
+    const unchangedAndLoaded =
+      signature === this.#requiredSignature && keyed.every((k) => registry.getFaceStatus(k.request) === 'loaded');
+    if (unchangedAndLoaded && this.#lastSummary) {
+      return this.#lastSummary;
+    }
+
+    this.#requiredSignature = signature;
+    this.#requiredFaceKeys = new Set(keyed.map((k) => k.key));
+    this.#requiredFamilies = new Set();
+    this.#ensureSubscribed();
+
+    let results: FontFaceLoadResult[] = [];
+    try {
+      results = required.length ? await registry.awaitFaceRequests(required, { timeoutMs: this.#timeoutMs }) : [];
+    } catch {
+      results = [];
+    }
+
+    for (const result of results) {
+      if (result.status === 'loaded') {
+        this.#seenAvailableFaces.add(faceKeyOf(result.request.family, result.request.weight, result.request.style));
+      }
+    }
+    this.#lastSummary = summarizeFaces(results);
+    return this.#lastSummary;
+  }
+
+  /** Legacy family path: await declared families (tests / non-layout callers). */
+  async #ensureFamiliesReady(): Promise<FontLoadSummary> {
     const registry = this.#resolveContext().registry;
 
     let required: string[];
@@ -161,6 +231,7 @@ export class FontReadinessGate {
 
     this.#requiredSignature = signature;
     this.#requiredFamilies = new Set(required);
+    this.#requiredFaceKeys = new Set();
     this.#ensureSubscribed();
 
     let results: FontLoadResult[] = [];
@@ -185,6 +256,7 @@ export class FontReadinessGate {
     this.#fontConfigVersion += 1;
     bumpFontConfigVersion(); // bump the global epoch so measure/paint reuse signatures bust
     this.#seenAvailable.clear();
+    this.#seenAvailableFaces.clear();
     this.#requiredSignature = '';
     this.#invalidateCaches();
     this.#requestReflow();
@@ -233,20 +305,40 @@ export class FontReadinessGate {
   }
 
   #onLoadingDone(event: FontFaceSetLoadEvent): void {
-    // A required face that the last measure could not use just finished loading -> that
-    // paint used a fallback, so invalidate and reflow. We key off the faces the event
+    // A required face/family that the last measure could not use just finished loading ->
+    // that paint used a fallback, so invalidate and reflow. We key off the faces the event
     // actually reports as loaded (reliable), NOT FontFaceSet.check() (which lies for
-    // unregistered bare families). The seen-set fires this once per face; never a loop.
-    const loadedKeys = new Set((event?.fontfaces ?? []).map((face) => normalizeFamilyKey(face.family)));
-    if (loadedKeys.size === 0) return;
+    // unregistered bare families). The seen-set fires this at most once per face.
+    const faces = event?.fontfaces ?? [];
+    if (faces.length === 0) return;
     let changed = false;
-    for (const family of this.#requiredFamilies) {
-      if (this.#seenAvailable.has(family)) continue;
-      if (loadedKeys.has(normalizeFamilyKey(family))) {
-        this.#seenAvailable.add(family);
-        changed = true;
+
+    if (this.#requiredFaceKeys.size > 0) {
+      // Face path: reflow only when a loaded face matches a REQUIRED face key (family +
+      // weight + style). "Liberation Sans bold loaded and it was required" - not merely
+      // "Liberation Sans (regular) loaded".
+      const loadedFaceKeys = new Set(
+        faces.map((face) => faceKeyOf(face.family, normalizeWeightToken(face.weight), normalizeStyleToken(face.style))),
+      );
+      for (const key of this.#requiredFaceKeys) {
+        if (this.#seenAvailableFaces.has(key)) continue;
+        if (loadedFaceKeys.has(key)) {
+          this.#seenAvailableFaces.add(key);
+          changed = true;
+        }
+      }
+    } else {
+      // Legacy family path.
+      const loadedFamilies = new Set(faces.map((face) => normalizeFamilyKey(face.family)));
+      for (const family of this.#requiredFamilies) {
+        if (this.#seenAvailable.has(family)) continue;
+        if (loadedFamilies.has(normalizeFamilyKey(family))) {
+          this.#seenAvailable.add(family);
+          changed = true;
+        }
       }
     }
+
     if (!changed) return;
     this.#fontConfigVersion += 1;
     bumpFontConfigVersion(); // bump the global epoch so measure/paint reuse signatures bust
@@ -263,6 +355,27 @@ function normalizeFamilyKey(family: string): string {
     .toLowerCase();
 }
 
+/** Canonical weight token for face matching: bold/>=600 -> '700', else '400'. */
+function normalizeWeightToken(weight: string | undefined): '400' | '700' {
+  if (!weight) return '400';
+  const w = weight.trim().toLowerCase();
+  if (w === 'bold' || w === 'bolder') return '700';
+  const n = Number(w);
+  return Number.isFinite(n) && n >= 600 ? '700' : '400';
+}
+
+/** Canonical style token for face matching: italic/oblique -> 'italic', else 'normal'. */
+function normalizeStyleToken(style: string | undefined): 'normal' | 'italic' {
+  if (!style) return 'normal';
+  const s = style.trim().toLowerCase();
+  return s.startsWith('italic') || s.startsWith('oblique') ? 'italic' : 'normal';
+}
+
+/** Face key matching the registry's: normalized family + weight + style. */
+function faceKeyOf(family: string, weight: '400' | '700', style: 'normal' | 'italic'): string {
+  return `${normalizeFamilyKey(family)}|${weight}|${style}`;
+}
+
 /** The font-system registry accepts a structural font set + face ctor; the DOM types satisfy them. */
 type FontSetLikeArg = Parameters<typeof getFontRegistryFor>[0];
 type FontFaceCtorArg = Parameters<typeof getFontRegistryFor>[1];
@@ -275,6 +388,33 @@ function summarize(results: FontLoadResult[]): FontLoadSummary {
     else if (result.status === 'failed') summary.failed += 1;
     else if (result.status === 'timed_out') summary.timedOut += 1;
     else if (result.status === 'fallback_used') summary.fallbackUsed += 1;
+  }
+  return summary;
+}
+
+// Status precedence for rolling per-face outcomes up to a family: a settled failure must
+// never be masked by a loaded sibling. Mirrors FontRegistry.getStatus's rollup order.
+const FACE_STATUS_PRIORITY: FontLoadStatus[] = ['failed', 'timed_out', 'fallback_used', 'loaded', 'loading', 'unloaded'];
+
+function summarizeFaces(results: FontFaceLoadResult[]): FontLoadSummary {
+  // FontLoadSummary's counts are documented as distinct physical FAMILIES and ride the
+  // public `fonts-changed` payload, but the face path awaits per face. Collapse faces to
+  // their family, taking the family's worst status, so a Calibri doc using regular+bold+
+  // italic reports one Carlito family (not three faces).
+  const worstByFamily = new Map<string, FontLoadStatus>();
+  for (const { request, status } of results) {
+    const prev = worstByFamily.get(request.family);
+    if (prev === undefined || FACE_STATUS_PRIORITY.indexOf(status) < FACE_STATUS_PRIORITY.indexOf(prev)) {
+      worstByFamily.set(request.family, status);
+    }
+  }
+  const summary = emptySummary();
+  for (const [family, status] of worstByFamily) {
+    summary.results.push({ family, status });
+    if (status === 'loaded') summary.loaded += 1;
+    else if (status === 'failed') summary.failed += 1;
+    else if (status === 'timed_out') summary.timedOut += 1;
+    else if (status === 'fallback_used') summary.fallbackUsed += 1;
   }
   return summary;
 }
