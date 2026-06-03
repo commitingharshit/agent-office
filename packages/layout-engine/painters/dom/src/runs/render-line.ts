@@ -429,7 +429,11 @@ export const renderLine = ({
   // overlay owns the mark across text + preserved spaces + tabs, so the two never disagree
   // on the underline's y (SD-3330). The segment-positioned branch captures span geometry as
   // it renders; the inline branch builds it from segment/tab widths.
-  const useLineUnderlineOverlay = Boolean(line.segments) && shouldUseLineUnderlineOverlay(runsForLine);
+  // RTL lines deliberately skip segment positioning (shouldUseSegmentPositioning returns false for
+  // RTL) and fall to inline flow so the browser's bidi algorithm places the tabs. The overlay builds
+  // LTR left-offsets from the line start, which would land on the wrong side there and (worse)
+  // suppress the natively-correct underlines. Keep native underlines for RTL; the overlay is LTR-only.
+  const useLineUnderlineOverlay = Boolean(line.segments) && !isRtl && shouldUseLineUnderlineOverlay(runsForLine);
   const resolveLineIndentOffset = (): number => {
     if (indentOffsetOverride != null) {
       return indentOffsetOverride;

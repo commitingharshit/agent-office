@@ -701,6 +701,71 @@ describe('DomPainter', () => {
     tabRuns.forEach((tab) => expect(tab.style.borderBottom).toBe(''));
   });
 
+  it('keeps native underlines (no overlay) on RTL tab lines', () => {
+    // PR #3627 review: RTL paragraphs skip segment positioning (shouldUseSegmentPositioning returns
+    // false for RTL) and fall to inline flow so the browser's bidi algorithm places the tabs. The
+    // overlay builds LTR left-offsets from the line start, so it must NOT own the underline there -
+    // otherwise it suppresses the natively-correct underlines and paints on the wrong side. RTL must
+    // keep native text-decoration + tab borders.
+    const block: FlowBlock = {
+      kind: 'paragraph',
+      id: 'rtl-underlined-tabs',
+      attrs: { directionContext: { inlineDirection: 'rtl', writingMode: 'horizontal-tb' } },
+      runs: [
+        { text: 'שלום', fontFamily: 'Arial', fontSize: 16, underline: { style: 'single' } },
+        { kind: 'tab', text: '\t', width: 48, fontSize: 16, underline: { style: 'single' } },
+        { kind: 'tab', text: '\t', width: 48, fontSize: 16, underline: { style: 'single' } },
+      ],
+    };
+
+    const measure: Measure = {
+      kind: 'paragraph',
+      lines: [
+        {
+          fromRun: 0,
+          fromChar: 0,
+          toRun: 2,
+          toChar: 1,
+          width: 140,
+          maxWidth: 624,
+          ascent: 14.640625,
+          descent: 3.5390625,
+          lineHeight: 21.313333333333333,
+          // Segments are present (as for any tab line); the RTL guard - not absent segments - is
+          // what must keep the overlay off.
+          segments: [{ runIndex: 0, fromChar: 0, toChar: 4, width: 44 }],
+          spaceCount: 0,
+        },
+      ],
+      totalHeight: 21.313333333333333,
+    };
+
+    const layout: Layout = {
+      pageSize: { w: 816, h: 1056 },
+      pages: [
+        {
+          number: 1,
+          fragments: [{ kind: 'para', blockId: 'rtl-underlined-tabs', fromLine: 0, toLine: 1, x: 0, y: 0, width: 624 }],
+        },
+      ],
+    };
+
+    const painter = createTestPainter({ blocks: [block], measures: [measure] });
+    painter.paint(layout, mount);
+
+    const lineEl = mount.querySelector('.superdoc-line') as HTMLElement;
+    const overlay = lineEl.querySelector('.superdoc-underline-overlay');
+    const textRun = lineEl.querySelector('span:not(.superdoc-tab):not(.superdoc-underline-overlay)') as HTMLElement;
+    const tabRuns = Array.from(lineEl.querySelectorAll('.superdoc-tab')) as HTMLElement[];
+
+    // No overlay on RTL lines - the LTR overlay offsets would land on the wrong side.
+    expect(overlay).toBeNull();
+    // Native underlines are preserved (not suppressed): text keeps its decoration, tabs keep borders.
+    expect(textRun.style.textDecorationLine).not.toBe('none');
+    expect(tabRuns).toHaveLength(2);
+    tabRuns.forEach((tab) => expect(tab.style.borderBottom).toContain('solid'));
+  });
+
   it('paints one measured overlay for underlined text + tabs on the segment-positioned path', () => {
     // Regression for SD-3330: a line with an explicit segment x (e.g. text after a tab stop)
     // takes the segment-positioned branch. The line-level underline overlay must own the mark
