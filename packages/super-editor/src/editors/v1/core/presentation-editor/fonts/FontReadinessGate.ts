@@ -171,7 +171,11 @@ export class FontReadinessGate {
     try {
       required = getRequiredFaces();
     } catch {
-      return this.#lastSummary ?? emptySummary();
+      // Face planning is pure traversal, so a throw here is a bug - but if it ever does,
+      // degrade to the family path (which still awaits the resolved physical families,
+      // e.g. Calibri -> Carlito) rather than skipping load and letting fallback metrics
+      // reach measurement.
+      return this.#ensureFamiliesReady();
     }
 
     const keyed = required.map((r) => ({ request: r, key: faceKeyOf(r.family, r.weight, r.style) }));

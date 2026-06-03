@@ -246,5 +246,30 @@ describe('FontReadinessGate', () => {
       fontSet.fire('loadingdone', { fontfaces: [{ family: 'Carlito', weight: 'bold', style: 'normal' }] });
       expect(requestReflow).toHaveBeenCalledTimes(1);
     });
+
+    it('falls back to the family path when face planning throws', async () => {
+      registry.statuses.set('Carlito', 'loaded');
+      const gate = new FontReadinessGate({
+        registry: registry.asRegistry(),
+        getDocumentFonts: () => ['Calibri'],
+        resolveFamilies: calibriToCarlito,
+        getRequiredFaces: () => {
+          throw new Error('planner blew up');
+        },
+        requestReflow,
+        invalidateCaches,
+        getFontEnvironment: () => ({ fontSet: fontSet.asFontSet(), FontFaceCtor: fakeCtor }),
+        timeoutMs: 1000,
+      });
+
+      const summary = await gate.ensureReadyForMeasure();
+
+      // The face path bailed before awaiting any face, and the gate degraded to the family
+      // path - which still awaits the resolved physical family (Calibri -> Carlito) rather
+      // than skipping load and letting fallback metrics reach measurement.
+      expect(registry.faceAwaitCalls).toEqual([]);
+      expect(registry.awaitCalls).toEqual([['Carlito']]);
+      expect(summary.loaded).toBe(1);
+    });
   });
 });
