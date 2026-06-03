@@ -624,6 +624,162 @@ describe('DomPainter', () => {
     expect(parseFloat(lines[0].style.wordSpacing)).toBeGreaterThan(0);
   });
 
+  it('paints underlined text and default-positioned tabs with one measured overlay', () => {
+    const block: FlowBlock = {
+      kind: 'paragraph',
+      id: 'underlined-default-tabs',
+      runs: [
+        {
+          text: 'This is some text followed by some tab stops ',
+          fontFamily: 'Arial',
+          fontSize: 16,
+          underline: { style: 'single' },
+        },
+        { kind: 'tab', text: '\t', width: 14.0859375, fontSize: 16, underline: { style: 'single' } },
+        { kind: 'tab', text: '\t', width: 48, fontSize: 16, underline: { style: 'single' } },
+        { kind: 'tab', text: '\t', width: 48, fontSize: 16, underline: { style: 'single' } },
+        { kind: 'tab', text: '\t', width: 48, fontSize: 16, underline: { style: 'single' } },
+        { kind: 'tab', text: '\t', width: 48, fontSize: 16, underline: { style: 'single' } },
+      ],
+    };
+
+    const measure: Measure = {
+      kind: 'paragraph',
+      lines: [
+        {
+          fromRun: 0,
+          fromChar: 0,
+          toRun: 5,
+          toChar: 1,
+          width: 528,
+          maxWidth: 624,
+          ascent: 14.640625,
+          descent: 3.5390625,
+          lineHeight: 21.313333333333333,
+          segments: [{ runIndex: 0, fromChar: 0, toChar: 45, width: 321.9140625 }],
+          spaceCount: 9,
+        },
+      ],
+      totalHeight: 21.313333333333333,
+    };
+
+    const layout: Layout = {
+      pageSize: { w: 816, h: 1056 },
+      pages: [
+        {
+          number: 1,
+          fragments: [
+            {
+              kind: 'para',
+              blockId: 'underlined-default-tabs',
+              fromLine: 0,
+              toLine: 1,
+              x: 0,
+              y: 0,
+              width: 624,
+            },
+          ],
+        },
+      ],
+    };
+
+    const painter = createTestPainter({ blocks: [block], measures: [measure] });
+    painter.paint(layout, mount);
+
+    const lineEl = mount.querySelector('.superdoc-line') as HTMLElement;
+    const overlay = lineEl.querySelector('.superdoc-underline-overlay') as HTMLElement;
+    const textRun = lineEl.querySelector('span:not(.superdoc-tab):not(.superdoc-underline-overlay)') as HTMLElement;
+    const tabRuns = Array.from(lineEl.querySelectorAll('.superdoc-tab')) as HTMLElement[];
+
+    expect(overlay).toBeTruthy();
+    expect(overlay.style.left).toBe('0px');
+    expect(overlay.style.width).toBe('528px');
+    expect(overlay.style.borderTop).toContain('solid');
+    expect(parseFloat(overlay.style.top)).toBeGreaterThan(measure.lines[0].ascent);
+    expect(textRun.style.textDecorationLine).toBe('none');
+    expect(tabRuns).toHaveLength(5);
+    tabRuns.forEach((tab) => expect(tab.style.borderBottom).toBe(''));
+  });
+
+  it('paints one measured overlay for underlined text + tabs on the segment-positioned path', () => {
+    // Regression for SD-3330: a line with an explicit segment x (e.g. text after a tab stop)
+    // takes the segment-positioned branch. The line-level underline overlay must own the mark
+    // there too, so text + preserved spaces + tabs share one y instead of text-decoration and
+    // tab-border landing on different rows.
+    const block: FlowBlock = {
+      kind: 'paragraph',
+      id: 'underlined-positioned-tabs',
+      runs: [
+        { text: 'Name: ', fontFamily: 'Arial', fontSize: 16, underline: { style: 'single' } },
+        { kind: 'tab', text: '\t', width: 48, fontSize: 16, underline: { style: 'single' } },
+        { kind: 'tab', text: '\t', width: 48, fontSize: 16, underline: { style: 'single' } },
+        { text: 'Value', fontFamily: 'Arial', fontSize: 16, underline: { style: 'single' } },
+      ],
+    };
+
+    const measure: Measure = {
+      kind: 'paragraph',
+      lines: [
+        {
+          fromRun: 0,
+          fromChar: 0,
+          toRun: 3,
+          toChar: 5,
+          width: 232,
+          maxWidth: 624,
+          ascent: 14.640625,
+          descent: 3.5390625,
+          lineHeight: 21.313333333333333,
+          // The explicit x on the trailing "Value" segment forces the segment-positioned path.
+          segments: [
+            { runIndex: 0, fromChar: 0, toChar: 6, width: 50 },
+            { runIndex: 3, fromChar: 0, toChar: 5, width: 40, x: 192 },
+          ],
+          spaceCount: 1,
+        },
+      ],
+      totalHeight: 21.313333333333333,
+    };
+
+    const layout: Layout = {
+      pageSize: { w: 816, h: 1056 },
+      pages: [
+        {
+          number: 1,
+          fragments: [
+            { kind: 'para', blockId: 'underlined-positioned-tabs', fromLine: 0, toLine: 1, x: 0, y: 0, width: 624 },
+          ],
+        },
+      ],
+    };
+
+    const painter = createTestPainter({ blocks: [block], measures: [measure] });
+    painter.paint(layout, mount);
+
+    const lineEl = mount.querySelector('.superdoc-line') as HTMLElement;
+    const overlays = Array.from(lineEl.querySelectorAll('.superdoc-underline-overlay')) as HTMLElement[];
+    const textRuns = Array.from(lineEl.querySelectorAll('span')).filter((s) =>
+      /Name:|Value/.test(s.textContent || ''),
+    ) as HTMLElement[];
+    const borderedEls = Array.from(lineEl.querySelectorAll('span, div')).filter(
+      (el) => (el as HTMLElement).style.borderBottom !== '',
+    );
+
+    // The positioned branch must coalesce text + both tabs + the x=192 "Value" segment into a
+    // SINGLE continuous overlay spanning the whole content - Name: [0,50], tab [50,98], tab
+    // [98,192] (filling to the next segment x), Value [192,232] - not several abutting spans
+    // that could each round to a different sub-pixel edge and reintroduce a seam.
+    expect(overlays).toHaveLength(1);
+    expect(overlays[0].style.left).toBe('0px');
+    expect(overlays[0].style.width).toBe('232px');
+    expect(overlays[0].style.borderTop).toContain('solid');
+    expect(parseFloat(overlays[0].style.top)).toBeGreaterThan(measure.lines[0].ascent);
+    // Native underlines are suppressed where the overlay owns the mark.
+    expect(textRuns.length).toBeGreaterThan(0);
+    textRuns.forEach((t) => expect(t.style.textDecorationLine).toBe('none'));
+    expect(borderedEls).toHaveLength(0);
+  });
+
   it('uses first-line hanging width when justifying default-tab positioned segments', () => {
     const tabBlock: FlowBlock = {
       kind: 'paragraph',
@@ -3052,7 +3208,7 @@ describe('DomPainter', () => {
     // data-appearance="hidden" is the hook CSS uses to drop chrome.
     expect(wrapper.dataset.appearance).toBe('hidden');
 
-    // No alias label child — must not be in the DOM at all.
+    // No alias label child. It must not be in the DOM at all.
     expect(wrapper.querySelector('.superdoc-structured-content-inline__label')).toBeNull();
 
     // textContent of the wrapper must equal exactly the wrapped phrase,
