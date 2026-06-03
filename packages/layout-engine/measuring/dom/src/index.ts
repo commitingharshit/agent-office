@@ -1936,7 +1936,9 @@ async function measureParagraphBlock(
           : typeof run.fontSize === 'string'
             ? parseFloat(run.fontSize) || DEFAULT_FIELD_ANNOTATION_FONT_SIZE
             : DEFAULT_FIELD_ANNOTATION_FONT_SIZE;
-      const annotationFontFamily = run.fontFamily || 'Arial, sans-serif';
+      // Resolve to the physical render family (a per-document fonts.map or the bundled substitute),
+      // the same family the pill paints, so the measured pill width matches the painted glyphs.
+      const annotationFontFamily = resolvePhysical(run.fontFamily || 'Arial, sans-serif');
 
       // Build font string for measurement
       const fontWeight = run.bold ? 'bold' : 'normal';

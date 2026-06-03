@@ -540,16 +540,12 @@ export class PresentationEditor extends EventEmitter {
   /**
    * This document's logical->physical font resolver. Per-instance (per document) so two
    * editors can map the same logical family differently without leaking. Planner, gate, report,
-   * text MEASURE (body, footnotes, header/footer, per-rId header/footer) and text PAINT resolve
-   * through THIS instance, and its signature keys every measure cache AND every paint-reuse
-   * version, so two documents with different mappings can never share a measure or reuse each
-   * other's painted DOM. (Field-annotation pills are the one font-bearing path NOT resolved here:
-   * their line-layout measure + paint still use the logical family, exactly as on main. Unifying
-   * them changes pill rendering, so it lands with the `fonts.map` PR, not this foundation.)
-   * This is the per-document isolation foundation the customer write API
-   * (`fonts.map`/`add`/`preload`) builds on; PR1 wires the seam with no public mutators yet, so
-   * the signature stays '' and the resolver is seeded with the same bundled map - behavior-
-   * preserving by construction (resolved families, cache keys, and paint versions are unchanged).
+   * MEASURE (body, footnotes, header/footer, per-rId header/footer, and field-annotation pills),
+   * and PAINT all resolve through THIS instance, and its signature keys every measure cache AND
+   * every paint-reuse version, so two documents with different mappings can never share a measure
+   * or reuse each other's painted DOM. `superdoc.fonts.map` (see {@link mapFont}) mutates it at
+   * runtime: the changed signature re-measures and repaints THIS document while others are left
+   * untouched. The instance is seeded with the bundled clean-clone map.
    */
   readonly #fontResolver = createFontResolver();
   /** Layout blocks for the current render, stashed so the gate's planner reads the live set. */

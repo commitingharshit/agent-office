@@ -58,10 +58,9 @@ export interface FontReadinessGateOptions {
   resolveFamilies?: (families: string[]) => string[];
   /**
    * The document's font resolver. When provided, `resolveFamilies` defaults to it and the
-   * report resolves through it, so the gate honors a per-document `fonts.map`. Text measure and
-   * paint resolve through the same instance, so load, measure, paint, and diagnostics agree for
-   * text runs. (Field-annotation pills still measure/paint the logical family - pre-existing on
-   * main; unified in the `fonts.map` PR.)
+   * report resolves through it, so the gate honors a per-document `fonts.map`. Measure and paint
+   * (text runs and field-annotation pills) resolve through the same instance, so load, measure,
+   * paint, and diagnostics all agree.
    */
   fontResolver?: FontResolver;
   /** Per-font load budget before a face is treated as timed out. */
