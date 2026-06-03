@@ -540,11 +540,12 @@ export class PresentationEditor extends EventEmitter {
   /**
    * This document's logical->physical font resolver. Per-instance (per document) so two
    * editors can map the same logical family differently without leaking. Planner, gate, report,
-   * and MEASURE (body, footnotes, header/footer, and per-rId header/footer) all resolve through
-   * THIS instance, and its signature keys every measure cache so two documents with different
-   * mappings cannot share a measure. PAINT is the remaining global path; folding the resolver
-   * into the paint render context + reuse signature is the last step before a runtime
-   * `fonts.map` is fully isolated.
+   * MEASURE (body, footnotes, header/footer, per-rId header/footer), and PAINT all resolve
+   * through THIS instance. Its signature keys every measure cache AND every paint-reuse version,
+   * so two documents with different mappings can never share a measure or reuse each other's
+   * painted DOM. This is the per-document isolation foundation the customer write API
+   * (`fonts.map`/`add`/`preload`) builds on; PR1 wires the seam with no public mutators yet, so
+   * the signature stays '' and every path is byte-identical to the prior global behavior.
    */
   readonly #fontResolver = createFontResolver();
   /** Layout blocks for the current render, stashed so the gate's planner reads the live set. */
@@ -902,6 +903,7 @@ export class PresentationEditor extends EventEmitter {
       initBudgetMs: HEADER_FOOTER_INIT_BUDGET_MS,
       defaultPageSize: DEFAULT_PAGE_SIZE,
       defaultMargins: DEFAULT_MARGINS,
+      getFontSignature: () => this.#fontResolver.signature,
     });
     this.#headerFooterSession.setHoverElements({
       hoverOverlay: this.#hoverOverlay,
@@ -3241,6 +3243,7 @@ export class PresentationEditor extends EventEmitter {
       flowMode: this.#layoutOptions.flowMode ?? 'paginated',
       blocks,
       measures,
+      fontSignature: this.#fontResolver.signature,
     });
 
     const isSemanticFlow = this.#layoutOptions.flowMode === 'semantic';
@@ -6822,6 +6825,7 @@ export class PresentationEditor extends EventEmitter {
           flowMode: this.#layoutOptions.flowMode ?? 'paginated',
           blocks: bodyBlocksForPaint,
           measures: bodyMeasuresForPaint,
+          fontSignature,
         });
 
         headerLayouts = result.headers;
@@ -6997,6 +7001,9 @@ export class PresentationEditor extends EventEmitter {
       pageGap: this.#layoutState.layout?.pageGap ?? effectiveGap,
       showFormattingMarks: this.#layoutOptions.showFormattingMarks ?? false,
       contentControlsChrome: this.#layoutOptions.contentControlsChrome ?? 'default',
+      // Paint each run in THIS document's physical substitute - the same family measurement used -
+      // so two editors that map a logical family differently never paint each other's font.
+      resolvePhysical: (css: string): string => this.#fontResolver.resolvePhysicalFamily(css),
     });
 
     // Pass the current zoom so virtualization accounts for the CSS transform scale

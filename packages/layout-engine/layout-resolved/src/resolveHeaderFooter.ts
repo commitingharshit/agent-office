@@ -20,6 +20,8 @@ export function resolveHeaderFooterLayout(
   blocks: FlowBlock[],
   measures: Measure[],
   story?: LayoutStoryLocator,
+  // Folded into each header/footer block's paint-reuse version (see resolveLayout). '' for default.
+  fontSignature = '',
 ): ResolvedHeaderFooterLayout {
   const pages: ResolvedHeaderFooterPage[] = layout.pages.map((page) => {
     const pageBlocks = page.blocks ?? blocks;
@@ -32,7 +34,15 @@ export function resolveHeaderFooterLayout(
       displayNumber: page.displayNumber,
       numberText: page.numberText,
       items: page.fragments.map((fragment, fragmentIndex) =>
-        resolveFragmentItem(fragment, fragmentIndex, page.number - 1, blockMap, blockVersionCache, story),
+        resolveFragmentItem(
+          fragment,
+          fragmentIndex,
+          page.number - 1,
+          blockMap,
+          blockVersionCache,
+          story,
+          fontSignature,
+        ),
       ),
     };
   });
