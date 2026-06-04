@@ -90,7 +90,10 @@ export const renderFieldAnnotationRun = (run: FieldAnnotationRun, context: RunRe
     // same family measurement used - so pill glyphs match the measured width. Falls back to the
     // global resolver when the render context has none (e.g. context-free paint in tests).
     const resolvePhysical = context.resolvePhysical ?? resolvePhysicalFamily;
-    annotation.style.fontFamily = resolvePhysical(run.fontFamily);
+    annotation.style.fontFamily = resolvePhysical(run.fontFamily, {
+      weight: run.bold ? '700' : '400',
+      style: run.italic ? 'italic' : 'normal',
+    });
   }
   {
     const fontSize = run.fontSize

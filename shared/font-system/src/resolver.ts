@@ -29,7 +29,14 @@ export type FontResolutionReason =
   /** Replaced by a bundled metric-compatible clone. */
   | 'bundled_substitute'
   /** Replaced by a runtime mapping set on this document's resolver (customer `fonts.map`). */
-  | 'custom_mapping';
+  | 'custom_mapping'
+  /**
+   * A substitute is known for the family but does NOT provide the requested face (weight/style),
+   * so the family passes through UNsubstituted rather than faux-styling the substitute's Regular
+   * onto a face it lacks. Reported non-metric. Only the face-aware path (`resolveFace` /
+   * `resolvePhysicalFamilyForFace`) yields this; the family-only methods never do.
+   */
+  | 'fallback_face_absent';
 
 export interface FontResolution {
   /** The family the document asked for (preserved for toolbar/export). */
@@ -38,6 +45,20 @@ export interface FontResolution {
   physicalFamily: string;
   reason: FontResolutionReason;
 }
+
+/** A specific face within a family: the weight/style axis a run renders at. */
+export interface FaceKey {
+  weight: '400' | '700';
+  style: 'normal' | 'italic';
+}
+
+/**
+ * Face-availability oracle: does the PHYSICAL family actually provide this face? Backed by the
+ * registry (bundled faces registered by `installBundledSubstitutes` + customer `fonts.add()`
+ * faces). Injected rather than imported so font-system has no registry import cycle and each caller
+ * passes its own document's registry lookup.
+ */
+export type HasFace = (physicalFamily: string, weight: '400' | '700', style: 'normal' | 'italic') => boolean;
 
 /**
  * Logical (normalized) -> physical family. Lowercased, quote-stripped keys.
@@ -172,6 +193,42 @@ export class FontResolver {
   }
 
   /**
+   * Face-aware structured resolution. Like {@link resolveFontFamily}, but a substitute applies
+   * ONLY when the physical family actually provides the requested face (per `hasFace`). Otherwise
+   * the logical family passes through with reason `fallback_face_absent`, so a single-face
+   * substitute is never faux-styled onto a weight/style it lacks. The four-face shipped clones
+   * provide every face, so they resolve identically to {@link resolveFontFamily}.
+   */
+  resolveFace(logicalFamily: string, face: FaceKey, hasFace: HasFace): FontResolution {
+    const parts = splitStack(logicalFamily);
+    const primary = parts[0] ?? logicalFamily;
+    const { physical, reason } = this.#physicalFor(primary);
+    if (reason === 'as_requested') return { logicalFamily, physicalFamily: physical, reason };
+    if (hasFace(physical, face.weight, face.style)) return { logicalFamily, physicalFamily: physical, reason };
+    // The substitute lacks this face: do NOT map it (the painter would faux-style it). Pass the
+    // logical family through so the normal fallback chain (customer/embedded/system -> generic)
+    // applies, and report it non-metric.
+    return { logicalFamily, physicalFamily: primary, reason: 'fallback_face_absent' };
+  }
+
+  /**
+   * Face-aware CSS-stack variant for MEASURE and PAINT - the face-scoped counterpart of
+   * {@link resolvePhysicalFamily}. Swaps the primary family to its substitute ONLY when the
+   * substitute provides this face; otherwise returns the value unchanged (logical family + its
+   * fallbacks), so a missing face is never faux-styled. Measure and paint MUST call this with the
+   * same face key, or text is measured in one face and painted in another.
+   */
+  resolvePhysicalFamilyForFace(cssFontFamily: string, face: FaceKey, hasFace: HasFace): string {
+    if (!cssFontFamily) return cssFontFamily;
+    const parts = splitStack(cssFontFamily);
+    if (parts.length === 0) return cssFontFamily;
+    const { physical, reason } = this.#physicalFor(parts[0]);
+    if (reason === 'as_requested') return cssFontFamily;
+    if (!hasFace(physical, face.weight, face.style)) return cssFontFamily;
+    return [physical, ...parts.slice(1)].join(', ');
+  }
+
+  /**
    * The bare physical family the load gate must await - the primary family resolved to its
    * substitute. "Calibri, sans-serif" -> "Carlito"; "Calibri" -> "Carlito".
    */
@@ -217,4 +274,8 @@ export function resolvePrimaryPhysicalFamily(family: string): string {
 
 export function resolvePhysicalFamilies(families: Iterable<string>): string[] {
   return defaultResolver.resolvePhysicalFamilies(families);
+}
+
+export function resolveFace(logicalFamily: string, face: FaceKey, hasFace: HasFace): FontResolution {
+  return defaultResolver.resolveFace(logicalFamily, face, hasFace);
 }

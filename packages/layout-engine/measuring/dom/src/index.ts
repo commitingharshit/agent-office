@@ -78,7 +78,7 @@ import {
 import { resolveListTextStartPx, type MinimalMarker } from '@superdoc/common/list-marker-utils';
 import { calculateRotatedBounds, normalizeRotation } from '@superdoc/geometry-utils';
 import { toCssFontFamily } from '@superdoc/font-utils';
-import { resolvePhysicalFamily } from '@superdoc/font-system';
+import { resolvePhysicalFamily, type FaceKey } from '@superdoc/font-system';
 export { installNodeCanvasPolyfill } from './setup.js';
 import { clearMeasurementCache, getMeasuredTextWidth, setCacheSize } from './measurementCache.js';
 import { getFontMetrics, clearFontMetricsCache, type FontInfo } from './fontMetricsCache.js';
@@ -310,7 +310,12 @@ function getCanvasContext(): CanvasRenderingContext2D {
  * caller so measurement uses THIS document's resolver (honoring a per-document `fonts.map`);
  * defaults to the global bundled map for callers without a document context.
  */
-type ResolvePhysical = (cssFontFamily: string) => string;
+type ResolvePhysical = (cssFontFamily: string, face: FaceKey) => string;
+
+/** The face (weight/style) a run renders at, for face-aware resolution. */
+function faceOf(run: { bold?: boolean; italic?: boolean }): FaceKey {
+  return { weight: run.bold ? '700' : '400', style: run.italic ? 'italic' : 'normal' };
+}
 
 /**
  * Build a CSS font string from Run styling properties
@@ -338,7 +343,7 @@ function buildFontString(
   // (e.g. "Carlito") so text is MEASURED in the same font it is painted with, using THIS
   // document's resolver so a per-document `fonts.map` is honored. The measure cache keys
   // on this font string, so the physical family is in the key.
-  const physicalFamily = resolvePhysical(run.fontFamily);
+  const physicalFamily = resolvePhysical(run.fontFamily, faceOf(run));
 
   if (measurementConfig.mode === 'deterministic') {
     // Deterministic mode still flattens to one family for reproducible server-side
@@ -1938,7 +1943,7 @@ async function measureParagraphBlock(
             : DEFAULT_FIELD_ANNOTATION_FONT_SIZE;
       // Resolve to the physical render family (a per-document fonts.map or the bundled substitute),
       // the same family the pill paints, so the measured pill width matches the painted glyphs.
-      const annotationFontFamily = resolvePhysical(run.fontFamily || 'Arial, sans-serif');
+      const annotationFontFamily = resolvePhysical(run.fontFamily || 'Arial, sans-serif', faceOf(run));
 
       // Build font string for measurement
       const fontWeight = run.bold ? 'bold' : 'normal';
