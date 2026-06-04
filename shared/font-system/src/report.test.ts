@@ -113,9 +113,14 @@ class FaceRegistry {
 }
 
 describe('buildFaceReport (face-level)', () => {
-  it('single-face substitute: Regular substituted, Bold reported fallback_face_absent', () => {
+  it('single-face substitute: Regular substituted (faithful), Bold fallback_face_absent + missing', () => {
     const reg = new FaceRegistry();
     reg.setFace('Gelasio', '400', 'normal', 'loaded'); // only Regular registered + loaded
+    // The planner adds the pass-through `Georgia 700` to requiredFaces, so the gate awaits it; an
+    // unregistered family can never report `loaded` (document.fonts.load resolves only registered
+    // faces, not system fonts), so in production it settles to `fallback_used` - model that, not the
+    // prior unrealistic `unloaded`.
+    reg.setFace('Georgia', '700', 'normal', 'fallback_used');
     const resolver = createFontResolver();
     resolver.map('Georgia', 'Gelasio');
     const rows = buildFaceReport(
@@ -133,16 +138,18 @@ describe('buildFaceReport (face-level)', () => {
         reason: 'custom_mapping',
         loadStatus: 'loaded',
         exportFamily: 'Georgia',
-        missing: false,
+        missing: false, // Regular is faithfully substituted by Gelasio
         face: { weight: '400', style: 'normal' },
       },
       {
         logicalFamily: 'Georgia',
         physicalFamily: 'Georgia',
         reason: 'fallback_face_absent',
-        loadStatus: 'unloaded',
+        loadStatus: 'fallback_used',
         exportFamily: 'Georgia',
-        missing: false,
+        // Bold is NOT faithfully substituted (Gelasio has no Bold), so the family passes through and
+        // the face is missing - deterministically, by reason. getMissingFonts() will list Georgia.
+        missing: true,
         face: { weight: '700', style: 'normal' },
       },
     ]);

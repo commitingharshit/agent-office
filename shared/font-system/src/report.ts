@@ -114,13 +114,22 @@ export function buildFaceReport(
     // Per-FACE load status (not the family rollup), so a failed/fallback bold face does not make a
     // loaded regular face row report missing, and vice versa.
     const loadStatus = registry.getFaceStatus({ family: physicalFamily, weight, style });
+    // `missing` = SuperDoc did not faithfully render this face with a metric-compatible substitute.
+    // - `fallback_face_absent` is ALWAYS missing: the substitute lacks this weight/style so the family
+    //   passes through unsubstituted. That pass-through is not a registered FontFace, so it can never
+    //   report `loaded` (document.fonts.load resolves only registered faces, not system fonts - it is
+    //   always `fallback_used` here), which is why this is reason-based and deterministic rather than
+    //   keyed on a probe.
+    // - Otherwise: missing once the load settles to anything but `loaded` (failed/timed_out/
+    //   fallback_used); `loading`/`unloaded` are not yet settled, so not yet missing.
+    const missing = reason === 'fallback_face_absent' || (isSettled(loadStatus) && loadStatus !== 'loaded');
     report.push({
       logicalFamily,
       physicalFamily,
       reason,
       loadStatus,
       exportFamily: logicalFamily,
-      missing: isSettled(loadStatus) && loadStatus !== 'loaded',
+      missing,
       face,
     });
   }
