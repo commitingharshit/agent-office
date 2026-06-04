@@ -898,11 +898,28 @@ async function measureParagraphBlock(
   const firstTextRunWithSize = block.runs.find(
     (run): run is TextRun => isTextRun(run) && 'fontSize' in run && run.fontSize != null,
   );
-  const fallbackFontSize = normalizeFontSize(firstTextRunWithSize?.fontSize, DEFAULT_PARAGRAPH_FONT_SIZE);
+  // Prefer a text run's size, but fall back to any run (e.g. a tab) carrying a font
+  // size when the paragraph has no sized text run. Otherwise a tab-only line is
+  // measured at the 12px default and renders shorter than a text or empty line in the
+  // same paragraph (SD-3330).
+  const firstRunWithSize =
+    firstTextRunWithSize ??
+    block.runs.find(
+      (run): run is Run & { fontSize: number } =>
+        typeof (run as { fontSize?: unknown }).fontSize === 'number' && (run as { fontSize: number }).fontSize > 0,
+    );
+  const fallbackFontSize = normalizeFontSize(firstRunWithSize?.fontSize, DEFAULT_PARAGRAPH_FONT_SIZE);
   const firstTextRunWithFont = block.runs.find(
     (run): run is TextRun => isTextRun(run) && typeof run.fontFamily === 'string' && run.fontFamily.trim().length > 0,
   );
-  const fallbackFontFamily = firstTextRunWithFont?.fontFamily ?? DEFAULT_PARAGRAPH_FONT_FAMILY;
+  const firstRunWithFont =
+    firstTextRunWithFont ??
+    block.runs.find(
+      (run): run is Run & { fontFamily: string } =>
+        typeof (run as { fontFamily?: unknown }).fontFamily === 'string' &&
+        (run as { fontFamily: string }).fontFamily.trim().length > 0,
+    );
+  const fallbackFontFamily = firstRunWithFont?.fontFamily ?? DEFAULT_PARAGRAPH_FONT_FAMILY;
   const normalizedRuns = normalizeRunsForMeasurement(block.runs as Run[], fallbackFontSize, fallbackFontFamily);
 
   const markerInfo: ParagraphMeasure['marker'] | undefined = wordLayout?.marker
@@ -1625,7 +1642,14 @@ async function measureParagraphBlock(
           toChar: 1,
           width: 0,
           maxFontSize: lastFontSize,
-          maxFontInfo: hasSeenTextRun ? undefined : fallbackFontInfo,
+          // A tab-only paragraph has no text run, so fallbackFontInfo is undefined and the line
+          // would fall back to synthetic 0.8/0.2 ascent/descent. Derive metrics from the tab's own
+          // font (it carries fontFamily/fontSize) so a tab-only underlined line gets the same
+          // measured ascent/descent - hence underline offset and line height - as the equivalent
+          // text line. getFontInfoFromRun reads only fontFamily/fontSize/bold/italic, all on a TabRun.
+          maxFontInfo: hasSeenTextRun
+            ? undefined
+            : (fallbackFontInfo ?? getFontInfoFromRun(run as unknown as TextRun, fontContext)),
           maxWidth: getEffectiveWidth(lines.length === 0 ? initialAvailableWidth : bodyContentWidth),
           segments: [],
           spaceCount: 0,
