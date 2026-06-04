@@ -124,13 +124,10 @@ describe('templates.apply adapter integration', () => {
     const beforeStyles = JSON.stringify(cvt.convertedXml['word/styles.xml']);
     const beforeTheme = cvt.convertedXml['word/theme/theme1.xml'];
 
-    const receipt = (await editor.doc.templates.apply(
-      {
-        source: { kind: 'base64', data },
-        bodyPolicy: 'preserve',
-      },
-      { dryRun: true },
-    )) as TemplatesApplyReceipt;
+    const receipt = (await editor.doc.templates.apply({
+      source: { kind: 'base64', data },
+      bodyPolicy: 'preserve',
+    }, { dryRun: true })) as TemplatesApplyReceipt;
 
     expect(receipt.success).toBe(true);
     if (!receipt.success) return;
@@ -169,12 +166,8 @@ describe('templates.apply adapter integration', () => {
     });
 
     editor = newEditor();
-    const cvt = (
-      editor as unknown as { converter: { convertedXml: Record<string, unknown>; schemaToXml: (d: unknown) => string } }
-    ).converter;
-    const bodyBeforeXml = cvt.schemaToXml(
-      (cvt.convertedXml['word/document.xml'] as { elements: unknown[] }).elements[0],
-    );
+    const cvt = (editor as unknown as { converter: { convertedXml: Record<string, unknown>; schemaToXml: (d: unknown) => string } }).converter;
+    const bodyBeforeXml = cvt.schemaToXml((cvt.convertedXml['word/document.xml'] as { elements: unknown[] }).elements[0]);
 
     const receipt = (await editor.doc.templates.apply({ source: { kind: 'base64', data } })) as TemplatesApplyReceipt;
     expect(receipt.success).toBe(true);
@@ -191,9 +184,7 @@ describe('templates.apply adapter integration', () => {
     });
 
     // Body preserved in-memory immediately after apply.
-    const bodyAfterXml = cvt.schemaToXml(
-      (cvt.convertedXml['word/document.xml'] as { elements: unknown[] }).elements[0],
-    );
+    const bodyAfterXml = cvt.schemaToXml((cvt.convertedXml['word/document.xml'] as { elements: unknown[] }).elements[0]);
     expect(bodyAfterXml).toBe(bodyBeforeXml);
 
     // Export and re-unzip the real output.
