@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { getFontConfigVersion, __resetFontConfigVersion } from '@superdoc/font-system';
 import type {
   FontFaceLoadResult,
   FontFaceRequest,
@@ -248,24 +249,55 @@ describe('FontReadinessGate', () => {
     expect(requestReflow).not.toHaveBeenCalled();
   });
 
-  it('notifyFontConfigChanged bumps the epoch, invalidates, and reflows immediately (not batched)', () => {
+  it('notifyDocumentFontConfigChanged (mapping change) bumps the LOCAL version and reflows, without the global epoch', () => {
+    __resetFontConfigVersion();
     const gate = makeGate(['Calibri']);
 
-    gate.notifyFontConfigChanged();
+    gate.notifyDocumentFontConfigChanged();
 
-    expect(gate.fontConfigVersion).toBe(1);
-    expect(invalidateCaches).toHaveBeenCalledTimes(1);
+    expect(gate.fontConfigVersion).toBe(1); // local version bumped so fonts-changed re-emits
+    expect(getFontConfigVersion()).toBe(0); // a mapping is document-local: NO global epoch bump
+    expect(invalidateCaches).not.toHaveBeenCalled(); // the per-document signature busts the cache
     expect(requestReflow).toHaveBeenCalledTimes(1);
   });
 
-  it('notifyFontConfigChanged cancels a pending batched late-load (no double reflow)', async () => {
+  it('notifyDocumentFontConfigChanged (availabilityChanged) invalidates caches and bumps the global epoch', () => {
+    // A `fonts.add` registers a face for a family the document may already render with fallback
+    // metrics. The resolver signature is unchanged, so it cannot bust the measure caches; the gate
+    // must clear them and bump the global epoch (like a late load) or the reflow keeps stale widths.
+    __resetFontConfigVersion();
+    const gate = makeGate(['Calibri']);
+
+    gate.notifyDocumentFontConfigChanged({ availabilityChanged: true });
+
+    expect(gate.fontConfigVersion).toBe(1); // local version bumped so fonts-changed re-emits
+    expect(getFontConfigVersion()).toBe(1); // a registration is a GLOBAL availability change
+    expect(invalidateCaches).toHaveBeenCalledTimes(1); // signature is unchanged, so clear explicitly
+    expect(requestReflow).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidateCachesForConfigRegistration clears caches without reflow, event, or epoch bump', () => {
+    // Config-time registration (before first layout) has the same unchanged-signature risk, but must
+    // not reflow/emit/bump - the first layout measures fresh against the cleared cache.
+    __resetFontConfigVersion();
+    const gate = makeGate(['Calibri']);
+
+    gate.invalidateCachesForConfigRegistration();
+
+    expect(invalidateCaches).toHaveBeenCalledTimes(1); // so the first measure can't reuse stale widths
+    expect(requestReflow).not.toHaveBeenCalled(); // nothing has rendered yet
+    expect(gate.fontConfigVersion).toBe(0); // no event
+    expect(getFontConfigVersion()).toBe(0); // no global epoch bump at config time
+  });
+
+  it('notifyDocumentFontConfigChanged cancels a pending batched late-load (no double reflow)', async () => {
     registry.statuses.set('Carlito', 'timed_out');
     const gate = makeGate(['Calibri']);
     await gate.ensureReadyForMeasure();
 
     registry.statuses.set('Carlito', 'loaded');
     fontSet.fire('loadingdone', { fontfaces: [{ family: 'Carlito' }] }); // schedules a batched reflow
-    gate.notifyFontConfigChanged(); // immediate reflow; must also cancel the pending batch
+    gate.notifyDocumentFontConfigChanged(); // immediate reflow; must also cancel the pending batch
     expect(requestReflow).toHaveBeenCalledTimes(1);
 
     clock.advance(300); // the cancelled quiet timer must NOT fire a second reflow

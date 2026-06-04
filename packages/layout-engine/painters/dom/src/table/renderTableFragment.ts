@@ -84,6 +84,12 @@ export type TableRenderDependencies = {
   applyContainerSdtDataset?: (el: HTMLElement | null, metadata?: SdtMetadata | null) => void;
   /** Function to apply CSS styles to an element */
   applyStyles: ApplyStylesFn;
+  /**
+   * Per-document logical->physical font resolver for in-cell list markers and drop caps. Threaded
+   * from the renderer's per-document resolver so they paint the same physical family they were
+   * measured in. Undefined falls back to the global resolver.
+   */
+  resolvePhysical?: (cssFontFamily: string) => string;
 };
 
 /**
@@ -175,6 +181,7 @@ export const renderTableFragment = (deps: TableRenderDependencies): HTMLElement 
     applySdtDataset,
     applyContainerSdtDataset,
     applyStyles,
+    resolvePhysical,
   } = deps;
 
   // Check document first before using it in error handlers
@@ -449,6 +456,7 @@ export const renderTableFragment = (deps: TableRenderDependencies): HTMLElement 
         continuesFromPrev: false,
         continuesOnNext: false,
         cellSpacingPx,
+        resolvePhysical,
       });
       // Add row height + spacing after every row (including last) for outer spacing after last row
       y += rowMeasure.height + cellSpacingPx;
@@ -619,6 +627,7 @@ export const renderTableFragment = (deps: TableRenderDependencies): HTMLElement 
       // Pass partial row data for mid-row splits
       partialRow: partialRowData,
       cellSpacingPx,
+      resolvePhysical,
     });
     // Add row height + spacing after every row (including last) for outer spacing after last row
     y += actualRowHeight + cellSpacingPx;

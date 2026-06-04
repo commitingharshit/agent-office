@@ -181,8 +181,10 @@ import { measureBlock } from '@superdoc/measuring-dom';
 import { createFontResolver, type FontResolutionRecord, type FontLoadSummary } from '@superdoc/font-system';
 import { installBundledSubstitutes } from '@superdoc/font-system/bundled';
 import { FontReadinessGate } from './fonts/FontReadinessGate';
+import { DocumentFontController } from './fonts/DocumentFontController';
 import { planRequiredFontFaces } from './fonts/font-load-planner';
 import type { FontsChangedPayload } from '../types/EditorEvents';
+import type { FontFamilyConfig } from '../types/EditorConfig';
 import type {
   ColumnLayout,
   FlowBlock,
@@ -543,20 +545,34 @@ export class PresentationEditor extends EventEmitter {
   /**
    * This document's logical->physical font resolver. Per-instance (per document) so two
    * editors can map the same logical family differently without leaking. Planner, gate, report,
-   * glyph-width measurement for body/notes/header/footer text, and normal text-run paint use THIS
-   * instance. Its signature is threaded into the measure caches and paint-reuse versions those
-   * paths consume.
-   *
-   * This is a partial foundation: AutoFit width metrics, line-height vertical metrics,
-   * field-annotation pill line-layout/paint, and list-marker/drop-cap paint still match main on
-   * this branch. Those paths are completed in the stacked `fonts.map` PR, where resolving them
-   * changes visible rendering.
-   *
-   * It is the per-document isolation seam the customer write API (`fonts.map`/`add`/`preload`)
-   * builds on; this PR wires the seam with no public mutators yet, so the signature stays '' and
-   * the resolver is seeded with the same bundled map - behavior-preserving on the paths above.
+   * MEASURE (body, footnotes, header/footer, per-rId header/footer, field-annotation pills, table
+   * AutoFit column widths, and line-height metrics), and document-content PAINT (text, field
+   * annotations, list markers, drop caps) resolve through THIS instance; its signature keys the
+   * measure caches and the paint-reuse version, so two documents with different mappings do not
+   * share a measure or reuse each other's content paint. (Editor chrome such as formatting marks is
+   * not document content and is out of scope.) `superdoc.fonts.map` mutates it at runtime through the
+   * document font controller (the only writer): the changed signature re-measures and repaints
+   * THIS document while others are left untouched. Seeded with the bundled clean-clone map.
    */
   readonly #fontResolver = createFontResolver();
+  /**
+   * Source for the NEXT `fonts-changed` emit. The controller sets it to 'config-change' when a
+   * runtime mapping change is applied, so the emit is not mislabelled 'late-load'. Consumed (and
+   * cleared) by #emitFontsChangedIfChanged on the next emit.
+   */
+  #nextFontsChangedSource: 'config-change' | null = null;
+  /**
+   * The single writer for this document's font state (map/unmap/reset; add/preload follow). Config
+   * and `superdoc.fonts.*` route through it so they share one path. It owns orchestration, not the
+   * resolver: it mutates the injected #fontResolver and reflows via the gate's mapping path.
+   */
+  readonly #fontController = new DocumentFontController({
+    resolver: this.#fontResolver,
+    getGate: () => this.#fontGate,
+    onDocumentFontConfigApplied: () => {
+      this.#nextFontsChangedSource = 'config-change';
+    },
+  });
   /** Layout blocks for the current render, stashed so the gate's planner reads the live set. */
   #fontPlanBlocks: FlowBlock[] | null = null;
   /** Dedup key for `fonts-changed`: epoch + per-face load status. Null until the first emit. */
@@ -983,24 +999,18 @@ export class PresentationEditor extends EventEmitter {
           const converter = (this.#editor as Editor & { converter?: { getDocumentFonts?: () => string[] } }).converter;
           return converter?.getDocumentFonts?.() ?? [];
         },
-        requestReflow: () => {
-          // A font finished loading (or the resolution changed). Incremental layout reuses
-          // this editor's previousMeasures for unchanged blocks, so clearing the global
-          // measurement caches alone will not re-measure. Drop the cached blocks + measures
-          // to force a full re-measure, then schedule a DOCUMENT re-layout - #scheduleRerender
-          // with the pending-change flag, not #selectionSync.requestRender (selection-only).
-          this.#layoutState = { ...this.#layoutState, blocks: [], measures: [], layout: null };
-          this.#pendingDocChange = true;
-          this.#scheduleRerender();
-        },
+        // Reflow so unchanged blocks re-measure (see #requestFontReflow). The gate calls this for
+        // a late font load AND for a document font config change from the controller.
+        requestReflow: () => this.#requestFontReflow(),
         // Face-aware required set: the exact physical faces (family + weight + style) the
         // rendered document uses, from the planner walking the current layout blocks. The
         // gate awaits these - so bold/italic load before measure and declared-but-unused
         // fonts are not fetched. Reads the blocks stashed just before each gate await.
         getRequiredFaces: () => planRequiredFontFaces(this.#fontPlanBlocks, this.#fontResolver),
         // The document's resolver: the gate derives the family-path resolution from it and
-        // resolves its report through it (load + diagnostics). Measure and paint resolve through
-        // the same instance, so load, measure, paint, and diagnostics all agree.
+        // resolves its report through it (load + diagnostics). The document's measure and
+        // content-paint paths resolve through this same instance, so load, measure, paint, and
+        // diagnostics stay consistent.
         fontResolver: this.#fontResolver,
         // Register the bundled substitute pack (Carlito) into the document's registry the
         // first time it resolves, so the substitute is available with no manual setup.
@@ -1019,6 +1029,7 @@ export class PresentationEditor extends EventEmitter {
           return fontSet && FontFaceCtor ? { fontSet, FontFaceCtor } : null;
         },
       });
+      this.#fontController.applyInitialConfig(this.#options.fontAssets);
       if (typeof this.#options.disableContextMenu === 'boolean') {
         this.setContextMenuDisabled(this.#options.disableContextMenu);
       }
@@ -3001,6 +3012,54 @@ export class PresentationEditor extends EventEmitter {
   }
 
   /**
+   * Map logical families to physical render families for THIS document (e.g.
+   * `{ Georgia: 'Gelasio' }`), via the document font controller (the sole writer), which reflows
+   * once iff the mapping actually changed. Per-document: other editors on the page are untouched.
+   * Surfaced as `superdoc.fonts.map()`.
+   */
+  mapFonts(mappings: Record<string, string>): void {
+    this.#fontController.map(mappings);
+  }
+
+  /**
+   * Remove runtime font mappings for THIS document; each family reverts to its bundled default.
+   * Via the document font controller. Surfaced as `superdoc.fonts.unmap()`.
+   */
+  unmapFonts(families: string | string[]): void {
+    this.#fontController.unmap(families);
+  }
+
+  /**
+   * Register custom physical font faces for THIS document via the document font controller, then
+   * reflow so a newly-registered face the document already uses is awaited and applied. Surfaced
+   * as `superdoc.fonts.add()`.
+   */
+  addFonts(families: FontFamilyConfig[]): void {
+    this.#fontController.add(families);
+  }
+
+  /**
+   * Proactively load the physical faces for the given logical families (resolved through this
+   * document's resolver) so they are ready before use. Async. Surfaced as `superdoc.fonts.preload()`.
+   */
+  async preloadFonts(families: string[]): Promise<void> {
+    await this.#fontController.preload(families);
+  }
+
+  /**
+   * Drop this editor's cached blocks + measures and schedule a full document re-layout. The
+   * font-readiness gate calls this (via its requestReflow option) for both a late font load and a
+   * document font config change: incremental layout reuses previousMeasures for unchanged blocks,
+   * so clearing them is what forces the re-measure; the pending-change flag routes through the
+   * document re-layout path (not the selection-only render).
+   */
+  #requestFontReflow(): void {
+    this.#layoutState = { ...this.#layoutState, blocks: [], measures: [], layout: null };
+    this.#pendingDocChange = true;
+    this.#scheduleRerender();
+  }
+
+  /**
    * Emit `fonts-changed` on the hidden editor when the resolved/loaded font picture
    * actually changed since the last emit, so consumers see one event per real change
    * rather than one per render. The dedup key is the font epoch plus each required face's
@@ -3022,6 +3081,13 @@ export class PresentationEditor extends EventEmitter {
     if (key === this.#lastFontsChangedKey) return;
     const isInitial = this.#lastFontsChangedKey === null;
     this.#lastFontsChangedKey = key;
+    // Consume the pending source flag: a runtime mapping change (set by the font controller) is a
+    // 'config-change', but the FIRST emit is always 'initial' - the document's initial font
+    // picture, even when a config-time map ran before first layout. Otherwise a font load is
+    // 'late-load'.
+    const pendingSource = this.#nextFontsChangedSource;
+    this.#nextFontsChangedSource = null;
+    const source: FontsChangedPayload['source'] = isInitial ? 'initial' : (pendingSource ?? 'late-load');
 
     let resolutions: FontResolutionRecord[];
     try {
@@ -3034,7 +3100,7 @@ export class PresentationEditor extends EventEmitter {
       resolutions,
       missingFonts: resolutions.filter((record) => record.missing).map((record) => record.logicalFamily),
       loadSummary: summary ?? { loaded: 0, failed: 0, timedOut: 0, fallbackUsed: 0, results: [] },
-      source: isInitial ? 'initial' : 'late-load',
+      source,
       version,
     };
     this.#lastFontsChangedPayload = payload;
@@ -3053,6 +3119,20 @@ export class PresentationEditor extends EventEmitter {
    */
   getLastFontsChangedPayload(): FontsChangedPayload | null {
     return this.#lastFontsChangedPayload;
+  }
+
+  /**
+   * Clear per-document `fonts-changed` report state on a document swap (same editor, new document).
+   * Without this the new document could inherit the prior document's pending config-change source,
+   * replay its last payload to a late subscriber, or - if it happens to share the prior
+   * version|statusKey - have its first report SKIPPED by the dedup. Cleared so the new document
+   * re-emits from scratch (its first report is `initial`). Pairs with the gate + resolver resets
+   * at this same lifecycle boundary.
+   */
+  #resetFontReportStateForDocumentChange(): void {
+    this.#nextFontsChangedSource = null;
+    this.#lastFontsChangedKey = null;
+    this.#lastFontsChangedPayload = null;
   }
 
   /**
@@ -4515,6 +4595,7 @@ export class PresentationEditor extends EventEmitter {
     this.#postPaintPipeline.destroy();
     this.#proofingManager?.dispose();
     this.#proofingManager = null;
+    this.#fontController.dispose();
     this.#fontGate?.dispose();
     this.#fontGate = null;
 
@@ -5111,10 +5192,16 @@ export class PresentationEditor extends EventEmitter {
     // importer tab matches the collaborator tab without waiting for an edit.
     const handleDocumentReplaced = () => {
       // A new document reuses this gate AND this resolver, so drop the old document's pending
-      // late-load reflow + required-face state and its runtime font mappings - otherwise a
-      // flush armed under the old document reflows the new one, or a prior `fonts.map` leaks in.
+      // late-load reflow + required-face state and its runtime font mappings, then reapply the
+      // instance-level fonts config before the rerender.
       this.#fontGate?.resetForDocumentChange();
-      this.#fontResolver.reset();
+      this.#fontController.reset();
+      // Reset the layout signature too: the prior document's value must not gate the new document's
+      // previous-measure reuse. Benign if left stale (it only over-invalidates reuse), but resetting
+      // here states the intent and starts the swap from a clean signature.
+      this.#layoutFontSignature = '';
+      this.#fontController.applyInitialConfig(this.#options.fontAssets);
+      this.#resetFontReportStateForDocumentChange();
       this.#refreshHeaderFooterStructureThenRerender({ purgeCachedEditors: true });
     };
     this.#editor.on('documentReplaced', handleDocumentReplaced);
@@ -6797,10 +6884,15 @@ export class PresentationEditor extends EventEmitter {
       // (so measurement uses THIS document's physical substitutes) and capture its signature for
       // the measure-cache keys. previousFontSignature is the signature the prior measures were
       // produced with - if it differs, incrementalLayout must not reuse them (the reuse fast
-      // path bypasses the cache key). PR1 has no public `fonts.map`, so the signature stays ''.
+      // path bypasses the cache key). The signature is '' for a document with no runtime overrides
+      // and becomes non-empty once the public `superdoc.fonts.*` API maps a family - which is when
+      // this document's measures must not be shared with a default or differently-mapped document.
       const resolvePhysical = (css: string): string => this.#fontResolver.resolvePhysicalFamily(css);
       const fontSignature = this.#fontResolver.signature;
       const previousFontSignature = this.#layoutFontSignature;
+      // One context object so the measure callback and the cache signature can never drift:
+      // both the resolver and the fontSignature passed to incrementalLayout come from here.
+      const fontMeasureContext = { resolvePhysical, fontSignature };
 
       let layout: Layout;
       let measures: Measure[];
@@ -6852,10 +6944,12 @@ export class PresentationEditor extends EventEmitter {
           blocksForLayout,
           layoutOptions,
           (block: FlowBlock, constraints: { maxWidth: number; maxHeight: number }) =>
-            measureBlock(block, constraints, resolvePhysical),
+            measureBlock(block, constraints, fontMeasureContext),
           headerFooterInput ?? undefined,
           previousMeasures,
-          { fontSignature, previousFontSignature },
+          // Same context object the measure callback uses, so the cache signature and the resolver
+          // cannot drift (the two-channel split is retired here).
+          { fontContext: fontMeasureContext, previousFontSignature },
         );
         const incrementalLayoutEnd = perfNow();
         perfLog(`[Perf] incrementalLayout: ${(incrementalLayoutEnd - incrementalLayoutStart).toFixed(2)}ms`);

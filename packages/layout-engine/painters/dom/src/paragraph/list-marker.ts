@@ -1,5 +1,6 @@
 import { DOM_CLASS_NAMES } from '@superdoc/dom-contract';
 import { toCssFontFamily } from '@superdoc/font-utils';
+import { resolvePhysicalFamily } from '@superdoc/font-system';
 import type { ParagraphMeasure, ResolvedListMarkerItem, SourceAnchor } from '@superdoc/contracts';
 import {
   computeTabWidth,
@@ -88,6 +89,7 @@ export const createListMarkerElement = (
   markerText: string,
   run: MarkerRunStyle,
   sourceAnchor?: SourceAnchor,
+  resolvePhysical: (cssFontFamily: string) => string = resolvePhysicalFamily,
 ): HTMLElement => {
   const markerContainer = doc.createElement('span');
   markerContainer.classList.add(DOM_CLASS_NAMES.LIST_MARKER);
@@ -98,7 +100,10 @@ export const createListMarkerElement = (
   markerEl.classList.add('superdoc-paragraph-marker');
   markerEl.textContent = markerText;
   markerEl.style.pointerEvents = 'none';
-  markerEl.style.fontFamily = toCssFontFamily(run.fontFamily) ?? run.fontFamily ?? '';
+  // Compose the Word fallback stack first, then let the resolver swap only the primary family.
+  // This keeps Times New Roman -> Liberation Serif on a serif fallback instead of inventing sans-serif.
+  const cssFontFamily = toCssFontFamily(run.fontFamily) ?? run.fontFamily ?? '';
+  markerEl.style.fontFamily = resolvePhysical(cssFontFamily);
 
   if (run.fontSize != null) {
     markerEl.style.fontSize = `${run.fontSize}px`;
@@ -140,6 +145,7 @@ export const renderLegacyListMarker = (params: {
   firstLineIndentPx: number;
   isRtl?: boolean;
   sourceAnchor?: SourceAnchor;
+  resolvePhysical?: (cssFontFamily: string) => string;
 }): void => {
   const {
     doc,
@@ -153,6 +159,7 @@ export const renderLegacyListMarker = (params: {
     firstLineIndentPx,
     isRtl,
     sourceAnchor,
+    resolvePhysical = resolvePhysicalFamily,
   } = params;
   const markerTextWidth = markerTextWidthPx ?? markerMeasure?.markerTextWidth ?? 0;
   const shouldUseSharedInlinePrefixGeometry =
@@ -218,6 +225,7 @@ export const renderLegacyListMarker = (params: {
     markerLayout?.markerText ?? '',
     markerLayout?.run ?? {},
     sourceAnchor,
+    resolvePhysical,
   );
   markerContainer.style.position = 'relative';
   if (markerJustification === 'right') {
@@ -254,8 +262,9 @@ export const renderResolvedListMarker = (params: {
   marker: ResolvedListMarkerItem;
   isRtl?: boolean;
   sourceAnchor?: SourceAnchor;
+  resolvePhysical?: (cssFontFamily: string) => string;
 }): void => {
-  const { doc, lineEl, marker, isRtl, sourceAnchor } = params;
+  const { doc, lineEl, marker, isRtl, sourceAnchor, resolvePhysical = resolvePhysicalFamily } = params;
   if (isRtl) {
     lineEl.style.paddingRight = `${marker.firstLinePaddingLeftPx}px`;
   } else {
@@ -266,7 +275,13 @@ export const renderResolvedListMarker = (params: {
     return;
   }
 
-  const markerContainer = createListMarkerElement(doc, marker.text, marker.run, marker.sourceAnchor ?? sourceAnchor);
+  const markerContainer = createListMarkerElement(
+    doc,
+    marker.text,
+    marker.run,
+    marker.sourceAnchor ?? sourceAnchor,
+    resolvePhysical,
+  );
   markerContainer.style.position = 'relative';
   if (marker.justification === 'right') {
     markerContainer.style.position = 'absolute';

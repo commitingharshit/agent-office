@@ -18,6 +18,7 @@ import {
   normalizeColumnLayout,
   rescaleColumnWidths,
 } from '@superdoc/contracts';
+import type { FontMeasureContext } from '@superdoc/font-system';
 import {
   layoutDocument,
   type LayoutOptions,
@@ -822,14 +823,16 @@ export async function incrementalLayout(
     measure?: HeaderFooterMeasureFn;
   },
   previousMeasures?: Measure[] | null,
-  // Narrow runtime context (deliberately NOT on LayoutOptions): the document resolver's mapping
-  // signature, plus the signature the previous measures were taken with. The resolver itself
-  // rides the measureBlock callback; only the signature is needed here - for the measure-cache
-  // keys (so two documents with different `fonts.map` cannot share a measure) and to invalidate
-  // previous-measure reuse when this document's mapping changed since the prior render.
-  fontRuntime?: { fontSignature?: string; previousFontSignature?: string },
+  // Narrow runtime context (deliberately NOT on LayoutOptions): the per-document FontMeasureContext -
+  // the SAME object whose `resolvePhysical` is bound into the measureBlock callback - plus the
+  // signature the previous measures were taken with. Only `fontContext.fontSignature` is read here:
+  // for the measure-cache keys (so two documents with different `fonts.map` cannot share a measure)
+  // and to invalidate previous-measure reuse when this document's mapping changed since the prior
+  // render. Passing the whole context rather than a separate signature string keys every cache off
+  // the same object that supplies the resolver, so signature and resolver can never drift apart.
+  fontRuntime?: { fontContext?: FontMeasureContext; previousFontSignature?: string },
 ): Promise<IncrementalLayoutResult> {
-  const fontSignature = fontRuntime?.fontSignature ?? '';
+  const fontSignature = fontRuntime?.fontContext?.fontSignature ?? '';
   const previousFontSignature = fontRuntime?.previousFontSignature ?? '';
   const isSemanticFlow = options.flowMode === 'semantic';
 
@@ -1321,6 +1324,7 @@ export async function incrementalLayout(
         tokenResult.affectedBlockIds,
         currentPerSectionConstraints,
         measureBlock,
+        fontSignature,
         measureCache,
       );
       const remeasureEnd = performance.now();
@@ -3323,6 +3327,7 @@ async function remeasureAffectedBlocks(
   affectedBlockIds: Set<string>,
   perBlockConstraints: Array<{ maxWidth: number; maxHeight: number }>,
   measureBlock: (block: FlowBlock, constraints: { maxWidth: number; maxHeight: number }) => Promise<Measure>,
+  fontSignature: string,
   measureCache?: MeasureCache<Measure>,
 ): Promise<Measure[]> {
   const updatedMeasures: Measure[] = [...measures];
@@ -3342,9 +3347,12 @@ async function remeasureAffectedBlocks(
       // Update in the measures array
       updatedMeasures[i] = newMeasure;
 
-      // Cache the new measurement using per-block section constraints
+      // Cache the new measurement using per-block section constraints. Key it with the document's
+      // font signature like every other measure-cache write: a page-token re-measure carries
+      // per-document mapped metrics, so writing it under the empty signature would let a default
+      // document read it and force this document to recompute every render (signature-keyed miss).
       const blockConstraints = perBlockConstraints[i];
-      measureCache?.set(block, blockConstraints.maxWidth, blockConstraints.maxHeight, newMeasure);
+      measureCache?.set(block, blockConstraints.maxWidth, blockConstraints.maxHeight, newMeasure, fontSignature);
     } catch (error) {
       // Error handling per plan: log warning, keep prior layout for block
       console.warn(`[incrementalLayout] Failed to re-measure block ${block.id} after token resolution:`, error);

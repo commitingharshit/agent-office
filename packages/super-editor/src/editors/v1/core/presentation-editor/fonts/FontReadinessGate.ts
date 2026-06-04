@@ -58,10 +58,9 @@ export interface FontReadinessGateOptions {
   resolveFamilies?: (families: string[]) => string[];
   /**
    * The document's font resolver. When provided, `resolveFamilies` defaults to it and the
-   * report resolves through it, so the gate honors a per-document `fonts.map`. Text measure and
-   * paint resolve through the same instance, so load, measure, paint, and diagnostics agree for
-   * text runs. (Field-annotation pills still measure/paint the logical family - pre-existing on
-   * main; unified in the `fonts.map` PR.)
+   * report resolves through it, so the gate honors a per-document `fonts.map`. Measure and paint
+   * (text runs and field-annotation pills) resolve through the same instance, so load, measure,
+   * paint, and diagnostics all agree.
    */
   fontResolver?: FontResolver;
   /** Per-font load budget before a face is treated as timed out. */
@@ -280,19 +279,59 @@ export class FontReadinessGate {
   }
 
   /**
-   * Signal that the font configuration changed at runtime (customer add/map, T7). Bumps
-   * the epoch, invalidates measurement caches, and reflows so the new mapping takes effect.
+   * Signal that this document's font CONFIG changed at runtime (`fonts.map`/`unmap`/`add`). Always
+   * bumps the gate's LOCAL version (so `fonts-changed` re-emits), re-plans the required set, cancels
+   * any pending late-load reflow, and reflows THIS document.
+   *
+   * A MAPPING change (`map`/`unmap`) is document-local: it moves the per-document resolver signature,
+   * which already busts this document's measure/paint cache keys, so no global work is needed and
+   * other editors are untouched. A REGISTRATION (`fonts.add`, signalled by `availabilityChanged`)
+   * changes which faces are AVAILABLE without moving the signature, and the measurement caches are
+   * availability-blind (the block cache keys on the unchanged signature; the metric cache keys on
+   * `family|size|bold|italic`). It is therefore handled like a late load - bump the GLOBAL epoch and
+   * clear the shared caches (see the body) - otherwise the reflow re-measures a now-loadable family
+   * against its stale fallback widths. The controller coalesces a same-tick `add` + `map` into one
+   * call with `availabilityChanged: true`.
    */
-  notifyFontConfigChanged(): void {
+  notifyDocumentFontConfigChanged(options?: { availabilityChanged?: boolean }): void {
     this.#fontConfigVersion += 1;
-    bumpFontConfigVersion(); // bump the global epoch so measure/paint reuse signatures bust
     // Reset the required + seen sets so an in-flight `loadingdone` can't re-arm a reflow for a
     // face this immediate reflow already corrects; the next pass re-plans from scratch.
     this.#resetRequiredAndSeen();
     // Drop any pending batched late-load reflow: this immediate reflow supersedes it.
     this.#lateLoadScheduler.cancel();
-    this.#invalidateCaches();
+    if (options?.availabilityChanged) {
+      // A registration changed font availability without moving the resolver signature, so the
+      // signature cannot bust the caches. Mirror the late-load correction: bump the global epoch
+      // (so paint reuse busts here and in any other editor already showing that family) and clear
+      // the shared measurement caches before the reflow re-measures against the now-loadable font.
+      bumpFontConfigVersion();
+      this.#invalidateCaches();
+    }
     this.#requestReflow();
+  }
+
+  /**
+   * Clear the shared measurement caches for a CONFIG-TIME font registration (applied before the
+   * first layout). Like a runtime `fonts.add`, a registration changes which faces are available
+   * without moving the resolver signature, so the signature cannot bust the caches; but unlike the
+   * runtime path this runs before first paint, so it must NOT reflow, emit, or bump any epoch. It
+   * only clears stale entries so this document's first measure can't reuse a fallback width that
+   * another editor instance with identical block content left in the global cache. Other editors are
+   * corrected when the face actually loads (`#onLoadingDone`); this document measures fresh next.
+   */
+  invalidateCachesForConfigRegistration(): void {
+    this.#invalidateCaches();
+  }
+
+  /**
+   * This document's FontRegistry, resolving the font environment on first call (and installing
+   * the bundled pack via `onRegistryResolved`). The document font controller uses it to register
+   * customer faces (`fonts.add`) and to load families (`fonts.preload`). The registry is scoped to
+   * this document's FontFaceSet, so registrations are shared per browser document, not per editor.
+   */
+  resolveRegistry(): FontRegistry {
+    return this.#resolveContext().registry;
   }
 
   /**

@@ -18,6 +18,7 @@ export type {
   FontFaceSource,
   FontFaceDescriptor,
   RegisteredFace,
+  RegisterFaceResult,
   FontLoadResult,
   FontLoadSummary,
   FontFaceRequest,
@@ -28,13 +29,14 @@ export type {
 } from './types';
 export { SETTLED_STATUSES, isSettled } from './types';
 
-export type { FontResolution, FontResolutionReason } from './resolver';
+export type { FontResolution, FontResolutionReason, FontMeasureContext, ResolvePhysicalFamily } from './resolver';
 export { FontResolver, createFontResolver } from './resolver';
 export {
   resolveFontFamily,
   resolvePhysicalFamily,
   resolvePrimaryPhysicalFamily,
   resolvePhysicalFamilies,
+  DEFAULT_FONT_MEASURE_CONTEXT,
 } from './resolver';
 
 export { getFontConfigVersion, bumpFontConfigVersion, __resetFontConfigVersion } from './epoch';

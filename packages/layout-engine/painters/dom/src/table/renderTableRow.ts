@@ -210,6 +210,12 @@ type TableRowRenderDependencies = {
   cellSpacingPx?: number;
   /** Built-in SDT chrome rendering mode. */
   chrome?: 'default' | 'none';
+  /**
+   * Per-document logical->physical font resolver for in-cell list markers and drop caps. Threaded
+   * from the renderer's per-document resolver so they paint the same physical family they were
+   * measured in. Undefined falls back to the global resolver.
+   */
+  resolvePhysical?: (cssFontFamily: string) => string;
 };
 
 /**
@@ -275,6 +281,7 @@ export const renderTableRow = (deps: TableRowRenderDependencies): void => {
     partialRow,
     cellSpacingPx = 0,
     chrome,
+    resolvePhysical,
   } = deps;
 
   const totalCols = columnWidths.length;
@@ -453,6 +460,7 @@ export const renderTableRow = (deps: TableRowRenderDependencies): void => {
       isRtl,
       cellWidth: computedCellWidth > 0 ? computedCellWidth : undefined,
       chrome,
+      resolvePhysical,
     });
 
     container.appendChild(cellElement);
