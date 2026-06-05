@@ -83,6 +83,7 @@ function serializePerIdNumbering(
   }
   return parts.join(';');
 }
+
 import { safeCleanup } from './utils/SafeCleanup.js';
 import { createHiddenHost } from './dom/HiddenHost.js';
 import {
@@ -3431,6 +3432,7 @@ export class PresentationEditor extends EventEmitter {
       blocks,
       measures,
       fontSignature: this.#layoutFontSignature,
+      bookmarks: this.#layoutState.bookmarks,
     });
 
     const isSemanticFlow = this.#layoutOptions.flowMode === 'semantic';
@@ -7051,6 +7053,7 @@ export class PresentationEditor extends EventEmitter {
           blocks: bodyBlocksForPaint,
           measures: bodyMeasuresForPaint,
           fontSignature,
+          bookmarks,
         });
 
         headerLayouts = result.headers;
