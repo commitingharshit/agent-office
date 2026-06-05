@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { initTestEditor, loadTestDataForEditorTests } from '@tests/helpers/helpers.js';
-import { executeTextInsert, executeTextRewrite } from './executor.ts';
+import { executeSpanTextRewrite, executeTextInsert, executeTextRewrite } from './executor.ts';
 
 /**
  * SD-3278: multi-line text forwarded into text-mode mutations (e.g.
@@ -377,6 +377,84 @@ describe('newline insert into a restrictive (text*) parent', () => {
     expect(editor.state.doc.nodeAt(nodePos)?.type.name).toBe('total-page-number');
     // The newline landed in the text*-only field, so it falls back to literal
     // text rather than forcing a (schema-invalid) lineBreak there.
+    expect(hasNodeOfType(editor, 'lineBreak')).toBe(false);
+  });
+
+  // executeSpanTextRewrite has its own single-block replacement path with a
+  // separate parentAllowsLineBreak probe. The rewrite/insert paths above cover
+  // their probes, but the span path's was unexercised even though its source
+  // comment claims it is covered. A single inline '\n' stays in one replacement
+  // block (split is on \n{2,}), so it reaches this single-block path.
+  it('span rewrite with a single newline builds one lineBreak in a normal parent', () => {
+    editor = makeSchemaEditor(['hello world']); // paragraph > run > text 'hello world'
+    const tr = editor.state.tr;
+
+    // A real two-segment span over the run text ('hello' + ' world'). The run
+    // admits a lineBreak, so the single '\n' must mint exactly one.
+    const target = {
+      kind: 'span',
+      stepId: 'span-newline-normal',
+      op: 'text.rewrite',
+      matchId: 'm:span-normal',
+      segments: [
+        { blockId: 'p1', from: 0, to: 5, absFrom: 2, absTo: 7 },
+        { blockId: 'p1', from: 5, to: 11, absFrom: 7, absTo: 13 },
+      ],
+      text: 'hello world',
+      marks: [],
+      capturedStyleBySegment: [],
+    } as any;
+    const step = {
+      id: 'span-newline-normal',
+      op: 'text.rewrite',
+      where: { by: 'ref', ref: 'ignored' },
+      args: { replacement: { text: 'Alpha\nBeta' }, style: { inline: { mode: 'preserve' } } },
+    } as any;
+
+    expect(() => executeSpanTextRewrite(editor, tr, target, step, { map: (pos: number) => pos } as any)).not.toThrow();
+    editor.dispatch(tr);
+
+    expect(countNodeType(editor, 'lineBreak')).toBe(1);
+    expect(hasNodeOfType(editor, 'hardBreak')).toBe(false);
+
+    // The break is a real node, never a raw '\n' baked into a text node.
+    let rawNewlineText = false;
+    editor.state.doc.descendants((node: any) => {
+      if (node.isText && typeof node.text === 'string' && node.text.includes('\n')) rawNewlineText = true;
+    });
+    expect(rawNewlineText).toBe(false);
+  });
+
+  it('span rewrite with a newline into total-page-number falls back to literal text, no lineBreak', () => {
+    editor = makeEditorWithTotalPageCount(); // paragraph > run > total-page-number > text '7'
+    const nodePos = findTotalPageNumberPos(editor);
+    const tr = editor.state.tr;
+
+    // The span sits entirely inside the field's text ('7' at [nodePos+1, nodePos+2]).
+    // total-page-number is text*-only, so the probe at the edit position rejects a
+    // lineBreak and the replacement falls back to literal text (the export safety
+    // net turns it into a <w:br/> later).
+    const target = {
+      kind: 'span',
+      stepId: 'span-newline-field',
+      op: 'text.rewrite',
+      matchId: 'm:span-field',
+      segments: [{ blockId: 'p1', from: 0, to: 1, absFrom: nodePos + 1, absTo: nodePos + 2 }],
+      text: '7',
+      marks: [],
+      capturedStyleBySegment: [],
+    } as any;
+    const step = {
+      id: 'span-newline-field',
+      op: 'text.rewrite',
+      where: { by: 'ref', ref: 'ignored' },
+      args: { replacement: { text: 'Alpha\nBeta' }, style: { inline: { mode: 'preserve' } } },
+    } as any;
+
+    expect(() => executeSpanTextRewrite(editor, tr, target, step, { map: (pos: number) => pos } as any)).not.toThrow();
+    editor.dispatch(tr);
+
+    expect(editor.state.doc.nodeAt(nodePos)?.type.name).toBe('total-page-number');
     expect(hasNodeOfType(editor, 'lineBreak')).toBe(false);
   });
 });
