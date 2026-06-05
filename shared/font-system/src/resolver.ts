@@ -17,10 +17,10 @@
  * own so two editors on one page can map the same logical family differently (a
  * customer `fonts.map`) without leaking across documents - the same per-document
  * isolation the registry already has per `FontFaceSet`. Every instance is seeded with
- * the five verified clean clones (Calibri->Carlito, Cambria->Caladea, Arial->Liberation
- * Sans, Times New Roman->Liberation Serif, Courier New->Liberation Mono). The
- * module-level `resolve*` functions delegate to a shared default instance for callers
- * that have no document context (and for backward compatibility).
+ * the verified clean clones (Calibri->Carlito, Cambria->Caladea, Arial->Liberation Sans,
+ * Times New Roman->Liberation Serif, Courier New->Liberation Mono, plus Helvetica aliased
+ * to the same Liberation Sans). The module-level `resolve*` functions delegate to a shared
+ * default instance for callers that have no document context (and for backward compatibility).
  */
 
 export type FontResolutionReason =
@@ -73,6 +73,9 @@ const BUNDLED_SUBSTITUTES: Readonly<Record<string, string>> = Object.freeze({
   arial: 'Liberation Sans',
   'times new roman': 'Liberation Serif',
   'courier new': 'Liberation Mono',
+  // Helvetica is metric-identical to the already-bundled Liberation Sans (0.000% advance delta, same
+  // 2048 upem, all four faces - Helvetica/Arial/Liberation share metrics). An alias only: no new asset.
+  helvetica: 'Liberation Sans',
 });
 
 /** Normalize a family name for lookup: trim, strip surrounding quotes, lowercase. */
