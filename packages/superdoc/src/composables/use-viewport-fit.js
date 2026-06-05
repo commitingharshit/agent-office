@@ -66,8 +66,8 @@ export const normalizePdfPageMeasurement = (measured, scaleFactor, zoomFactor) =
 /**
  * Viewport fit tracking. Maintains pure viewport metrics (available width,
  * document base width, fit zoom), stores them for `getViewportMetrics()`,
- * emits `viewport-change` when they change, and applies the `fit-width`
- * policy while `zoomMode` is `'fit-width'`.
+ * emits `viewport-change` when the fit they imply changes, and applies the
+ * `fit-width` policy while `zoomMode` is `'fit-width'`.
  *
  * Metrics are policy-free measurements: `availableWidth` is the container
  * width minus the comments sidebar when visible; `fitZoom` is the raw
@@ -222,14 +222,17 @@ export function useViewportFit({
 
     const metrics = { availableWidth, documentWidth, fitZoom };
 
-    // Store and emit when the measurements change, including base-width
-    // changes (page size or orientation) at a constant available width.
+    // Store and emit when the fit changes: rounded fitZoom plus base-width
+    // changes (page size or orientation) at a constant ratio. Deliberately
+    // NOT keyed on availableWidth itself: px-level jitter during a window
+    // drag would spam consumers with emits that cannot change any fit
+    // decision, while every meaningful available-width change (sidebar
+    // toggle, real resize) already moves fitZoom. The stored metrics can
+    // therefore lag by a sub-percent sliver of availableWidth between
+    // emits.
     const previous = viewportMetrics.value;
     const changed =
-      !previous ||
-      previous.fitZoom !== fitZoom ||
-      Math.round(previous.documentWidth) !== Math.round(documentWidth) ||
-      Math.round(previous.availableWidth) !== Math.round(availableWidth);
+      !previous || previous.fitZoom !== fitZoom || Math.round(previous.documentWidth) !== Math.round(documentWidth);
     if (changed) {
       viewportMetrics.value = metrics;
       superdoc.emit('viewport-change', metrics);
