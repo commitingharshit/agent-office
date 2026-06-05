@@ -1776,7 +1776,7 @@ const handlePdfSelectionRaw = ({ selectionBounds, documentId, page }) => {
   handleSelectionChange(selection);
 };
 
-// Web layout without layout engine — apply CSS transform directly
+// Web layout without layout engine - apply CSS transform directly
 // to non-PDF sub-document containers so zoom works for PM fallback rendering.
 // PDF documents are excluded because pdfViewer.updateScale() handles their zoom
 // separately; applying both would result in double-zoom.
@@ -1799,7 +1799,7 @@ const applyFallbackZoomStyles = (zoomFactor) => {
 // One-time initial application for surfaces that only consume zoom
 // imperatively. A seeded `zoom.initial` never fires the activeZoom watcher
 // (the ref starts at the seeded value), and the fallback transform targets
-// elements that do not exist until documents render — so apply once from
+// elements that do not exist until documents render - so apply once from
 // the per-document ready hooks. PresentationEditor and PdfViewer take
 // their initial value at creation (layoutEngineOptions.zoom /
 // :initial-scale) and need nothing here.

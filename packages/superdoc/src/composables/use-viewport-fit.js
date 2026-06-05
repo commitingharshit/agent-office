@@ -252,21 +252,31 @@ export function useViewportFit({
     const fitZoom = computeFitZoom(availableWidth, documentWidth);
     if (fitZoom === null) return;
 
-    const metrics = { availableWidth, documentWidth, fitZoom };
+    // Frozen so the event payload, the stored metrics, and the
+    // getViewportMetrics() return value (all the same object) cannot be
+    // mutated by one consumer to corrupt the others.
+    const metrics = Object.freeze({ availableWidth, documentWidth, fitZoom });
 
-    // Store and emit when the fit changes: rounded fitZoom plus base-width
-    // changes (page size or orientation) at a constant ratio. Deliberately
-    // NOT keyed on availableWidth itself: px-level jitter during a window
-    // drag would spam consumers with emits that cannot change any fit
-    // decision, while every meaningful available-width change (sidebar
-    // toggle, real resize) already moves fitZoom. The stored metrics can
-    // therefore lag by a sub-percent sliver of availableWidth between
-    // emits.
+    // Two freshness tiers, deliberately distinct:
+    // - Stored metrics (getViewportMetrics() / ui.zoom reads) are always
+    //   latest: refreshed whenever any field changes, including px-level
+    //   availableWidth movement.
+    // - The viewport-change EVENT is deduped to fit-relevant changes
+    //   (rounded fitZoom, rounded base width): px jitter during a window
+    //   drag cannot change any fit decision and would only spam consumers.
     const previous = viewportMetrics.value;
-    const changed =
-      !previous || previous.fitZoom !== fitZoom || Math.round(previous.documentWidth) !== Math.round(documentWidth);
-    if (changed) {
+    const fieldsChanged =
+      !previous ||
+      previous.availableWidth !== availableWidth ||
+      previous.documentWidth !== documentWidth ||
+      previous.fitZoom !== fitZoom;
+    if (fieldsChanged) {
       viewportMetrics.value = metrics;
+    }
+
+    const fitChanged =
+      !previous || previous.fitZoom !== fitZoom || Math.round(previous.documentWidth) !== Math.round(documentWidth);
+    if (fitChanged) {
       superdoc.emit('viewport-change', metrics);
     }
 

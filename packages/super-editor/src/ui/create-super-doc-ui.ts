@@ -718,9 +718,12 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
   });
 
   // Read the host zoom state + metrics into one slice. Memoized on the
-  // field values (metrics by reference: the host stores a new object only
-  // when measurements change), so `shallowEqual` on `state.zoom`
-  // short-circuits `ui.zoom.observe` while nothing zoom-related changes.
+  // field values. Metrics compare by reference, which is equivalent to a
+  // field-wise compare because the host's viewport-fit store replaces the
+  // (frozen) metrics object only when a field actually changed; if that
+  // invariant moves, switch this to field-wise. `shallowEqual` on
+  // `state.zoom` then short-circuits `ui.zoom.observe` while nothing
+  // zoom-related changes.
   const computeZoomSlice = (): ZoomSlice => {
     if (typeof superdoc.getZoomState !== 'function') return FALLBACK_ZOOM_SLICE;
     let state: ReturnType<NonNullable<typeof superdoc.getZoomState>> | null = null;
