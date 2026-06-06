@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-05T18:14:02.432Z",
+  "generatedAt": "2026-06-06T01:57:50.052Z",
   "ticket": "SD-3212 PR A0",
   "package": "superdoc",
   "rootExport": {
@@ -55,6 +55,7 @@
         "DocRange",
         "Document",
         "DocumentApi",
+        "DocumentFontOption",
         "DocumentMode",
         "DocumentProtectionState",
         "DocxFileEntry",
@@ -94,6 +95,7 @@
         "FontFaceConfig",
         "FontFamilyConfig",
         "FontResolutionRecord",
+        "FontSupportStatus",
         "FontsChangedPayload",
         "FontsConfig",
         "FontsResolvedPayload",
@@ -297,6 +299,7 @@
         "DocRange",
         "Document",
         "DocumentApi",
+        "DocumentFontOption",
         "DocumentMode",
         "DocumentProtectionState",
         "DocxFileEntry",
@@ -336,6 +339,7 @@
         "FontFaceConfig",
         "FontFamilyConfig",
         "FontResolutionRecord",
+        "FontSupportStatus",
         "FontsChangedPayload",
         "FontsConfig",
         "FontsResolvedPayload",
@@ -591,11 +595,11 @@
     }
   },
   "counts": {
-    "types.import": 236,
-    "types.require": 236,
+    "types.import": 238,
+    "types.require": 238,
     "import": 41,
     "require": 41,
-    "union": 236
+    "union": 238
   },
   "divergences": {
     "typesImportVsRequire": {
@@ -643,6 +647,7 @@
         "DocRange",
         "Document",
         "DocumentApi",
+        "DocumentFontOption",
         "DocumentMode",
         "DocumentProtectionState",
         "DocxFileEntry",
@@ -679,6 +684,7 @@
         "FontFaceConfig",
         "FontFamilyConfig",
         "FontResolutionRecord",
+        "FontSupportStatus",
         "FontsChangedPayload",
         "FontsConfig",
         "FontsResolvedPayload",

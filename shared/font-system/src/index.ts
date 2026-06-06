@@ -76,3 +76,6 @@ export {
   fontOfferingStack,
   fontOfferingRenderStack,
 } from './font-offerings';
+
+export type { FontSupportStatus, DocumentFontOption } from './document-font-options';
+export { buildDocumentFontOptions, fontSupportStatusText } from './document-font-options';

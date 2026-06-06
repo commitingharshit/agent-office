@@ -30,6 +30,7 @@ ContextMenu
 CoreCommandMap
 CreateHeadlessToolbarOptions
 DocumentApi
+DocumentFontOption
 DocumentProtectionState
 DocxEncryptionError
 DocxEncryptionErrorCode
@@ -63,6 +64,7 @@ FontLoadStatus
 FontLoadSummary
 FontResolutionReason
 FontResolutionRecord
+FontSupportStatus
 FontsChangedPayload
 FontsConfig
 FontsResolvedPayload

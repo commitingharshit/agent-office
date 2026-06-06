@@ -8,13 +8,12 @@ import { vClickOutside } from '@superdoc/common';
 import Toolbar from './Toolbar.vue';
 import { toolbarIcons } from './toolbarIcons.js';
 import { toolbarTexts } from './toolbarTexts.js';
-import {
+import { composeToolbarFontOptions,
   HEADLESS_TOOLBAR_COMMANDS,
   HEADLESS_ITEM_MAP,
   HEADLESS_EXECUTE_ITEMS,
   TABLE_ACTION_COMMAND_IDS,
-  TABLE_ACTION_COMMAND_MAP,
-} from './constants.js';
+  TABLE_ACTION_COMMAND_MAP } from './constants.js';
 import { getAvailableColorOptions, makeColorOption, renderColorOptions } from './color-dropdown-helpers.js';
 import { useToolbarItem } from '@components/toolbar/use-toolbar-item';
 import { calculateResolvedParagraphProperties } from '@extensions/paragraph/resolvedPropertiesCache.js';
@@ -295,7 +294,16 @@ export class SuperToolbar extends EventEmitter {
       transaction: null,
       selectionUpdate: null,
       focus: null,
+      fontsChanged: null,
     };
+
+    /**
+     * Signature of the last-built document font options. Fonts resolve in several steps after a document
+     * opens, so `fonts-changed` fires repeatedly; this skips rebuilding the dropdown when the options did
+     * not actually change.
+     * @private
+     */
+    this._lastFontOptionsSignature = '';
 
     /**
      * Timeout ID for restoring editor focus after toolbar command execution.
@@ -402,10 +410,12 @@ export class SuperToolbar extends EventEmitter {
       this.activeEditor.off('transaction', this._boundEditorHandlers.transaction);
       this.activeEditor.off('selectionUpdate', this._boundEditorHandlers.selectionUpdate);
       this.activeEditor.off('focus', this._boundEditorHandlers.focus);
+      this.activeEditor.off('fonts-changed', this._boundEditorHandlers.fontsChanged);
       // Clear bound handlers when removing editor
       this._boundEditorHandlers.transaction = null;
       this._boundEditorHandlers.selectionUpdate = null;
       this._boundEditorHandlers.focus = null;
+      this._boundEditorHandlers.fontsChanged = null;
     }
 
     this.activeEditor = editor;
@@ -416,11 +426,21 @@ export class SuperToolbar extends EventEmitter {
       this._boundEditorHandlers.transaction = this.onEditorTransaction.bind(this);
       this._boundEditorHandlers.selectionUpdate = this.onEditorSelectionUpdate.bind(this);
       this._boundEditorHandlers.focus = this.onEditorFocus.bind(this);
+      // Document fonts resolve asynchronously after load (the report can settle with no transaction), so
+      // the font list must rebuild on `fonts-changed`, not only on edits - otherwise status reads stale.
+      this._boundEditorHandlers.fontsChanged = this.onEditorFontsChanged.bind(this);
 
       this.activeEditor.on('transaction', this._boundEditorHandlers.transaction);
       this.activeEditor.on('selectionUpdate', this._boundEditorHandlers.selectionUpdate);
       this.activeEditor.on('focus', this._boundEditorHandlers.focus);
+      this.activeEditor.on('fonts-changed', this._boundEditorHandlers.fontsChanged);
     }
+
+    // Recompute on active-editor change: the new document has its own fonts, so rebuild the dropdown
+    // OPTIONS (updateToolbarState alone only refreshes item state), then refresh state.
+    this.#rebuildToolbarItems();
+    this._lastFontOptionsSignature = this.#fontOptionsSignature();
+    this.updateToolbarState();
   }
 
   /**
@@ -478,7 +498,7 @@ export class SuperToolbar extends EventEmitter {
       superToolbar,
       toolbarIcons: icons,
       toolbarTexts: texts,
-      toolbarFonts: fonts,
+      toolbarFonts: this.#resolveToolbarFonts(fonts),
       hideButtons,
       availableWidth,
       role: this.role,
@@ -502,6 +522,47 @@ export class SuperToolbar extends EventEmitter {
 
     this.toolbarItems = filteredItems;
     this.overflowItems = overflowItems.filter((item) => allConfigItems.includes(item.name.value));
+  }
+
+  /**
+   * The font dropdown options. Lifecycle only: get the active document's font options from the read API
+   * and hand the composition (dedupe, ordering, status labels, preview styling) to the pure
+   * {@link composeToolbarFontOptions} seam. A consumer-provided `configFonts` list is returned untouched.
+   * @private
+   * @param {Array|undefined} configFonts - the consumer's `fonts` config, if any
+   * @returns {Array|undefined} the toolbar font options, or undefined to fall back to the bundled defaults
+   */
+  #resolveToolbarFonts(configFonts) {
+    return composeToolbarFontOptions(this.superdoc?.fonts?.getDocumentFontOptions?.() ?? [], configFonts);
+  }
+
+  /**
+   * Rebuild the toolbar items (and so the font dropdown OPTIONS) from current config + document fonts.
+   * `updateToolbarState()` only refreshes existing item state; this re-creates the items, which is what
+   * surfaces a newly-resolved document font in the dropdown.
+   * @private
+   * @returns {void}
+   */
+  #rebuildToolbarItems() {
+    this.#makeToolbarItems({
+      superToolbar: this,
+      icons: this.config.icons,
+      texts: this.config.texts,
+      fonts: this.config.fonts,
+      hideButtons: this.config.hideButtons,
+      isDev: this.isDev,
+    });
+  }
+
+  /**
+   * A stable signature of the active document's font options, to detect when a `fonts-changed` event
+   * actually changed the dropdown (vs the same options resolving again).
+   * @private
+   * @returns {string}
+   */
+  #fontOptionsSignature() {
+    const options = this.superdoc?.fonts?.getDocumentFontOptions?.() ?? [];
+    return options.map((option) => `${option.logicalFamily}:${option.status}:${option.previewFamily}`).join('|');
   }
 
   /**
@@ -975,6 +1036,20 @@ export class SuperToolbar extends EventEmitter {
 
     const restored = this.#restoreStickyMarksIfNeeded();
     if (restored) this.updateToolbarState();
+  }
+
+  /**
+   * Rebuild the toolbar (and so the font dropdown) when the active document's font picture resolves.
+   * Fonts load asynchronously after a document opens, so support statuses settle with no edit/transaction.
+   * @returns {void}
+   */
+  onEditorFontsChanged() {
+    const signature = this.#fontOptionsSignature();
+    if (signature !== this._lastFontOptionsSignature) {
+      this._lastFontOptionsSignature = signature;
+      this.#rebuildToolbarItems(); // the document's fonts/statuses changed -> rebuild the dropdown options
+    }
+    this.updateToolbarState();
   }
 
   /**
