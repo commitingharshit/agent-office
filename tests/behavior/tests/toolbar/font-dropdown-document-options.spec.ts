@@ -51,9 +51,7 @@ test('font dropdown opens immediately with the clean default list and an enabled
   await openFontFamilyDropdown(superdoc);
 
   const labels = await fontOptionLabels(superdoc);
-  for (const expected of ['Calibri', 'Arial', 'Courier New', 'Times New Roman', 'Helvetica']) {
-    expect(labels).toContain(expected);
-  }
+  expect(labels).toEqual(['Arial', 'Calibri', 'Courier New', 'Helvetica', 'Times New Roman']);
   for (const absent of ['Aptos', 'Georgia', 'Cambria', 'Calibri Light']) {
     expect(labels).not.toContain(absent);
   }
@@ -74,7 +72,7 @@ test('selecting a default font applies its logical Word-facing family to the sel
   await superdoc.assertTextMarkAttrs('Default font sample', 'textStyle', { fontFamily: 'Helvetica' });
 });
 
-test('a document-specific font reaches the live dropdown with its status and applies the logical family', async ({
+test('a document-specific font reaches the live dropdown without status text and applies the logical family', async ({
   superdoc,
 }) => {
   await superdoc.type('Document font sample');
@@ -82,6 +80,8 @@ test('a document-specific font reaches the live dropdown with its status and app
 
   await stubDocumentFontsAndNotify(superdoc, [
     { logicalFamily: 'Aptos', previewFamily: 'Aptos', status: 'needs_font' },
+    { logicalFamily: 'Apple Chancery', previewFamily: 'Apple Chancery', status: 'needs_font' },
+    { logicalFamily: 'Bangla MN', previewFamily: 'Bangla MN', status: 'needs_font' },
   ]);
 
   const pos = await superdoc.findTextPos('Document font sample');
@@ -89,12 +89,23 @@ test('a document-specific font reaches the live dropdown with its status and app
   await superdoc.waitForStable();
 
   await openFontFamilyDropdown(superdoc);
+  expect(await fontOptionLabels(superdoc)).toEqual([
+    'Apple Chancery',
+    'Aptos',
+    'Arial',
+    'Bangla MN',
+    'Calibri',
+    'Courier New',
+    'Helvetica',
+    'Times New Roman',
+  ]);
 
   const aptosOption = superdoc.page
     .locator(FONT_OPTION)
     .filter({ has: superdoc.page.getByText('Aptos', { exact: true }) });
   await expect(aptosOption.locator('.toolbar-dropdown-option__label')).toHaveText('Aptos');
-  await expect(aptosOption.locator('.toolbar-dropdown-option__secondary')).toHaveText('Needs font');
+  await expect(aptosOption.locator('.toolbar-dropdown-option__secondary')).toHaveCount(0);
+  await expect(aptosOption).not.toHaveAttribute('aria-label', /Needs font/);
 
   await selectFontOption(superdoc, 'Aptos');
 

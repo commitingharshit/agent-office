@@ -127,9 +127,6 @@ const onOptionClick = (option) => {
 const isRenderOption = (option) => option?.type === 'render';
 const isOptionNavigable = (option) => !option?.disabled && option?.type !== 'render';
 const hasIcon = (option) => typeof option?.icon === 'function' || Boolean(option?.icon);
-// Fold the visible status (secondaryLabel) into the option's accessible name so screen readers don't
-// miss it, while option.label stays pure for active-state matching. Undefined leaves the default name.
-const ariaLabelFor = (option) => (option?.secondaryLabel ? `${option.label} ${option.secondaryLabel}` : undefined);
 const renderIcon = (option) => {
   if (typeof option?.icon === 'function') return option.icon(option);
   return option?.icon || null;
@@ -406,7 +403,6 @@ onBeforeUnmount(() => {
             tabindex="-1"
             @click="onOptionClick(option)"
             v-bind="{ ...option.props, ...getNodeProps(option) }"
-            :aria-label="ariaLabelFor(option)"
           >
             <RenderOption v-if="isRenderOption(option)" :option="option" />
             <template v-else>
@@ -414,9 +410,6 @@ onBeforeUnmount(() => {
                 <OptionIcon :option="option" />
               </span>
               <span class="toolbar-dropdown-option__label">{{ option.label }}</span>
-              <span v-if="option.secondaryLabel" class="toolbar-dropdown-option__secondary">{{
-                option.secondaryLabel
-              }}</span>
             </template>
           </div>
         </div>
@@ -475,15 +468,6 @@ onBeforeUnmount(() => {
   display: flex;
   width: 12px;
   height: 12px;
-}
-
-/* Secondary annotation (e.g. a document font's support status). Pushed right, muted, never the label. */
-.toolbar-dropdown-option__secondary {
-  margin-left: auto;
-  padding-left: 12px;
-  font-size: var(--sd-ui-font-size-300, 12px);
-  color: var(--sd-ui-dropdown-text-muted, #8a8b8d);
-  white-space: nowrap;
 }
 
 .toolbar-dropdown-option:hover {

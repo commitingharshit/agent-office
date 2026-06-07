@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildDocumentFontOptions,
-  fontSupportStatusText,
   type FontSupportStatus,
   type FontFaceRequest,
   type FontLoadStatus,
@@ -117,13 +116,5 @@ describe('buildDocumentFontOptions (document-specific toolbar fonts + support st
     expect(options).toHaveLength(1);
     // Regular alone reads `available`; aggregating the unsubstitutable Bold honestly drops it to `fallback`.
     expect(options[0]).toMatchObject({ logicalFamily: 'Calibri', previewFamily: 'Carlito', status: 'fallback' });
-  });
-
-  it('status text is user-facing and blank for available (faithful fonts read as plain names)', () => {
-    expect(fontSupportStatusText('available')).toBe('');
-    expect(fontSupportStatusText('fallback')).toBe('Fallback');
-    expect(fontSupportStatusText('pending')).toBe('Pending font');
-    expect(fontSupportStatusText('needs_font')).toBe('Needs font');
-    expect(fontSupportStatusText('preserve_only')).toBe('Preserve only');
   });
 });

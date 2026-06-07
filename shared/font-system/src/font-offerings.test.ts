@@ -8,16 +8,12 @@ import {
 } from './font-offerings';
 import { BUNDLED_MANIFEST } from './bundled-manifest';
 
-/**
- * The default toolbar set this PR ships, in explicit product order (metric-safe fonts SuperDoc
- * renders deterministically). Order is pinned, not evidence order; see DEFAULT_FONT_ORDER.
- */
-const EXPECTED_DEFAULTS = ['Calibri', 'Arial', 'Courier New', 'Times New Roman', 'Helvetica'];
+const EXPECTED_DEFAULTS = ['Arial', 'Calibri', 'Courier New', 'Helvetica', 'Times New Roman'];
 
 /**
  * Must NOT appear as DEFAULT options yet. Aptos/Georgia/Baskerville/Arial Narrow are not bundled (or
- * have no clone); Cambria is qualified (visual_only); Calibri Light is a category fallback. They reach
- * the toolbar later as document-specific options with a fidelity status, never as silent defaults.
+ * have no clone); Cambria is qualified (visual_only); Calibri Light is a category fallback. They can
+ * reach the toolbar as document-specific options, never as silent defaults.
  */
 const NOT_DEFAULT_YET = ['Aptos', 'Georgia', 'Cambria', 'Calibri Light', 'Baskerville', 'Arial Narrow'];
 
@@ -51,11 +47,11 @@ describe('font offerings', () => {
 
   it('getDefaultFontFamilyOptions returns logical label + logical stack', () => {
     expect(getDefaultFontFamilyOptions()).toEqual([
-      { label: 'Calibri', value: 'Calibri, sans-serif' },
       { label: 'Arial', value: 'Arial, sans-serif' },
+      { label: 'Calibri', value: 'Calibri, sans-serif' },
       { label: 'Courier New', value: 'Courier New, monospace' },
-      { label: 'Times New Roman', value: 'Times New Roman, serif' },
       { label: 'Helvetica', value: 'Helvetica, sans-serif' },
+      { label: 'Times New Roman', value: 'Times New Roman, serif' },
     ]);
   });
 

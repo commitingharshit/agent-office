@@ -8,8 +8,8 @@
  *   1. DEFAULT toolbar options - reliable, bundled, metric-safe fonts SuperDoc can render
  *      deterministically today. Built from {@link getDefaultFontOfferings}.
  *   2. DOCUMENT-specific options (later) - whatever a given document actually uses, surfaced with a
- *      fidelity status. That is document-scoped and runtime-aware; it does NOT belong in this static
- *      module.
+ *      diagnostic status. That is document-scoped and runtime-aware; it does NOT belong in this
+ *      static module.
  *
  * Derived from `SUBSTITUTION_EVIDENCE` x `BUNDLED_MANIFEST`. Adding/retiring a font is an evidence
  * edit, never a hand-maintained toolbar list.
@@ -101,26 +101,17 @@ function deriveOfferings(): readonly FontOffering[] {
 /** Every logical font SuperDoc has evidence for, classified by offering surface. */
 export const FONT_OFFERINGS: readonly FontOffering[] = deriveOfferings();
 
-/**
- * Explicit PRODUCT order for the default toolbar - deliberately NOT the evidence/provenance order the
- * rows happen to sit in. Preserves the prior relative order of the carried-over fonts (Arial, Courier
- * New, Times New Roman) so the toolbar does not reshuffle for existing users.
- */
-const DEFAULT_FONT_ORDER: readonly string[] = ['Calibri', 'Arial', 'Courier New', 'Times New Roman', 'Helvetica'];
+function compareLogicalFamily(a: FontOffering, b: FontOffering): number {
+  return a.logicalFamily.localeCompare(b.logicalFamily, undefined, { sensitivity: 'base' });
+}
 
 /**
- * The metric-safe, bundled-backed offerings safe to advertise as DEFAULT toolbar choices, in product
- * order. Excludes qualified (Cambria), category fallbacks (Calibri Light), and not-yet-bundled
- * candidates (Georgia) - those reach the toolbar later as document-specific options with a status.
+ * The metric-safe, bundled-backed offerings safe to advertise as DEFAULT toolbar choices, sorted by
+ * logical family. Excludes qualified (Cambria), category fallbacks (Calibri Light), and not-yet-bundled
+ * candidates (Georgia) - those can reach the toolbar as document-specific options.
  */
 export function getDefaultFontOfferings(): FontOffering[] {
-  const rank = (name: string): number => {
-    const i = DEFAULT_FONT_ORDER.indexOf(name);
-    return i === -1 ? DEFAULT_FONT_ORDER.length : i; // a future default not yet ranked sorts to the end
-  };
-  return FONT_OFFERINGS.filter((o) => o.offering === 'default').sort(
-    (a, b) => rank(a.logicalFamily) - rank(b.logicalFamily),
-  );
+  return FONT_OFFERINGS.filter((o) => o.offering === 'default').sort(compareLogicalFamily);
 }
 
 /** The logical CSS stack stored/applied when an offering is chosen, e.g. "Calibri, sans-serif". */

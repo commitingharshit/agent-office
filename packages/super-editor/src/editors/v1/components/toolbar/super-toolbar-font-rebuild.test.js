@@ -15,8 +15,8 @@ vi.mock('@extensions/track-changes/permission-helpers.js', () => ({
 
 // The font dropdown is rebuilt by re-running makeDefaultItems with the current document fonts. Replace it
 // with a light factory whose fontFamily item simply carries the toolbarFonts it was built with, so a
-// rebuild is observable as "the dropdown now lists this font". The composition (dedupe, ordering, status
-// labels) is covered in constants.test.js; here we only prove the TRIGGER threads the CURRENT document
+// rebuild is observable as "the dropdown now lists this font". The composition (dedupe and ordering)
+// is covered in constants.test.js; here we only prove the TRIGGER threads the CURRENT document
 // options into a fresh build - the original bug was fonts-changed refreshing state without rebuilding.
 const { makeDefaultItemsSpy } = vi.hoisted(() => ({ makeDefaultItemsSpy: vi.fn() }));
 vi.mock('./defaultItems', () => ({ makeDefaultItems: makeDefaultItemsSpy }));
@@ -69,10 +69,10 @@ describe('SuperToolbar font dropdown rebuild trigger', () => {
     documentOptions = [aptos];
     editor.emit('fonts-changed');
 
-    // The dropdown was rebuilt (not merely state-refreshed): Aptos now appears, carrying its support status.
+    // The dropdown was rebuilt (not merely state-refreshed): Aptos now appears.
     const option = fontOptions().find((o) => o.label === 'Aptos');
     expect(option).toBeTruthy();
-    expect(option.secondaryLabel).toBe('Needs font');
+    expect(option.secondaryLabel).toBeUndefined();
   });
 
   it('rebuilds on active-editor change so a document that already resolved its fonts is reflected', () => {

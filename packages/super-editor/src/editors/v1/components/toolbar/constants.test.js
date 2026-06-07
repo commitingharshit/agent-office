@@ -2,13 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { TOOLBAR_FONTS, composeToolbarFontOptions } from './constants';
 
 describe('TOOLBAR_FONTS (built-in font dropdown, derived from the font-offering registry)', () => {
-  it('advertises only the metric-safe bundled defaults, in order', () => {
+  it('advertises only the metric-safe bundled defaults, in alphabetical order', () => {
     expect(TOOLBAR_FONTS.map((f) => f.label)).toEqual([
-      'Calibri',
       'Arial',
+      'Calibri',
       'Courier New',
-      'Times New Roman',
       'Helvetica',
+      'Times New Roman',
     ]);
   });
 
@@ -56,27 +56,47 @@ describe('composeToolbarFontOptions (document fonts unioned with the bundled def
     expect(composeToolbarFontOptions(undefined, undefined)).toBeUndefined();
   });
 
-  it('puts defaults first, appends document fonts, and dedupes one already in the defaults', () => {
+  it('combines defaults and document fonts alphabetically, deduping one already in the defaults', () => {
     const options = composeToolbarFontOptions(
-      [doc('Calibri', 'available', 'Carlito'), doc('Aptos', 'needs_font'), doc('Georgia', 'pending')],
+      [
+        doc('Calibri', 'available', 'Carlito'),
+        doc('Bangla MN', 'needs_font'),
+        doc('Aptos', 'needs_font'),
+        doc('Apple Chancery', 'needs_font'),
+      ],
       undefined,
     );
-    // Defaults in their order, then the NON-default document fonts; Calibri (a default) is not duplicated.
-    expect(options.map((o) => o.label)).toEqual([...TOOLBAR_FONTS.map((f) => f.label), 'Aptos', 'Georgia']);
+    expect(options.map((o) => o.label)).toEqual([
+      'Apple Chancery',
+      'Aptos',
+      'Arial',
+      'Bangla MN',
+      'Calibri',
+      'Courier New',
+      'Helvetica',
+      'Times New Roman',
+    ]);
     expect(options.filter((o) => o.label === 'Calibri')).toHaveLength(1);
   });
 
-  it('maps a document font: pure logical label/key, preview in previewFamily, status as secondaryLabel', () => {
+  it('maps a document font as a plain logical picker row, with no visible status text', () => {
     const options = composeToolbarFontOptions([doc('Aptos', 'needs_font', 'Aptos')], undefined);
     expect(options.at(-1)).toMatchObject({
       label: 'Aptos', // pure logical name (active-state match + the stored/exported value)
       key: 'Aptos',
-      secondaryLabel: 'Needs font',
       props: { style: { fontFamily: 'Aptos' }, 'data-item': 'btn-fontFamily-option' },
     });
+    expect(options.at(-1).secondaryLabel).toBeUndefined();
   });
 
-  it('omits secondaryLabel for an available document font (it reads as a plain name)', () => {
+  it('does not expose status text for any document font status', () => {
+    for (const status of ['available', 'fallback', 'pending', 'needs_font', 'preserve_only']) {
+      const options = composeToolbarFontOptions([doc(`BrandSans-${status}`, status, 'BrandSans')], undefined);
+      expect(options.at(-1).secondaryLabel).toBeUndefined();
+    }
+  });
+
+  it('keeps an available document font as a plain name', () => {
     const options = composeToolbarFontOptions([doc('BrandSans', 'available', 'BrandSans')], undefined);
     expect(options.at(-1).label).toBe('BrandSans');
     expect(options.at(-1).secondaryLabel).toBeUndefined();

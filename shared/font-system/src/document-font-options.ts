@@ -5,13 +5,12 @@
  * resolver) and covers fonts beyond the defaults - embedded/customer fonts the document supplies,
  * un-bundled candidates (Georgia), customer-supplied (Aptos), and preserve-only (math/symbol).
  *
- * The {@link FontSupportStatus} is a USER-FACING summary ("will SuperDoc render this faithfully,
- * approximate it, or do I need to supply it?"), deliberately NOT the docfonts `FallbackDecision`: the
- * toolbar must not expose evidence internals. It is derived by combining the runtime FACE report (does
- * the document render this with a real / embedded / clone face?) with the docfonts evidence decision
- * (for fonts with no runtime render: is a candidate pending an asset, customer-supplied, or preserve-
- * only?). The evidence package is consulted by VALUE only, so this module's public types stay local and
- * the published facade carries no `@docfonts/fallbacks` reference.
+ * The {@link FontSupportStatus} is a product-level summary for diagnostics and future UI, deliberately
+ * NOT the docfonts `FallbackDecision`. It is derived by combining the runtime FACE report (does the
+ * document render this with a real / embedded / clone face?) with the docfonts evidence decision (for
+ * fonts with no runtime render: is a candidate pending an asset, customer-supplied, or preserve-only?).
+ * The evidence package is consulted by VALUE only, so this module's public types stay local and the
+ * published facade carries no `@docfonts/fallbacks` reference.
  */
 import { getFallbackDecision } from '@docfonts/fallbacks';
 import { buildFaceReport, type FontResolutionRecord, type UsedFace } from './report';
@@ -20,9 +19,9 @@ import type { FontResolver } from './resolver';
 import { BUNDLED_MANIFEST } from './bundled-manifest';
 
 /**
- * The user-facing answer to "how well can SuperDoc render this font?". Five tiers, no docfonts
- * internals: a document font is shown in the toolbar with one of these so it never reads as a clean
- * default when it is not.
+ * The product-level answer to "how well can SuperDoc render this font?". Five tiers, no docfonts
+ * internals. The toolbar can use the status for ordering or future affordances, but does not render the
+ * status as text in the font picker.
  */
 export type FontSupportStatus =
   | 'available' // renderable now: the document's own embedded/customer face, a metric-safe clone, or an explicit mapping
@@ -148,23 +147,4 @@ export function buildDocumentFontOptions(
     options.push({ logicalFamily: rep.logicalFamily, previewFamily: rep.physicalFamily, status: worst });
   }
   return options;
-}
-
-/**
- * The short inline status text for the toolbar dropdown - "" for `available`, so faithful fonts read as
- * plain names. Kept here so the Vue and headless toolbars word the status identically.
- */
-export function fontSupportStatusText(status: FontSupportStatus): string {
-  switch (status) {
-    case 'available':
-      return '';
-    case 'fallback':
-      return 'Fallback';
-    case 'pending':
-      return 'Pending font';
-    case 'needs_font':
-      return 'Needs font';
-    case 'preserve_only':
-      return 'Preserve only';
-  }
 }
