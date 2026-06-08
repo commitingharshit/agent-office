@@ -20,7 +20,7 @@
  * @param {{ instructionTokens?: Array<{type: string, text?: string}> | null }} [options]
  * @returns {import('../../v2/types/index.js').OpenXmlNode[]}
  */
-export function preProcessTcInstruction(nodesToCombine, instrText, _docx, options = {}) {
+export function preProcessTcInstruction(nodesToCombine, instrText, options = {}) {
   const before = [];
   const after = [];
   const entryElements = [];

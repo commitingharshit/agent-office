@@ -20,7 +20,7 @@ describe('preProcessTcInstruction', () => {
   it('includes instructionTokens when provided', () => {
     const tokens = [{ type: 'text', text: 'TC "x" \\l "2"' }];
 
-    const result = preProcessTcInstruction([], 'TC "x" \\l "2"', null, tokens);
+    const result = preProcessTcInstruction([], 'TC "x" \\l "2"', { instructionTokens: tokens });
 
     expect(result[0].attributes.instructionTokens).toEqual(tokens);
   });
