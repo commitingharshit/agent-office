@@ -582,6 +582,9 @@ export function computeDomCaretPageLocal(
       const paddingRight = parseFloat(targetEl.style.paddingRight) || 0;
       const lineLeft = (elRect.left - pageRect.left) / zoom + paddingLeft;
       const lineRight = (elRect.right - pageRect.left) / zoom - paddingRight;
+      // AIDEV-NOTE: DomPainter resolves OOXML start/end and RTL defaults to physical
+      // left/right textAlign on .superdoc-line. If painter emits CSS logical values,
+      // update this branch to resolve them before choosing x.
       const textAlign = targetEl.style.textAlign;
       let x: number;
       if (textAlign === 'center') {
