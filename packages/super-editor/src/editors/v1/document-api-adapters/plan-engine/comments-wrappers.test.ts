@@ -474,61 +474,6 @@ describe('comments-wrappers: multi-segment TextTarget', () => {
   });
 });
 
-describe('comments-wrappers: setActive', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    executeDomainCommandMock.mockImplementation((_editor, handler: () => boolean) => ({
-      steps: [{ effect: handler() ? 'changed' : 'unchanged' }],
-    }));
-  });
-
-  function makeSetActiveEditor(comments: CommentEntityRecord[]): Editor {
-    return {
-      ...makeEditor(comments),
-      commands: {
-        setActiveComment: vi.fn(() => true),
-      },
-    } as unknown as Editor;
-  }
-
-  it('canonicalizes imported Word ids before dispatching the active comment command', () => {
-    const editor = makeSetActiveEditor([{ commentId: 'native-1', importedId: 'imported-abc' }]);
-    const wrapper = createCommentsWrapper(editor);
-
-    const receipt = wrapper.setActive({ commentId: 'imported-abc' });
-
-    expect(receipt.success).toBe(true);
-    expect(editor.commands!.setActiveComment).toHaveBeenCalledWith({ commentId: 'native-1' });
-  });
-
-  it('maps reply ids to the anchored thread root before dispatching', () => {
-    const editor = makeSetActiveEditor([
-      { commentId: 'c-root', commentText: 'Root' },
-      { commentId: 'c-reply', parentCommentId: 'c-root', commentText: 'Reply' },
-      { commentId: 'c-grandchild', parentCommentId: 'c-reply', commentText: 'Nested reply' },
-    ]);
-    const wrapper = createCommentsWrapper(editor);
-
-    const receipt = wrapper.setActive({ commentId: 'c-grandchild' });
-
-    expect(receipt.success).toBe(true);
-    expect(editor.commands!.setActiveComment).toHaveBeenCalledWith({ commentId: 'c-root' });
-  });
-
-  it('maps reply ids to the root when the parent is stored by imported id', () => {
-    const editor = makeSetActiveEditor([
-      { commentId: 'native-root', importedId: '0', commentText: 'Root' },
-      { commentId: 'c-reply', parentCommentId: '0', commentText: 'Reply' },
-    ]);
-    const wrapper = createCommentsWrapper(editor);
-
-    const receipt = wrapper.setActive({ commentId: 'c-reply' });
-
-    expect(receipt.success).toBe(true);
-    expect(editor.commands!.setActiveComment).toHaveBeenCalledWith({ commentId: 'native-root' });
-  });
-});
-
 describe('comments-wrappers: same-block segment canonicalization', () => {
   beforeEach(() => {
     vi.clearAllMocks();

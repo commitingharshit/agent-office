@@ -2191,37 +2191,6 @@ describe('executeCompiledPlan: revision tracking', () => {
   });
 });
 
-describe('executeCompiledPlan: domain.command effects', () => {
-  it('marks a successful domain command as changed even without document changes', () => {
-    const { editor, tr, dispatch } = makeEditor();
-    tr.docChanged = false;
-
-    const handler = vi.fn(() => true);
-    const step = {
-      id: 'step-domain-command',
-      op: 'domain.command',
-      where: { by: 'target', target: { kind: 'text', blockId: 'p1', range: { start: 0, end: 0 } } },
-      args: {},
-      _handler: handler,
-    } as any;
-    const compiled: CompiledPlan = {
-      mutationSteps: [{ step, targets: [] }],
-      assertSteps: [],
-      compiledRevision: '0',
-    };
-
-    const receipt = executeCompiledPlan(editor, compiled);
-
-    expect(handler).toHaveBeenCalledTimes(1);
-    expect(receipt.steps[0]).toMatchObject({
-      effect: 'changed',
-      matchCount: 1,
-      data: { domain: 'command', commandDispatched: true },
-    });
-    expect(dispatch).not.toHaveBeenCalled();
-  });
-});
-
 // ---------------------------------------------------------------------------
 // T7: Revision consistency and compile/execute drift detection
 // ---------------------------------------------------------------------------

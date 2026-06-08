@@ -392,25 +392,6 @@ function resolveCommentIdentity(
   };
 }
 
-function resolveActiveCommentIdentity(editor: Editor, commentId: string): ReturnType<typeof resolveCommentIdentity> {
-  let identity = resolveCommentIdentity(editor, commentId);
-  const store = getCommentEntityStore(editor);
-  const visited = new Set<string>();
-
-  while (true) {
-    if (visited.has(identity.commentId)) {
-      throw toNotFoundError({ commentId });
-    }
-    visited.add(identity.commentId);
-
-    const record = findCommentEntity(store, identity.commentId);
-    const parentId = toNonEmptyString(record?.parentCommentId);
-    if (!parentId) return identity;
-
-    identity = resolveCommentIdentity(editor, parentId);
-  }
-}
-
 /**
  * A canonicalized anchor with merged same-block overlapping/adjacent ranges.
  * Carries both block-relative segment data (for TextTarget output) and
@@ -1610,7 +1591,7 @@ function setCommentActiveHandler(
 
   let resolvedCommentId: string | null = null;
   if (input.commentId != null) {
-    resolvedCommentId = resolveActiveCommentIdentity(editor, input.commentId).commentId;
+    resolvedCommentId = resolveCommentIdentity(editor, input.commentId).commentId;
   }
 
   const receipt = executeDomainCommand(editor, () => Boolean(setActiveComment({ commentId: resolvedCommentId })), {
