@@ -10,12 +10,10 @@ test.use({ config: { toolbar: 'full', showSelection: true } });
 // The fixture has five paragraphs; we keep the wrapper-by-sdtId mapping
 // explicit because it's the contract this spec asserts against.
 const HIDDEN_IDS = ['1001', '1004', '1005'] as const;
-const VISIBLE_IDS = ['1002', '1003'] as const; // boundingBox + omitted (default)
-const HIDDEN_ALIAS_CANARIES = [
-  'HIDDEN_ALIAS_LEAK_CANARY',
-  'HIDDEN_ALIAS_DOUBLE_A',
-  'HIDDEN_ALIAS_DOUBLE_B',
-] as const;
+const EXPLICIT_BOUNDING_BOX_IDS = ['1002'] as const;
+const DEFAULT_APPEARANCE_IDS = ['1003'] as const;
+const VISIBLE_IDS = [...EXPLICIT_BOUNDING_BOX_IDS, ...DEFAULT_APPEARANCE_IDS] as const;
+const HIDDEN_ALIAS_CANARIES = ['HIDDEN_ALIAS_LEAK_CANARY', 'HIDDEN_ALIAS_DOUBLE_A', 'HIDDEN_ALIAS_DOUBLE_B'] as const;
 
 const INLINE_SDT = '.superdoc-structured-content-inline';
 const INLINE_LABEL = '.superdoc-structured-content-inline__label';
@@ -26,7 +24,7 @@ test.describe('inline SDT appearance=hidden (SD-3110)', () => {
     await superdoc.waitForStable();
   });
 
-  test('hidden wrappers carry data-appearance="hidden" and visible ones do not', async ({ superdoc }) => {
+  test('wrappers carry explicit data-appearance values and omit the default', async ({ superdoc }) => {
     const attrs = await superdoc.page.evaluate((sel) => {
       return Array.from(document.querySelectorAll(sel)).map((el) => ({
         sdtId: (el as HTMLElement).dataset.sdtId ?? null,
@@ -36,7 +34,8 @@ test.describe('inline SDT appearance=hidden (SD-3110)', () => {
 
     const byId = new Map(attrs.map((a) => [a.sdtId, a.appearance]));
     for (const id of HIDDEN_IDS) expect(byId.get(id)).toBe('hidden');
-    for (const id of VISIBLE_IDS) expect(byId.get(id)).toBeNull();
+    for (const id of EXPLICIT_BOUNDING_BOX_IDS) expect(byId.get(id)).toBe('boundingBox');
+    for (const id of DEFAULT_APPEARANCE_IDS) expect(byId.get(id)).toBeNull();
   });
 
   test('hidden wrappers have no alias label child; visible wrappers do', async ({ superdoc }) => {
@@ -78,9 +77,7 @@ test.describe('inline SDT appearance=hidden (SD-3110)', () => {
     const layoutText = await superdoc.page.evaluate(() => {
       // .presentation-editor__pages is the painter-dom root; selection,
       // copy, and visual reads operate on it.
-      const root =
-        document.querySelector('.presentation-editor__pages') ??
-        document.querySelector('.superdoc-layout');
+      const root = document.querySelector('.presentation-editor__pages') ?? document.querySelector('.superdoc-layout');
       return root?.textContent ?? '';
     });
 
@@ -101,9 +98,7 @@ test.describe('inline SDT appearance=hidden (SD-3110)', () => {
     // is split across lines/fragments — each fragment carries the same
     // data-sdt-id. Scope to the painter class and take `.first()`: the
     // CSS specificity bug is per-element, so a single wrapper is enough.
-    const wrapper = superdoc.page
-      .locator('.superdoc-structured-content-inline[data-sdt-id="1001"]')
-      .first();
+    const wrapper = superdoc.page.locator('.superdoc-structured-content-inline[data-sdt-id="1001"]').first();
     await wrapper.hover();
     await superdoc.waitForStable();
 

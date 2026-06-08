@@ -12,7 +12,7 @@
 
 import type { SectionHeaderFooterKind, SectionHeaderFooterVariant } from '@superdoc/document-api';
 import type { Editor } from '../../core/Editor.js';
-import type { SectionProjection } from './sections-resolver.js';
+import { getWordPartRelsPath } from '../../core/helpers/word-part-path.js';
 import { resolveSectionProjections } from './sections-resolver.js';
 import { readTargetSectPr } from './section-projection-access.js';
 import { ensureSectPrElement, setSectPrHeaderFooterRef, readSectPrHeaderFooterRefs } from './sections-xml.js';
@@ -64,7 +64,7 @@ function cleanupCreatedPart(editor: Editor, partPath: string): void {
   const partId = partPath as PartId;
   if (hasPart(editor, partId)) removePart(editor, partId);
   removeInvalidationHandler(partId);
-  const relsPath = `word/_rels/${partPath.split('/').pop()}.rels` as PartId;
+  const relsPath = getWordPartRelsPath(partPath) as PartId;
   if (hasPart(editor, relsPath)) removePart(editor, relsPath);
 }
 
@@ -121,7 +121,7 @@ export function ensureExplicitHeaderFooterSlot(
 
   // Step 4: Resolve inherited effective ref for potential cloning.
   const sectionIndex = sections.indexOf(projection);
-  const inheritedRef = resolveEffectiveRef(editor, sections, sectionIndex, kind, variant);
+  const inheritedRef = resolveEffectiveRef(sections, sectionIndex, kind, variant);
   const effectiveSourceRefId = sourceRefId ?? inheritedRef?.refId ?? undefined;
 
   // Step 5–11: Create part + update sectPr, wrapped in compoundMutation

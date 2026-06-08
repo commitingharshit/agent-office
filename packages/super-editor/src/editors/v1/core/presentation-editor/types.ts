@@ -6,7 +6,17 @@
  */
 
 import type { Editor } from '../Editor.js';
-import type { TrackedChangesMode, FlowBlock, Layout, Measure, FlowMode, SectionMetadata } from '@superdoc/contracts';
+import type { CollaborationProvider, FontsConfig } from '../types/EditorConfig.js';
+import type {
+  TrackedChangesMode,
+  FlowBlock,
+  Layout,
+  Measure,
+  FlowMode,
+  SectionMetadata,
+  TrackChangeAuthor,
+  DocumentBackground,
+} from '@superdoc/contracts';
 import type { LayoutMode, RulerOptions } from '@superdoc/painter-dom';
 import type { ProofingConfig } from './proofing/types.js';
 import type * as Y from 'yjs';
@@ -121,6 +131,7 @@ export type ResolvedLayoutOptions =
       pageSize: PageSize;
       margins: ResolvedMarginsBase;
       columns?: { count: number; gap: number };
+      documentBackground?: DocumentBackground;
       sectionMetadata: SectionMetadata[];
       alternateHeaders?: boolean;
     }
@@ -129,6 +140,7 @@ export type ResolvedLayoutOptions =
       pageSize: PageSize;
       margins: ResolvedMarginsBase;
       columns: { count: 1; gap: 0 };
+      documentBackground?: DocumentBackground;
       semantic: {
         contentWidth: number;
         marginLeft: number;
@@ -142,6 +154,7 @@ export type ResolvedLayoutOptions =
 export type LayoutEngineOptions = {
   pageSize?: PageSize;
   margins?: PageMargins;
+  documentBackground?: DocumentBackground;
   zoom?: number;
   virtualization?: VirtualizationOptions;
   pageStyles?: Record<string, unknown>;
@@ -151,6 +164,13 @@ export type LayoutEngineOptions = {
   /** Internal-only semantic mode options (not a stable public API). */
   semanticOptions?: SemanticLayoutOptions;
   trackedChanges?: TrackedChangesOverrides;
+  /**
+   * Composed per-author tracked-change color resolver. Threaded into
+   * `toFlowBlocks` so the adapter stamps `TrackedChangeMeta.color` for each
+   * tracked-change layer before paint. Built by SuperDoc from the host
+   * `modules.trackChanges.authorColors` config. Omit to keep default colors.
+   */
+  resolveTrackedChangeColor?: (author: TrackChangeAuthor) => string | undefined;
   /** Emit comment positions while in viewing mode (used to render comment highlights). */
   emitCommentPositionsInViewing?: boolean;
   /** Render comment highlights while in viewing mode. */
@@ -176,6 +196,8 @@ export type LayoutEngineOptions = {
   showBookmarks?: boolean;
   /** Render nonprinting formatting marks such as spaces, tabs, and paragraph marks. */
   showFormattingMarks?: boolean;
+  /** Built-in SDT chrome rendering mode. */
+  contentControlsChrome?: 'default' | 'none';
 };
 
 export type PresentationEditorOptions = ConstructorParameters<typeof Editor>[0] & {
@@ -188,18 +210,24 @@ export type PresentationEditorOptions = ConstructorParameters<typeof Editor>[0] 
    */
   layoutEngineOptions?: LayoutEngineOptions;
   /**
+   * SuperDoc-level font system configuration: custom physical families, logical mappings, and
+   * bundled substitute asset URL hooks. Threaded here (not the legacy untyped `EditorConfig.fonts`)
+   * so the config-time font surface is typed.
+   */
+  fontAssets?: FontsConfig;
+  /**
    * Document mode for the editor. Determines editability and tracked changes behavior.
    * @default 'editing'
    */
   documentMode?: 'editing' | 'viewing' | 'suggesting';
   /**
-   * Collaboration provider with awareness support (e.g., WebsocketProvider from y-websocket).
-   * Required for remote cursor rendering.
+   * Collaboration provider (e.g., WebsocketProvider from y-websocket).
+   * Uses the shared `CollaborationProvider` interface from `EditorConfig`
+   * so SuperDoc and PresentationEditor agree on the provider contract.
+   * PresentationEditor internally narrows `awareness` before reading
+   * `setLocalStateField`; consumers may pass any Y-compatible provider.
    */
-  collaborationProvider?: {
-    awareness?: AwarenessWithSetField;
-    disconnect?: () => void;
-  } | null;
+  collaborationProvider?: CollaborationProvider | null;
   /**
    * Whether to disable the context menu.
    * @default false
@@ -395,6 +423,10 @@ export type FootnotesLayoutInput = {
   topPadding?: number;
   dividerHeight?: number;
   separatorSpacingBefore?: number;
+  // SD-2656: per-footnote first valid line/run height. Used by the body
+  // paginator's ordered-cluster demand model: the last anchor on a page only
+  // needs to fit its first line, all earlier anchors must fit fully.
+  firstLineHeightById?: Map<string, number>;
 };
 
 export type LayoutMetrics = {

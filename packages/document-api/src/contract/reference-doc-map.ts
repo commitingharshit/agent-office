@@ -56,6 +56,11 @@ const GROUP_METADATA: Record<ReferenceGroupKey, { title: string; description: st
     description: 'Document-level stylesheet mutations (docDefaults, style definitions).',
     pagePath: 'styles/index.mdx',
   },
+  templates: {
+    title: 'Templates',
+    description: 'Apply detected DOCX template/substrate from a source package, preserving body content.',
+    pagePath: 'templates/index.mdx',
+  },
   lists: {
     title: 'Lists',
     description: 'List inspection and list mutations.',
@@ -196,6 +201,12 @@ const GROUP_METADATA: Record<ReferenceGroupKey, { title: string; description: st
     description:
       'Custom XML Data Storage Part operations (ECMA-376 §15.2.5, §15.2.6). Raw read and write of custom XML parts in the OOXML package.',
     pagePath: 'custom-xml/index.mdx',
+  },
+  metadata: {
+    title: 'Anchored Metadata',
+    description:
+      'Attach a JSON payload to a span of text and read it back across DOCX round-trips. Backed by hidden inline content controls and namespaced Custom XML Data Storage Parts; consumers see one operation set.',
+    pagePath: 'metadata/index.mdx',
   },
 };
 

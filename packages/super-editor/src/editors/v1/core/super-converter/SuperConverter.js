@@ -12,6 +12,7 @@ import { normalizeDuplicateBlockIdentitiesInContent } from './v2/importer/normal
 import { preProcessPageFieldsOnly } from './field-references/preProcessPageFieldsOnly.js';
 import { carbonCopy } from '../utilities/carbonCopy.js';
 import { deobfuscateFont, getArrayBufferFromUrl, computeCrc32Hex } from './helpers.js';
+import { parseEmbeddingPolicy } from '@superdoc/font-system';
 import { baseNumbering } from './v2/exporter/helpers/base-list.definitions.js';
 import { DEFAULT_CUSTOM_XML, DEFAULT_DOCX_DEFS } from './exporter-docx-defs.js';
 import {
@@ -27,6 +28,7 @@ import { ensureSettingsRoot, hasUpdateFields, setUpdateFields } from '../../docu
 import { importFootnoteData, importEndnoteData } from './v2/importer/documentFootnotesImporter.js';
 import { DocxHelpers } from './docx-helpers/index.js';
 import { mergeRelationshipElements } from './relationship-helpers.js';
+import { getWordPartRelsPath, normalizeWordPartPath } from '../helpers/word-part-path.js';
 import { COMMENT_RELATIONSHIP_TYPES } from './constants.js';
 import {
   createEmptyBibliographyPart,
@@ -47,6 +49,8 @@ const FONT_FAMILY_FALLBACKS = Object.freeze({
 const DEFAULT_GENERIC_FALLBACK = 'sans-serif';
 const DEFAULT_FONT_SIZE_PT = 10;
 const CURRENT_APP_VERSION = typeof __APP_VERSION__ === 'string' && __APP_VERSION__ ? __APP_VERSION__ : '0.0.0';
+const SUPERDOC_DOCUMENT_ORIGIN_PROPERTY = 'SuperdocDocumentOrigin';
+const STORED_DOCUMENT_ORIGINS = new Set(['word', 'google-docs', 'unknown', 'superdoc']);
 
 /**
  * Pull default run formatting (font family, size, kern) out of a DOCX run properties node.
@@ -210,6 +214,14 @@ class SuperConverter {
      * @type {{ replacements?: 'paired' | 'independent' } | null}
      */
     this.trackedChangesOptions = params?.trackedChangesOptions || null;
+
+    /**
+     * Word revision id allocator. Built lazily at export time; preserves
+     * imported decimal `w:id` values and mints fresh part-local decimal ids
+     * for native revisions / successor fragments.
+     * @type {import('@extensions/track-changes/review-model/word-id-allocator').WordIdAllocator | null}
+     */
+    this.wordIdAllocator = null;
 
     this.addedMedia = {};
     this.comments = [];
@@ -996,14 +1008,33 @@ class SuperConverter {
     let styleString = '';
     for (const font of fontsToInclude) {
       const filePath = elements.find((el) => el.attributes.Id === font.attributes['r:id'])?.attributes?.Target;
-      if (!filePath) return;
+      // Skip a font with a missing relationship/binary/deobfuscation rather than aborting the whole
+      // method (one malformed embedded font must not drop every other font's @font-face). Matches the
+      // registry path (getEmbeddedFontFaces), which already `continue`s past the same cases.
+      if (!filePath) continue;
 
       const fontUint8Array = this.fonts[`word/${filePath}`];
-      const fontBuffer = fontUint8Array?.buffer;
-      if (!fontBuffer) return;
+      if (!fontUint8Array?.buffer) continue;
+      // Copy the EXACT view bytes into a fresh buffer BEFORE deobfuscating. deobfuscateFont XORs its
+      // input IN PLACE; passing `this.fonts[...].buffer` would mutate the shared embedded-font bytes,
+      // so the later registry extraction (getEmbeddedFontFaces) would double-XOR and corrupt the face.
+      // The byteOffset/byteLength slice also avoids XORing the wrong bytes when the Uint8Array is a
+      // view into a larger pooled buffer. getEmbeddedFontFaces already copies the same way.
+      const fontBuffer = fontUint8Array.buffer.slice(
+        fontUint8Array.byteOffset,
+        fontUint8Array.byteOffset + fontUint8Array.byteLength,
+      );
 
       const ttfBuffer = deobfuscateFont(fontBuffer, font.attributes['w:fontKey']);
-      if (!ttfBuffer) return;
+      if (!ttfBuffer) continue;
+
+      // Honor the embedding policy here too. The registry path (getEmbeddedFontFaces) skips a face whose
+      // OS/2 fsType forbids embedding (or is unreadable), but this legacy @font-face injection would
+      // otherwise still emit the restricted bytes under the logical family. Reuse the SAME rule
+      // (parseEmbeddingPolicy; a null/unreadable policy is conservatively not embeddable) so the policy
+      // gate has one source of truth; skip just this face rather than aborting the rest.
+      const policy = parseEmbeddingPolicy(ttfBuffer);
+      if (!(policy ? policy.embeddable : false)) continue;
 
       // Convert to a blob and inject @font-face
       const blob = new Blob([ttfBuffer], { type: 'font/ttf' });
@@ -1033,6 +1064,82 @@ class SuperConverter {
       styleString,
       fontsImported,
     };
+  }
+
+  /**
+   * Extract the document's embedded fonts as structured, deobfuscated faces for first-class registry
+   * registration (the architecturally correct replacement for the legacy `@font-face` CSS injection in
+   * {@link getFontFaceImportString}). The converter only extracts + deobfuscates + classifies; it does
+   * NOT create object URLs, inject `<style>`, or decide what to register. Each face carries the
+   * deobfuscated bytes, its OS/2-derived weight/style + raw `fsType` licensing, and the `fontTable`
+   * relationship id. The document font controller decides which to register, skipping faces that are
+   * not embeddable (Restricted-License) or whose OS/2 table was unreadable (conservative: no license
+   * proof -> fall through to the bundled substitute).
+   *
+   * @returns {Array<{ family: string, source: ArrayBuffer, weight: '400'|'700', style: 'normal'|'italic', fsType: number|null, embeddable: boolean, relationshipId: string }>}
+   */
+  getEmbeddedFontFaces() {
+    const fontTable = this.convertedXml['word/fontTable.xml'];
+    if (!fontTable || !Object.keys(this.fonts).length) return [];
+
+    const wFonts = fontTable.elements?.find((el) => el.name === 'w:fonts');
+    const embeddedEntries =
+      wFonts?.elements?.filter((el) =>
+        el.elements?.some((nested) => nested?.attributes?.['r:id'] && nested?.attributes?.['w:fontKey']),
+      ) ?? [];
+    const embedElements = embeddedEntries.flatMap((entry) =>
+      (entry.elements ?? [])
+        .filter((el) => el.name?.startsWith('w:embed'))
+        .map((el) => ({ embed: el, family: entry.attributes?.['w:name'] })),
+    );
+
+    const rels = this.convertedXml['word/_rels/fontTable.xml.rels'];
+    const relElements = rels?.elements?.find((el) => el.name === 'Relationships')?.elements ?? [];
+
+    // Weight/style fallback from the w:embed* element name (w:embedRegular/Bold/Italic/BoldItalic),
+    // used only when the OS/2 table is unreadable.
+    const faceFromEmbedName = (name = '') => ({
+      weight: /bold/i.test(name) ? '700' : '400',
+      style: /italic/i.test(name) ? 'italic' : 'normal',
+    });
+
+    const faces = [];
+    for (const { embed, family } of embedElements) {
+      const relationshipId = embed.attributes?.['r:id'];
+      const fontKey = embed.attributes?.['w:fontKey'];
+      // Skip a malformed embed rather than aborting the whole extraction (one bad font must not drop
+      // every other embedded face).
+      if (!family || !relationshipId || !fontKey) continue;
+      const filePath = relElements.find((el) => el.attributes?.Id === relationshipId)?.attributes?.Target;
+      if (!filePath) continue;
+      const fontUint8Array = this.fonts[`word/${filePath}`];
+      if (!fontUint8Array?.buffer) continue;
+      // Slice the EXACT view bytes into a fresh buffer. fontUint8Array may be a view into a larger
+      // (pooled) buffer, and deobfuscateFont XORs its input IN PLACE and returns the whole buffer -
+      // so passing `.buffer` would deobfuscate the wrong bytes and corrupt the shared `this.fonts`
+      // data. The fresh copy is also the independent buffer the registry will own.
+      const sourceBytes = fontUint8Array.buffer.slice(
+        fontUint8Array.byteOffset,
+        fontUint8Array.byteOffset + fontUint8Array.byteLength,
+      );
+      const ttf = deobfuscateFont(sourceBytes, fontKey);
+      if (!ttf) continue;
+
+      const policy = parseEmbeddingPolicy(ttf);
+      const fallback = faceFromEmbedName(embed.name);
+      faces.push({
+        family,
+        source: ttf,
+        weight: policy?.face.weight ?? fallback.weight,
+        style: policy?.face.style ?? fallback.style,
+        fsType: policy?.fsType ?? null,
+        // Conservative: an unreadable OS/2 table (null policy) is NOT embeddable - we cannot prove the
+        // license permits embedding, so the controller skips it and the bundled substitute renders.
+        embeddable: policy ? policy.embeddable : false,
+        relationshipId,
+      });
+    }
+    return faces;
   }
 
   getDocumentInternalId() {
@@ -1269,6 +1376,13 @@ class SuperConverter {
 
     // Store SuperDoc version
     SuperConverter.setStoredSuperdocVersion(this.convertedXml);
+    const storedDocumentOrigin = STORED_DOCUMENT_ORIGINS.has(this.documentOrigin) ? this.documentOrigin : 'superdoc';
+    SuperConverter.setStoredCustomProperty(
+      this.convertedXml,
+      SUPERDOC_DOCUMENT_ORIGIN_PROPERTY,
+      storedDocumentOrigin,
+      false,
+    );
 
     // Store document GUID if document was modified
     if (this.documentModified || this.documentGuid) {
@@ -1301,6 +1415,8 @@ class SuperConverter {
     fieldsHighlightColor = null,
     preserveSdtWrappers = false,
     statFieldCacheMap = undefined,
+    existingRelationships = [],
+    partPath = 'word/document.xml',
   }) {
     const bodyNode = this.savedTagsToRestore.find((el) => el.name === 'w:body');
 
@@ -1337,6 +1453,8 @@ class SuperConverter {
       fieldsHighlightColor,
       preserveSdtWrappers,
       statFieldCacheMap: resolvedCacheMap,
+      existingRelationships,
+      currentPartPath: partPath,
     });
 
     return { result, params };
@@ -1478,9 +1596,13 @@ class SuperConverter {
     const newDocRels = [];
 
     Object.entries(this.headers).forEach(([id, header], index) => {
-      const fileName =
+      const relationshipTarget =
         relationships.elements.find((el) => el.attributes.Id === id)?.attributes.Target || `header${index + 1}.xml`;
+      const partPath = normalizeWordPartPath(relationshipTarget);
+      const relsPath = getWordPartRelsPath(partPath);
       const headerEditor = this.headerEditors.find((item) => item.id === id);
+      const existingRelationships =
+        this.convertedXml[relsPath]?.elements?.find((x) => x.name === 'Relationships')?.elements || [];
 
       if (!headerEditor) return;
 
@@ -1492,13 +1614,15 @@ class SuperConverter {
         commentDefinitions: [],
         isHeaderFooter: true,
         isFinalDoc,
+        existingRelationships,
+        partPath,
       });
 
       const bodyContent = result.elements[0].elements;
-      const file = this.convertedXml[`word/${fileName}`];
+      const file = this.convertedXml[partPath];
 
       if (!file) {
-        this.convertedXml[`word/${fileName}`] = {
+        this.convertedXml[partPath] = {
           declaration: this.initialJSON?.declaration,
           elements: [
             {
@@ -1515,18 +1639,15 @@ class SuperConverter {
           attributes: {
             Id: id,
             Type: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/header',
-            Target: fileName,
+            Target: partPath.replace(/^word\//, ''),
           },
         });
       }
 
-      this.convertedXml[`word/${fileName}`].elements[0].elements = bodyContent;
+      this.convertedXml[partPath].elements[0].elements = bodyContent;
 
       if (params.relationships.length) {
-        const relationships =
-          this.convertedXml[`word/_rels/${fileName}.rels`]?.elements?.find((x) => x.name === 'Relationships')
-            ?.elements || [];
-        this.convertedXml[`word/_rels/${fileName}.rels`] = {
+        this.convertedXml[relsPath] = {
           declaration: this.initialJSON?.declaration,
           elements: [
             {
@@ -1534,7 +1655,7 @@ class SuperConverter {
               attributes: {
                 xmlns: 'http://schemas.openxmlformats.org/package/2006/relationships',
               },
-              elements: [...relationships, ...params.relationships],
+              elements: mergeRelationshipElements(existingRelationships, params.relationships),
             },
           ],
         };
@@ -1542,9 +1663,13 @@ class SuperConverter {
     });
 
     Object.entries(this.footers).forEach(([id, footer], index) => {
-      const fileName =
+      const relationshipTarget =
         relationships.elements.find((el) => el.attributes.Id === id)?.attributes.Target || `footer${index + 1}.xml`;
+      const partPath = normalizeWordPartPath(relationshipTarget);
+      const relsPath = getWordPartRelsPath(partPath);
       const footerEditor = this.footerEditors.find((item) => item.id === id);
+      const existingRelationships =
+        this.convertedXml[relsPath]?.elements?.find((x) => x.name === 'Relationships')?.elements || [];
 
       if (!footerEditor) return;
 
@@ -1556,13 +1681,15 @@ class SuperConverter {
         commentDefinitions: [],
         isHeaderFooter: true,
         isFinalDoc,
+        existingRelationships,
+        partPath,
       });
 
       const bodyContent = result.elements[0].elements;
-      const file = this.convertedXml[`word/${fileName}`];
+      const file = this.convertedXml[partPath];
 
       if (!file) {
-        this.convertedXml[`word/${fileName}`] = {
+        this.convertedXml[partPath] = {
           declaration: this.initialJSON?.declaration,
           elements: [
             {
@@ -1579,18 +1706,15 @@ class SuperConverter {
           attributes: {
             Id: id,
             Type: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer',
-            Target: fileName,
+            Target: partPath.replace(/^word\//, ''),
           },
         });
       }
 
-      this.convertedXml[`word/${fileName}`].elements[0].elements = bodyContent;
+      this.convertedXml[partPath].elements[0].elements = bodyContent;
 
       if (params.relationships.length) {
-        const relationships =
-          this.convertedXml[`word/_rels/${fileName}.rels`]?.elements?.find((x) => x.name === 'Relationships')
-            ?.elements || [];
-        this.convertedXml[`word/_rels/${fileName}.rels`] = {
+        this.convertedXml[relsPath] = {
           declaration: this.initialJSON?.declaration,
           elements: [
             {
@@ -1598,7 +1722,7 @@ class SuperConverter {
               attributes: {
                 xmlns: 'http://schemas.openxmlformats.org/package/2006/relationships',
               },
-              elements: [...relationships, ...params.relationships],
+              elements: mergeRelationshipElements(existingRelationships, params.relationships),
             },
           ],
         };

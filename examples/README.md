@@ -51,6 +51,7 @@ Patterns for the browser editor surface.
 | [comments](./editor/built-in-ui/comments) | [docs](https://docs.superdoc.dev/editor/built-in-ui/comments) |
 | [track-changes](./editor/built-in-ui/track-changes) | [docs](https://docs.superdoc.dev/editor/built-in-ui/track-changes) |
 | [toolbar](./editor/built-in-ui/toolbar) | [docs](https://docs.superdoc.dev/editor/built-in-ui/toolbar) |
+| [responsive-zoom](./editor/built-in-ui/responsive-zoom) | [docs](https://docs.superdoc.dev/editor/superdoc/configuration#param-zoom) |
 
 ### Custom UI
 
@@ -99,6 +100,7 @@ Put operation-level examples here even when the browser editor hosts the example
 | Example | Pattern |
 |---------|---------|
 | [content-controls/tagged-inline-text](./document-api/content-controls/tagged-inline-text) | The smallest content-control workflow: wrap a word, find by tag, update value. |
+| [metadata-anchors](./document-api/metadata-anchors) | The smallest metadata-anchor workflow: attach a JSON payload to a span, then list, get, resolve, and remove it. |
 
 ## Document Engine
 
@@ -118,6 +120,7 @@ Document editing through models and agents.
 | [bedrock](./ai/bedrock) | AWS Bedrock Converse API with tool use |
 | [streaming](./ai/streaming) | Stream model output into a visible editor |
 | [redlining](./ai/redlining) | LLM-driven tracked-change review (browser) |
+| [footnote-tool-agent](./ai/footnote-tool-agent) | Real LLM tool-use loop: model picks `addFootnoteCitation`, browser executes against `editor.doc` |
 
 ## Advanced
 

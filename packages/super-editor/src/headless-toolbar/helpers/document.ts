@@ -1,6 +1,6 @@
 import { undoDepth, redoDepth } from 'prosemirror-history';
 import { yUndoPluginKey } from 'y-prosemirror';
-import { isCommandDisabled } from './general.js';
+import { isCommandDisabled, isMutationCommandDisabled } from './general.js';
 import { resolveStateEditor } from './context.js';
 import type { ToolbarCommandState, ToolbarContext } from '../types.js';
 
@@ -60,6 +60,42 @@ export const getCurrentRedoDepth = (context: ToolbarContext | null) => {
   }
 };
 
+/**
+ * Disable a toolbar control when a document-api operation is unavailable
+ * (missing extension commands, tracked-mode restrictions, etc.).
+ */
+export const createDocumentOperationCapabilityStateDeriver =
+  (operationId: string) =>
+  ({ context }: { context: ToolbarContext | null }): ToolbarCommandState => {
+    if (isMutationCommandDisabled(context)) {
+      return {
+        active: false,
+        disabled: true,
+      };
+    }
+
+    const doc = context?.target?.doc;
+    if (typeof doc?.capabilities !== 'function') {
+      return {
+        active: false,
+        disabled: true,
+      };
+    }
+
+    try {
+      const available = Boolean(doc.capabilities().operations[operationId]?.available);
+      return {
+        active: false,
+        disabled: !available,
+      };
+    } catch {
+      return {
+        active: false,
+        disabled: true,
+      };
+    }
+  };
+
 export const createHistoryStateDeriver =
   (kind: 'undo' | 'redo') =>
   ({ context }: { context: ToolbarContext | null }): ToolbarCommandState => {
@@ -108,6 +144,16 @@ export const createZoomStateDeriver =
     };
   };
 
+export const createZoomFitWidthStateDeriver =
+  () =>
+  ({ context, superdoc }: { context: ToolbarContext | null; superdoc: Record<string, any> }): ToolbarCommandState => {
+    const mode = typeof superdoc?.getZoomState === 'function' ? superdoc.getZoomState()?.mode : undefined;
+    return {
+      active: mode === 'fit-width',
+      disabled: !context || typeof superdoc?.setZoomMode !== 'function',
+    };
+  };
+
 export const createDocumentModeStateDeriver =
   () =>
   ({ context, superdoc }: { context: ToolbarContext | null; superdoc: Record<string, any> }): ToolbarCommandState => {
@@ -143,6 +189,18 @@ export const createZoomExecute =
     }
 
     superdoc.setZoom?.(normalizedPayload);
+    return true;
+  };
+
+// Toggle fit-width mode. A second activation returns to manual at the
+// current value, matching toolbar toggle conventions; numeric zoom stays
+// on the separate `zoom` command.
+export const createZoomFitWidthExecute =
+  () =>
+  ({ superdoc }: { context: ToolbarContext | null; superdoc: Record<string, any>; payload?: unknown }) => {
+    if (typeof superdoc?.setZoomMode !== 'function') return false;
+    const mode = typeof superdoc.getZoomState === 'function' ? superdoc.getZoomState()?.mode : undefined;
+    superdoc.setZoomMode(mode === 'fit-width' ? 'manual' : 'fit-width');
     return true;
   };
 

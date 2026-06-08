@@ -1293,6 +1293,7 @@ onBeforeUnmount(() => {
     class="super-editor-container"
     :class="{ 'web-layout': isWebLayout, contained: isContained }"
     :style="containerStyle"
+    data-sd-part="editor-root"
   >
     <!-- Ruler: teleport to external container if specified, otherwise render inline (hidden in web layout) -->
     <Teleport
@@ -1346,7 +1347,7 @@ onBeforeUnmount(() => {
       <!-- Image resize overlay for interactive image resizing -->
       <ImageResizeOverlay
         v-if="editorReady && activeEditor"
-        :editor="activeEditor"
+        :editor="contextMenuEditor"
         :visible="imageResizeState.visible"
         :imageElement="imageResizeState.imageElement"
       />

@@ -8,14 +8,21 @@ import type {
   ToolbarSnapshot,
 } from '../headless-toolbar/types.js';
 import type {
+  AnchoredMetadataResolveInfo,
   CommentsListResult,
   ContentControlInfo,
   ContentControlsListResult,
   Receipt,
   ScrollIntoViewInput,
   ScrollIntoViewOutput,
+  SelectionTarget,
+  TextTarget,
   TrackChangesListResult,
 } from '@superdoc/document-api';
+import { composeAuthorColorResolver } from '@superdoc/contracts';
+import type { TrackChangeAuthorColorResolver } from '@superdoc/contracts';
+import { buildFontFamilyOptions } from '@superdoc/font-system';
+import type { FontFamilyOption } from '@superdoc/font-system';
 import { collectEntityHitsFromChain } from './entity-at.js';
 import { shallowEqual } from './equality.js';
 import { resolvePositionAt } from './position-at.js';
@@ -38,6 +45,8 @@ import type {
   DocumentSlice,
   DynamicCommandHandle,
   EqualityFn,
+  FontsHandle,
+  MetadataHandle,
   TrackChangesHandle,
   TrackChangesItem,
   TrackChangesSlice,
@@ -62,8 +71,13 @@ import type {
   ViewportPositionAtInput,
   ViewportPositionHit,
   ViewportHandle,
+  ViewportGeometryEvent,
+  ContentControlFocusResult,
   ViewportRect,
   ViewportRectResult,
+  ZoomHandle,
+  ZoomMode,
+  ZoomSlice,
 } from './types.js';
 
 /**
@@ -102,7 +116,7 @@ const EDITOR_EVENTS = [
  */
 const LIST_REFRESH_EVENTS = ['commentsUpdate', 'commentsLoaded', 'tracked-changes-changed'] as const;
 
-const SUPERDOC_EVENTS = ['editorCreate', 'document-mode-change', 'zoomChange'] as const;
+const SUPERDOC_EVENTS = ['editorCreate', 'document-mode-change', 'zoomChange', 'viewport-change'] as const;
 
 /**
  * Presentation-editor events the controller listens to. These signal
@@ -214,6 +228,36 @@ function deepFreeze<T>(value: T): T {
 }
 
 /**
+ * SD-3213g: single documented bridge between `SuperDocLike` and
+ * `resolveToolbarSources`'s `ToolbarHostShape`. The cast lives here so
+ * callers don't repeat `superdoc as never` at every site.
+ *
+ * Why the cast is intentional, not type-system noise:
+ *
+ * - `SuperDocLike` is intentionally stub-friendly. Its `activeEditor`
+ *   is `SuperDocEditorLike | null` (a UI-level structural type) so
+ *   consumer tests can pass narrow handcrafted hosts without pulling
+ *   in the full `Editor` graph.
+ * - At runtime, a real `SuperDoc` instance's `activeEditor` is always
+ *   a real `Editor` that satisfies `ToolbarHostShape` structurally.
+ *   The two types describe the same runtime value at different
+ *   abstraction levels.
+ * - Custom commands (and other UI paths) require **late-bound** routing
+ *   resolved at execute time, not at controller construction; the
+ *   cached `toolbarSnapshot.context` only reflects state at the last
+ *   subscription event. So fresh `resolveToolbarSources` calls are
+ *   load-bearing for the `'execute receives the routed editor
+ *   late-bound'` contract pinned in `custom-commands.test.ts`.
+ *
+ * Use this helper anywhere the UI needs a fresh resolver walk. Do not
+ * call `resolveToolbarSources(superdoc as never)` elsewhere in this
+ * file.
+ */
+function resolveFreshToolbarSources(superdoc: SuperDocUIOptions['superdoc']) {
+  return resolveToolbarSources(superdoc as never);
+}
+
+/**
  * Resolve the **routed** editor — the body, header, footer, or note
  * editor that PresentationEditor currently routes input/selection to.
  * Falls back to `superdoc.activeEditor` when no presentation layer is
@@ -226,7 +270,7 @@ function deepFreeze<T>(value: T): T {
  */
 function resolveRoutedEditor(superdoc: SuperDocUIOptions['superdoc']): SuperDocEditorLike | null {
   try {
-    const sources = resolveToolbarSources(superdoc as never);
+    const sources = resolveFreshToolbarSources(superdoc);
     return (sources.activeEditor as unknown as SuperDocEditorLike | null) ?? null;
   } catch {
     return (superdoc.activeEditor ?? null) as SuperDocEditorLike | null;
@@ -260,7 +304,7 @@ function resolvePresentationEditor(superdoc: SuperDocUIOptions['superdoc']): {
   off?: (event: string, handler: (...args: unknown[]) => void) => unknown;
 } | null {
   try {
-    const sources = resolveToolbarSources(superdoc as never);
+    const sources = resolveFreshToolbarSources(superdoc);
     return (sources.presentationEditor as never) ?? null;
   } catch {
     return null;
@@ -335,7 +379,7 @@ function readActiveStoryLocator(
 ): import('@superdoc/document-api').StoryLocator | null {
   let presentation: { getActiveStoryLocator?: () => unknown } | null = null;
   try {
-    const sources = resolveToolbarSources(superdoc as never);
+    const sources = resolveFreshToolbarSources(superdoc);
     presentation = (sources.presentationEditor as never) ?? null;
   } catch {
     return null;
@@ -394,6 +438,11 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
   // same selector substrate as the rest of the controller. Per-command
   // state derivers in the registry are wrapped to default to disabled
   // on throw, so a partial editor never wedges snapshot construction.
+  // SD-3213g: documented bridge cast. Same rationale as the comment on
+  // `resolveFreshToolbarSources` above: SuperDocLike is intentionally
+  // stub-friendly, runtime SuperDoc.activeEditor is a real Editor that
+  // satisfies the host contract structurally. Concentrated here so the
+  // call site stays an obvious boundary, not scattered casts elsewhere.
   const toolbarController: HeadlessToolbarController = createHeadlessToolbar({
     superdoc: superdoc as unknown as HeadlessToolbarSuperdocHost,
     // Pass the full registry so snapshot.commands is populated for
@@ -486,6 +535,15 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
   };
   refreshTrackChangesListCache();
 
+  // Per-author tracked-change color resolver. Built once from the host
+  // `modules.trackChanges.authorColors` config so the snapshot colors match
+  // exactly what the layout engine paints (both go through
+  // `composeAuthorColorResolver`). `undefined` when colors are disabled /
+  // unconfigured, in which case items carry no `authorColor`.
+  const authorColorResolver: TrackChangeAuthorColorResolver | undefined = composeAuthorColorResolver(
+    superdoc.config?.modules?.trackChanges?.authorColors,
+  );
+
   // Content-controls slice cache (SD-3157). Same posture as comments
   // and tracked changes: list reads are O(N), so cache the list and
   // refresh on document-changing events. `activeIds` derives from the
@@ -504,9 +562,7 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
       return;
     }
     try {
-      const result = list.call(editor.doc!.contentControls, undefined) as
-        | ContentControlsListResult
-        | undefined;
+      const result = list.call(editor.doc!.contentControls, undefined) as ContentControlsListResult | undefined;
       contentControlsListCache = result ?? EMPTY_CONTENT_CONTROLS_LIST;
     } catch {
       // See refreshCommentsListCache: prefer empty over leaking the
@@ -515,6 +571,28 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
     }
   };
   refreshContentControlsListCache();
+
+  let fontOptionsCache: FontFamilyOption[] = buildFontFamilyOptions([]);
+  const fontOptionsSignatureFor = (options: readonly FontFamilyOption[]) =>
+    JSON.stringify(options.map((option) => [option.label, option.value, option.previewFamily]));
+  let fontOptionsSignature = fontOptionsSignatureFor(fontOptionsCache);
+  const refreshFontOptionsCache = () => {
+    let next: FontFamilyOption[];
+    try {
+      next = buildFontFamilyOptions(superdoc.fonts?.getDocumentFontOptions?.() ?? []);
+    } catch {
+      next = buildFontFamilyOptions([]);
+    }
+    const signature = fontOptionsSignatureFor(next);
+    if (signature === fontOptionsSignature) return false;
+    fontOptionsSignature = signature;
+    fontOptionsCache = next;
+    return true;
+  };
+  const refreshFontOptionsAndNotify = () => {
+    if (refreshFontOptionsCache()) scheduleNotify();
+  };
+  refreshFontOptionsCache();
 
   /**
    * Memoized content-controls slice. Items array reference stays
@@ -575,8 +653,7 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
     const selectedNode = selection.node;
     if (
       selectedNode &&
-      (selectedNode.type?.name === 'structuredContent' ||
-        selectedNode.type?.name === 'structuredContentBlock')
+      (selectedNode.type?.name === 'structuredContent' || selectedNode.type?.name === 'structuredContentBlock')
     ) {
       const id = selectedNode.attrs?.id;
       if (typeof id === 'string' && id.length > 0 && validIds.has(id)) {
@@ -589,10 +666,7 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
     const anchor = selection.$anchor;
     if (anchor && typeof anchor.depth === 'number' && typeof anchor.node === 'function') {
       for (let d = anchor.depth; d >= 0; d -= 1) {
-        const node = anchor.node(d) as
-          | { type?: { name?: string }; attrs?: { id?: unknown } }
-          | null
-          | undefined;
+        const node = anchor.node(d) as { type?: { name?: string }; attrs?: { id?: unknown } } | null | undefined;
         const typeName = node?.type?.name;
         if (typeName !== 'structuredContent' && typeName !== 'structuredContentBlock') continue;
         const id = node?.attrs?.id;
@@ -655,6 +729,64 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
    * either field, but they do trigger computeState rebuilds).
    */
   let documentMemo: { slice: DocumentSlice } | null = null;
+  let zoomMemo: { slice: ZoomSlice } | null = null;
+
+  // Static fallback for hosts without the zoom surface (older builds,
+  // minimal stubs): manual mode at 100% with no metrics.
+  const FALLBACK_ZOOM_SLICE: ZoomSlice = Object.freeze({
+    mode: 'manual',
+    value: 100,
+    fitZoom: null,
+    min: 10,
+    max: 100,
+    metrics: null,
+  });
+
+  // Read the host zoom state + metrics into one slice. Memoized on the
+  // field values. Metrics compare by reference, which is equivalent to a
+  // field-wise compare because the host's viewport-fit store replaces the
+  // (frozen) metrics object only when a field actually changed; if that
+  // invariant moves, switch this to field-wise. `shallowEqual` on
+  // `state.zoom` then short-circuits `ui.zoom.observe` while nothing
+  // zoom-related changes.
+  const computeZoomSlice = (): ZoomSlice => {
+    if (typeof superdoc.getZoomState !== 'function') return FALLBACK_ZOOM_SLICE;
+    let state: ReturnType<NonNullable<typeof superdoc.getZoomState>> | null = null;
+    try {
+      state = superdoc.getZoomState();
+    } catch {
+      state = null;
+    }
+    if (!state) return FALLBACK_ZOOM_SLICE;
+    let metrics: ZoomSlice['metrics'] = null;
+    try {
+      metrics = superdoc.getViewportMetrics?.() ?? null;
+    } catch {
+      metrics = null;
+    }
+    const prev = zoomMemo?.slice;
+    if (
+      prev &&
+      prev.mode === state.mode &&
+      prev.value === state.value &&
+      prev.fitZoom === state.fitZoom &&
+      prev.min === state.min &&
+      prev.max === state.max &&
+      prev.metrics === metrics
+    ) {
+      return prev;
+    }
+    const slice: ZoomSlice = {
+      mode: state.mode,
+      value: state.value,
+      fitZoom: state.fitZoom,
+      min: state.min,
+      max: state.max,
+      metrics,
+    };
+    zoomMemo = { slice };
+    return slice;
+  };
 
   /**
    * Internal dirty flag. Flipped to `true` by any editor transaction
@@ -761,17 +893,40 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
     ) {
       trackChangesSlice = trackChangesMemo.slice;
     } else {
-      const items: TrackChangesItem[] = trackChangesListCache.items.map((change) => ({
-        id: change.id,
-        change,
-      }));
+      // Resolve per-author colors (when configured) for each change, plus the
+      // ordered unique author list. Resolution mirrors the layout-engine paint
+      // path so snapshot colors match what is rendered.
+      const authors: TrackChangesSlice['authors'] = [];
+      const seenAuthorKeys = new Set<string>();
+      const items: TrackChangesItem[] = trackChangesListCache.items.map((change) => {
+        if (!authorColorResolver) {
+          return { id: change.id, change };
+        }
+        const author = {
+          name: typeof change.author === 'string' ? change.author : undefined,
+          email: typeof change.authorEmail === 'string' ? change.authorEmail : undefined,
+          image: typeof change.authorImage === 'string' ? change.authorImage : undefined,
+        };
+        const authorColor = authorColorResolver(author);
+        if (authorColor && (author.name || author.email)) {
+          const key = JSON.stringify([author.name ?? '', author.email ?? '']);
+          if (!seenAuthorKeys.has(key)) {
+            seenAuthorKeys.add(key);
+            authors.push({ ...author, color: authorColor });
+          }
+        }
+        if (!authorColor) {
+          return { id: change.id, change };
+        }
+        return { id: change.id, change: { ...change, authorColor }, authorColor };
+      });
       // If the previously active id dropped out of the feed (e.g. an
       // accept/reject), reset to null. Compute *after* items is built
       // so the final slice matches the eventual activeTrackChangeId.
       if (activeTrackChangeId && !items.some((item) => item.id === activeTrackChangeId)) {
         activeTrackChangeId = null;
       }
-      trackChangesSlice = { items, total: items.length, activeId: activeTrackChangeId };
+      trackChangesSlice = { items, total: items.length, activeId: activeTrackChangeId, authors };
       trackChangesMemo = {
         changesRef: trackChangesListCache.items,
         activeId: activeTrackChangeId,
@@ -868,6 +1023,8 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
       documentMode,
       document: documentSlice,
       selection: selectionSlice,
+      zoom: computeZoomSlice(),
+      fonts: { options: fontOptionsCache },
       toolbar: { context: toolbarSnapshot.context, commands: builtInCommands } as ToolbarSnapshotSlice,
       comments: {
         total: commentsListCache.total,
@@ -925,6 +1082,95 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
     };
   };
 
+  // --- Viewport geometry-invalidation signal (ui.viewport.observe) ---------
+  // One "your cached getRect() coords may be stale, re-query" notification.
+  // Sources: layout/pagination repaints (post-paint), zoom, and DOM scroll /
+  // resize. rAF-coalesced, so a burst collapses to one notification per frame.
+  const geometryListeners = new Set<(event: ViewportGeometryEvent) => void>();
+  const pendingGeometryReasons = new Set<Exclude<ViewportGeometryEvent['reason'], 'mixed'>>();
+  let geometryRaf: number | null = null;
+  let zoomPending = false;
+
+  const cancelGeometryFrame = () => {
+    if (geometryRaf == null) return;
+    if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(geometryRaf);
+    else clearTimeout(geometryRaf as unknown as ReturnType<typeof setTimeout>);
+    geometryRaf = null;
+  };
+  const flushGeometry = () => {
+    geometryRaf = null;
+    const reasons = [...pendingGeometryReasons];
+    pendingGeometryReasons.clear();
+    if (geometryListeners.size === 0 || reasons.length === 0) return;
+    const reason: ViewportGeometryEvent['reason'] = reasons.length === 1 ? reasons[0] : 'mixed';
+    [...geometryListeners].forEach((listener) => {
+      try {
+        listener({ reason });
+      } catch {
+        // Isolate a faulty consumer; the others still get notified.
+      }
+    });
+  };
+  const scheduleGeometry = (reason: Exclude<ViewportGeometryEvent['reason'], 'mixed'>) => {
+    if (geometryListeners.size === 0) return;
+    pendingGeometryReasons.add(reason);
+    if (geometryRaf != null) return;
+    geometryRaf =
+      typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame(flushGeometry)
+        : (setTimeout(flushGeometry, 0) as unknown as number);
+  };
+  // zoomChange fires *before* the re-render, so notifying then would hand
+  // consumers stale rects. Tag the next post-paint layout flush as 'zoom'.
+  // Only a changed VALUE schedules a repaint; mode-only transitions
+  // (setZoomMode with an unchanged value) would latch a tag no flush ever
+  // consumes, mis-labeling the next unrelated layout notification.
+  let lastGeometryZoomValue: number | null = (() => {
+    try {
+      return superdoc.getZoomState?.().value ?? null;
+    } catch {
+      return null;
+    }
+  })();
+  const onGeometryZoom = (...args: unknown[]) => {
+    const payload = args[0] as { zoom?: number } | undefined;
+    const nextZoom = typeof payload?.zoom === 'number' ? payload.zoom : null;
+    if (nextZoom !== null && nextZoom === lastGeometryZoomValue) return;
+    lastGeometryZoomValue = nextZoom;
+    zoomPending = true;
+  };
+  const onGeometryLayout = () => {
+    if (zoomPending) {
+      zoomPending = false;
+      scheduleGeometry('zoom');
+    } else {
+      scheduleGeometry('layout');
+    }
+  };
+  const onWindowScrollGeometry = () => scheduleGeometry('scroll');
+  const onWindowResizeGeometry = () => scheduleGeometry('resize');
+  let domGeometryAttached = false;
+  const attachDomGeometryListeners = () => {
+    if (domGeometryAttached || typeof window === 'undefined') return;
+    domGeometryAttached = true;
+    // Capture phase so scrolls inside the editor's own scroll container
+    // (scroll events don't bubble) are still observed.
+    window.addEventListener('scroll', onWindowScrollGeometry, true);
+    window.addEventListener('resize', onWindowResizeGeometry);
+  };
+  const detachDomGeometryListeners = () => {
+    if (!domGeometryAttached || typeof window === 'undefined') return;
+    domGeometryAttached = false;
+    window.removeEventListener('scroll', onWindowScrollGeometry, true);
+    window.removeEventListener('resize', onWindowResizeGeometry);
+  };
+  teardown.push(() => {
+    detachDomGeometryListeners();
+    cancelGeometryFrame();
+    geometryListeners.clear();
+    pendingGeometryReasons.clear();
+  });
+
   // Wire SuperDoc-instance events. The wrapper-side bus (editorCreate /
   // document-mode-change / zoomChange) is the only path for some of
   // these signals today; if the wrapper migrates them to the editor
@@ -933,8 +1179,14 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
     SUPERDOC_EVENTS.forEach((name) => {
       superdoc.on?.(name, scheduleNotify);
     });
+    // zoom drives geometry (post-paint, tagged via onGeometryLayout) — separate
+    // from the slice recompute that SUPERDOC_EVENTS triggers.
+    superdoc.on?.('zoomChange', onGeometryZoom);
+    superdoc.on?.('fonts-changed', refreshFontOptionsAndNotify);
     teardown.push(() => {
       SUPERDOC_EVENTS.forEach((name) => superdoc.off?.(name, scheduleNotify));
+      superdoc.off?.('zoomChange', onGeometryZoom);
+      superdoc.off?.('fonts-changed', refreshFontOptionsAndNotify);
     });
   }
 
@@ -987,7 +1239,10 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
 
   const attachEditorListeners = () => {
     const next = resolveRoutedEditor(superdoc);
-    if (next === currentEditor) return;
+    if (next === currentEditor) {
+      refreshFontOptionsAndNotify();
+      return;
+    }
     currentEditorTeardown?.();
     currentEditorTeardown = null;
     currentEditor = next;
@@ -1024,11 +1279,12 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
       next.off?.('transaction', onTransaction);
       next.off?.('transaction', onDocChangedForContentControls);
     };
-    // The set of source events changed and the routed editor swapped
-    // — refresh the comments + content-controls caches for the new
-    // editor and recompute state so subscribers see the new selection.
+    // The set of source events changed and the routed editor swapped.
+    // Refresh caches before recomputing state so subscribers see the
+    // new document's current data.
     refreshCommentsListCache();
     refreshContentControlsListCache();
+    refreshFontOptionsCache();
     scheduleNotify();
   };
 
@@ -1056,8 +1312,18 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
     PRESENTATION_EVENTS.forEach((name) => {
       next.on?.(name, onPresentationChange);
     });
+    // Geometry-only: layout repaints move painted rects without a body
+    // `transaction`. Drive the viewport geometry signal, NOT the slice
+    // recompute (which would re-attach editor listeners on every repaint).
+    // Listen to `layoutUpdated` only: `paginationUpdate` is emitted
+    // back-to-back with the same payload for the same paint
+    // (PresentationEditor.ts:6491-6492), so subscribing to both would
+    // double-count one repaint — a zoom would coalesce to 'mixed' instead of
+    // 'zoom'. `layoutUpdated` alone covers every repaint.
+    next.on?.('layoutUpdated', onGeometryLayout);
     currentPresentationTeardown = () => {
       PRESENTATION_EVENTS.forEach((name) => next.off?.(name, onPresentationChange));
+      next.off?.('layoutUpdated', onGeometryLayout);
     };
   };
 
@@ -1894,6 +2160,21 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
       };
     },
 
+    observe(listener: (event: ViewportGeometryEvent) => void): () => void {
+      geometryListeners.add(listener);
+      // Attach the DOM scroll/resize listeners only while someone is observing.
+      if (geometryListeners.size === 1) attachDomGeometryListeners();
+      return () => {
+        if (!geometryListeners.delete(listener)) return;
+        if (geometryListeners.size === 0) {
+          detachDomGeometryListeners();
+          cancelGeometryFrame();
+          pendingGeometryReasons.clear();
+          zoomPending = false;
+        }
+      };
+    },
+
     async scrollIntoView(input: ScrollIntoViewInput): Promise<ScrollIntoViewOutput> {
       return runScrollIntoView(input);
     },
@@ -2142,8 +2423,10 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
       const emit = editor.emit;
       if (typeof emit === 'function') {
         try {
+          const replacedFile = editor.options?.replacedFile === true ? true : undefined;
           emit.call(editor, 'commentsLoaded', {
             editor,
+            ...(replacedFile ? { replacedFile } : {}),
             comments: editor.converter?.comments ?? [],
           });
         } catch (err) {
@@ -2151,6 +2434,65 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
         }
       }
     },
+  };
+
+  // ---- ui.zoom -----------------------------------------------------------
+  // One slice for zoom UIs (mode, value, fit zoom, bounds, metrics) plus
+  // the two mutations. Recomputes on the host's zoomChange (which now
+  // includes mode-only transitions) and viewport-change events; both are
+  // in SUPERDOC_EVENTS.
+  const zoom: ZoomHandle = {
+    getSnapshot: () => computeState().zoom,
+    observe(listener) {
+      return select((state) => state.zoom, shallowEqual).subscribe((snapshot) => {
+        try {
+          listener(snapshot);
+        } catch {
+          // see scheduleNotify
+        }
+      });
+    },
+    set(percent: number) {
+      const setter = superdoc.setZoom;
+      if (typeof setter !== 'function') return;
+      try {
+        setter.call(superdoc, percent);
+      } catch (err) {
+        console.error('[superdoc/ui] ui.zoom.set failed:', err);
+      }
+    },
+    setMode(mode: ZoomMode) {
+      const setter = superdoc.setZoomMode;
+      if (typeof setter !== 'function') return;
+      try {
+        setter.call(superdoc, mode);
+      } catch (err) {
+        console.error('[superdoc/ui] ui.zoom.setMode failed:', err);
+      }
+    },
+  };
+
+  const fonts: FontsHandle = {
+    getSnapshot: () => ({ options: fontOptionsCache }),
+    subscribe(listener) {
+      return select((state) => state.fonts, shallowEqual).subscribe((snapshot) => {
+        try {
+          listener({ snapshot });
+        } catch {
+          // see scheduleNotify
+        }
+      });
+    },
+    observe(listener) {
+      return select((state) => state.fonts, shallowEqual).subscribe((snapshot) => {
+        try {
+          listener(snapshot);
+        } catch {
+          // see scheduleNotify
+        }
+      });
+    },
+    getOptions: () => fontOptionsCache,
   };
 
   // Live scopes created via `ui.createScope()`. The controller's
@@ -2215,6 +2557,171 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
         target: { kind: 'entity', entityType: 'contentControl', entityId: id },
       });
     },
+    async scrollIntoView({
+      id,
+      block,
+      behavior,
+    }: {
+      id: string;
+      block?: 'start' | 'center' | 'end' | 'nearest';
+      behavior?: 'auto' | 'smooth';
+    }): Promise<ScrollIntoViewOutput> {
+      if (typeof id !== 'string' || id.length === 0) return { success: false };
+      // Resolve through the host editor — `presentationEditor` lives on the
+      // body/host, not a routed child story editor. Same posture as
+      // `viewport.getRect` / `runScrollIntoView`. The model-aware scroll is
+      // body-only, so a control in a header/footer/note resolves to a no-op
+      // `{ success: false }`. We call the presentation method directly rather
+      // than routing a content-control target through `viewport.scrollIntoView`
+      // — content controls are UI-local and deliberately absent from the
+      // Document API `ScrollIntoViewInput` address union (mirrors `getRect`).
+      const editor = resolveHostEditor(superdoc);
+      const presentation = editor?.presentationEditor as
+        | {
+            scrollContentControlIntoView?: (
+              id: string,
+              opts: { block?: 'start' | 'center' | 'end' | 'nearest'; behavior?: 'auto' | 'smooth' },
+            ) => Promise<boolean>;
+          }
+        | null
+        | undefined;
+      if (!presentation || typeof presentation.scrollContentControlIntoView !== 'function') {
+        return { success: false };
+      }
+      const ok = await presentation.scrollContentControlIntoView(id, {
+        block: block ?? 'center',
+        behavior: behavior ?? 'smooth',
+      });
+      return { success: Boolean(ok) };
+    },
+    async focus({
+      id,
+      block,
+      behavior,
+    }: {
+      id: string;
+      block?: 'start' | 'center' | 'end' | 'nearest';
+      behavior?: 'auto' | 'smooth';
+    }): Promise<ContentControlFocusResult> {
+      if (typeof id !== 'string' || id.length === 0) return { success: false, reason: 'invalid-id' };
+      // Same host-editor resolution as scrollIntoView. focus places the caret
+      // (selection) and scrolls; locks / viewing mode don't block it.
+      const editor = resolveHostEditor(superdoc);
+      const presentation = editor?.presentationEditor as
+        | {
+            focusContentControl?: (
+              id: string,
+              opts: { block?: 'start' | 'center' | 'end' | 'nearest'; behavior?: 'auto' | 'smooth' },
+            ) => Promise<ContentControlFocusResult>;
+          }
+        | null
+        | undefined;
+      if (!presentation || typeof presentation.focusContentControl !== 'function') {
+        return { success: false, reason: 'not-ready' };
+      }
+      return presentation.focusContentControl(id, { block: block ?? 'center', behavior: behavior ?? 'smooth' });
+    },
+  };
+
+  // Resolve a metadata id (= the SDT's w:tag) to the SDT's content-
+  // control id, reading from the same cached slice contentControls.get
+  // uses. The match is on `properties.tag`, which is the value passed
+  // to `editor.doc.metadata.attach` (or the auto-generated id when the
+  // caller omits one). Globally unique within a document — attach
+  // rejects duplicate ids — so the first match is the only match.
+  const findContentControlIdByMetadataId = (metadataId: string): string | null => {
+    for (const item of contentControlsListCache.items) {
+      if (item.properties?.tag === metadataId) return item.id;
+    }
+    return null;
+  };
+
+  // Convert a same-block or cross-block SelectionTarget into the
+  // TextTarget shape `ui.viewport.scrollIntoView` accepts. Returns
+  // null when the selection contains a `nodeEdge` endpoint, which has
+  // no clean TextTarget representation — callers map that to a
+  // failure rather than guessing a fallback position.
+  const selectionTargetToTextTarget = (target: SelectionTarget): TextTarget | null => {
+    const { start, end } = target;
+    if (start.kind !== 'text' || end.kind !== 'text') return null;
+    if (start.blockId === end.blockId) {
+      return {
+        kind: 'text',
+        segments: [{ blockId: start.blockId, range: { start: start.offset, end: end.offset } }],
+        ...(target.story ? { story: target.story } : {}),
+      };
+    }
+    // Cross-block: anchored-metadata v1 attaches over same-block text
+    // ranges only, so this branch is defensive. Represent as two
+    // collapsed segments at the start and end points;
+    // `scrollRangeIntoView` walks the segments in document order and
+    // scrolls to the first one, so the effect is "scroll to the start
+    // endpoint" — accepted as the defensive fallback rather than
+    // approximating a bounding box across blocks. If a future metadata
+    // path produces a real cross-block anchor we should revisit this
+    // (likely by returning null and surfacing the failure to the caller).
+    return {
+      kind: 'text',
+      segments: [
+        { blockId: start.blockId, range: { start: start.offset, end: start.offset } },
+        { blockId: end.blockId, range: { start: end.offset, end: end.offset } },
+      ],
+      ...(target.story ? { story: target.story } : {}),
+    };
+  };
+
+  // Confirm `id` actually maps to a stored metadata payload before
+  // we trust the cc.items tag→nodeId map. An imported DOCX can carry
+  // foreign inline content controls whose `w:tag` happens to match a
+  // metadata id; without this gate, a tag-only lookup would return
+  // the foreign control's geometry. The source path
+  // (`editor.doc.metadata.resolve`) was tightened to require both
+  // halves of the anchor (SDT + payload) to agree; this defensive
+  // gate keeps `ui.metadata.*` symmetrical for direct callers that
+  // skip `resolve`.
+  const hasMetadataPayload = (id: string): boolean => {
+    const editor = superdoc.activeEditor as SuperDocEditorLike | undefined;
+    const getFn = editor?.doc?.metadata?.get;
+    if (typeof getFn !== 'function') return false;
+    // `!= null` (not `!== null`) so a stub or adapter returning
+    // `undefined` for an unknown id is treated as absent — production
+    // `metadata.get` returns `null`, but the structural type permits
+    // either and we want both paths to gate the same way.
+    return getFn.call(editor!.doc!.metadata!, { id }) != null;
+  };
+
+  const metadata: MetadataHandle = {
+    getRect({ id }: { id: string }) {
+      if (!id) return { success: false, reason: 'invalid-target' };
+      if (!hasMetadataPayload(id)) return { success: false, reason: 'unresolved' };
+      const ccId = findContentControlIdByMetadataId(id);
+      if (ccId === null) return { success: false, reason: 'unresolved' };
+      return contentControls.getRect({ id: ccId });
+    },
+    async scrollIntoView({
+      id,
+      block,
+      behavior,
+    }: {
+      id: string;
+      block?: ScrollIntoViewInput['block'];
+      behavior?: ScrollIntoViewInput['behavior'];
+    }): Promise<ScrollIntoViewOutput> {
+      if (!id) return { success: false };
+      if (!hasMetadataPayload(id)) return { success: false };
+      const editor = superdoc.activeEditor as SuperDocEditorLike | undefined;
+      const resolveFn = editor?.doc?.metadata?.resolve;
+      if (typeof resolveFn !== 'function') return { success: false };
+      const info = resolveFn.call(editor!.doc!.metadata!, { id }) as AnchoredMetadataResolveInfo | null;
+      if (!info) return { success: false };
+      const textTarget = selectionTargetToTextTarget(info.target);
+      if (!textTarget) return { success: false };
+      return viewport.scrollIntoView({
+        target: textTarget,
+        ...(block !== undefined ? { block } : {}),
+        ...(behavior !== undefined ? { behavior } : {}),
+      });
+    },
   };
 
   const destroy = () => {
@@ -2253,9 +2760,12 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
     comments,
     trackChanges,
     contentControls,
+    metadata,
     selection,
     viewport,
     document,
+    zoom,
+    fonts,
     createScope: createScopeFn,
     destroy,
   };

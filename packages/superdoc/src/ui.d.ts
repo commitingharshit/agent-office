@@ -26,6 +26,7 @@ export {
   type DynamicCommandHandle,
   type EntityAddress,
   type EqualityFn,
+  type MetadataHandle,
   type Receipt,
   type ScrollIntoViewInput,
   type ScrollIntoViewOutput,
@@ -69,4 +70,8 @@ export {
   type ViewportPositionHit,
   type ViewportRect,
   type ViewportRectResult,
+  type ZoomHandle,
+  type ZoomMode,
+  type ZoomSlice,
+  type ZoomViewportMetrics,
 } from '@superdoc/super-editor/ui';

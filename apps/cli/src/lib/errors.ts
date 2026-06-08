@@ -30,6 +30,7 @@ export type CliErrorCode =
   | 'TRACK_CHANGE_COMMAND_UNAVAILABLE'
   | 'TRACK_CHANGE_CONFLICT'
   | 'COMMAND_FAILED'
+  | 'OPERATION_HINT_MISSING'
   | 'UNSUPPORTED_FORMAT'
   | 'TIMEOUT'
   // Plan-engine error codes — passed through from document-api adapters
@@ -48,6 +49,9 @@ export type CliErrorCode =
   | 'INVALID_TARGET'
   | 'AMBIGUOUS_TARGET'
   | 'CAPABILITY_UNSUPPORTED'
+  | 'UNSUPPORTED_SOURCE'
+  | 'INVALID_PACKAGE'
+  | 'UNSUPPORTED_TEMPLATE_CONTENT'
   // DOCX encryption error codes — passed through from super-editor
   | 'DOCX_PASSWORD_REQUIRED'
   | 'DOCX_PASSWORD_INVALID'

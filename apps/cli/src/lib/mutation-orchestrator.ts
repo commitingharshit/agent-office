@@ -10,7 +10,7 @@
  */
 
 import { COMMAND_CATALOG } from '@superdoc/document-api';
-import { RESPONSE_ENVELOPE_KEY, SUCCESS_VERB } from '../cli/operation-hints.js';
+import { SUCCESS_VERB } from '../cli/operation-hints.js';
 import type { CliExposedOperationId } from '../cli/operation-set.js';
 import { cliCommandTokens } from '../cli/operation-set.js';
 import { assertExpectedRevision, markContextUpdated, withActiveContext, writeContextMetadata } from './context.js';
@@ -24,6 +24,7 @@ import {
 import { mapInvokeError, mapFailedReceipt } from './error-mapping.js';
 import { CliError } from './errors.js';
 import { formatOutput } from './output-formatters.js';
+import { resolveResponseEnvelopeKey } from './response-envelope.js';
 import { syncCollaborativeSessionSnapshot } from './session-collab.js';
 import { PRE_INVOKE_HOOKS, POST_INVOKE_HOOKS } from './special-handlers.js';
 import type { CommandExecution } from './types.js';
@@ -48,29 +49,33 @@ function deriveCommandName(operationId: CliExposedOperationId): string {
   return cliCommandTokens(`doc.${operationId}` as `doc.${CliExposedOperationId}`).join(' ');
 }
 
-function invokeOperation(
+async function invokeOperation(
   editor: EditorWithDoc,
   operationId: CliExposedOperationId,
   input: Record<string, unknown>,
   options?: Record<string, unknown>,
-): unknown {
+  commandName?: string,
+): Promise<unknown> {
   const apiInput = extractInvokeInput(operationId, input);
   const preHook = PRE_INVOKE_HOOKS[operationId];
   const transformedInput = preHook ? preHook(apiInput as Record<string, unknown>, { editor }) : apiInput;
 
   let result: unknown;
   try {
-    result = editor.doc.invoke({
+    // Await so both synchronous throws and async rejections (e.g. the async
+    // templates.apply path) are translated by mapInvokeError. Awaiting a
+    // non-Promise result is a no-op for the synchronous operations.
+    result = await editor.doc.invoke({
       operationId,
       input: transformedInput,
       options,
     });
   } catch (error) {
-    throw mapInvokeError(operationId, error);
+    throw mapInvokeError(operationId, error, { commandName });
   }
 
   // Check for failed receipts (non-throwing failure path)
-  const failedReceiptError = mapFailedReceipt(operationId, result);
+  const failedReceiptError = mapFailedReceipt(operationId, result, { commandName });
   if (failedReceiptError) throw failedReceiptError;
 
   const postHook = POST_INVOKE_HOOKS[operationId];
@@ -78,13 +83,11 @@ function invokeOperation(
 }
 
 function buildEnvelopeData(
-  operationId: CliExposedOperationId,
+  envelopeKey: string | null,
   document: DocumentPayload,
   result: unknown,
   extras: Record<string, unknown>,
 ): Record<string, unknown> {
-  const envelopeKey = RESPONSE_ENVELOPE_KEY[operationId];
-
   if (envelopeKey === null) {
     const resultObj = typeof result === 'object' && result != null ? result : {};
     return { document, ...(resultObj as Record<string, unknown>), ...extras };
@@ -112,13 +115,16 @@ function buildPrettyOutput(
 
 export async function executeMutationOperation(request: DocOperationRequest): Promise<CommandExecution> {
   const { operationId, input, context } = request;
+  // Resolve the response envelope key up front so a hint-table drift fails
+  // before we open the document, run the mutation, or persist any state.
+  const envelopeKey = resolveResponseEnvelopeKey(operationId);
   const doc = readOptionalString(input, 'doc');
   const outPath = readOptionalString(input, 'out');
   const dryRun = readBoolean(input, 'dryRun');
   const changeMode = readChangeMode(input);
   const force = readBoolean(input, 'force');
   const expectedRevision = readOptionalNumber(input, 'expectedRevision');
-  const commandName = deriveCommandName(operationId);
+  const commandName = request.commandName ?? deriveCommandName(operationId);
 
   const catalog = COMMAND_CATALOG[operationId];
   const invokeOptions: Record<string, unknown> = {};
@@ -150,7 +156,7 @@ export async function executeMutationOperation(request: DocOperationRequest): Pr
     const source = doc === '-' ? 'stdin' : 'path';
     const opened = await openDocument(doc, context.io);
     try {
-      const result = invokeOperation(opened.editor, operationId, input, invokeOptions);
+      const result = await invokeOperation(opened.editor, operationId, input, invokeOptions, commandName);
       const document: DocumentPayload = {
         path: source === 'path' ? doc : undefined,
         source,
@@ -162,7 +168,7 @@ export async function executeMutationOperation(request: DocOperationRequest): Pr
         return {
           command: commandName,
           data: {
-            ...buildEnvelopeData(operationId, document, result, { changeMode, dryRun: true }),
+            ...buildEnvelopeData(envelopeKey, document, result, { changeMode, dryRun: true }),
             output: outPath ? { path: outPath, skippedWrite: true } : undefined,
           },
           pretty: `Revision 0: dry run`,
@@ -172,7 +178,7 @@ export async function executeMutationOperation(request: DocOperationRequest): Pr
       const output = outPath ? await exportToPath(opened.editor, outPath, force) : undefined;
       return {
         command: commandName,
-        data: buildEnvelopeData(operationId, document, result, {
+        data: buildEnvelopeData(envelopeKey, document, result, {
           changeMode,
           dryRun: false,
           output,
@@ -202,7 +208,7 @@ export async function executeMutationOperation(request: DocOperationRequest): Pr
       });
 
       try {
-        const result = invokeOperation(opened.editor, operationId, input, invokeOptions);
+        const result = await invokeOperation(opened.editor, operationId, input, invokeOptions, commandName);
 
         if (dryRun) {
           const document: DocumentPayload = {
@@ -214,7 +220,7 @@ export async function executeMutationOperation(request: DocOperationRequest): Pr
           return {
             command: commandName,
             data: {
-              ...buildEnvelopeData(operationId, document, result, { changeMode, dryRun: true }),
+              ...buildEnvelopeData(envelopeKey, document, result, { changeMode, dryRun: true }),
               context: { dirty: metadata.dirty, revision: metadata.revision },
               output: outPath ? { path: outPath, skippedWrite: true } : undefined,
             },
@@ -262,7 +268,7 @@ export async function executeMutationOperation(request: DocOperationRequest): Pr
 
         return {
           command: commandName,
-          data: buildEnvelopeData(operationId, document, result, {
+          data: buildEnvelopeData(envelopeKey, document, result, {
             changeMode,
             dryRun: false,
             context: { dirty: updatedMetadata.dirty, revision: updatedMetadata.revision },

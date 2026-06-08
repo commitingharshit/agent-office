@@ -9,6 +9,7 @@ import Toolbar from './Toolbar.vue';
 import { toolbarIcons } from './toolbarIcons.js';
 import { toolbarTexts } from './toolbarTexts.js';
 import {
+  composeToolbarFontOptions,
   HEADLESS_TOOLBAR_COMMANDS,
   HEADLESS_ITEM_MAP,
   HEADLESS_EXECUTE_ITEMS,
@@ -21,106 +22,95 @@ import { calculateResolvedParagraphProperties } from '@extensions/paragraph/reso
 import { parseSizeUnit } from '@core/utilities';
 import { findElementBySelector, getParagraphFontFamilyFromProperties } from './helpers/general.js';
 import { markerTextToBulletStyle } from '@helpers/list-numbering-helpers.js';
+import { insertTableOfContentsAtSelection } from '@extensions/table-of-contents/table-of-contents-insertion.js';
 
 /**
  * @typedef {function(CommandItem): void} CommandCallback
  * A callback function that's executed when a toolbar button is clicked
  * @param {CommandItem} params - Command parameters
  * @param {ToolbarItem} params.item - An instance of the useToolbarItem composable
- * @param {*} [params.argument] - The argument passed to the command
+ * @param {unknown} [params.argument] - The argument passed to the command
  */
 
 /**
  * @typedef {Object} ToolbarConfig
- * @property {string} [selector] - CSS selector for the toolbar container
+ * @property {string | null} [selector] - CSS selector for the toolbar container, or `null` to skip mounting
  * @property {string[]} [toolbarGroups=['left', 'center', 'right']] - Groups to organize toolbar items
  * @property {string} [role='editor'] - Role of the toolbar ('editor' or 'viewer')
- * @property {Object} [icons] - Custom icons for toolbar items
- * @property {Object} [texts] - Custom texts for toolbar items
- * @property {import('../../core/types/EditorConfig.js').FontConfig[]} [fonts] - Font options for the font picker dropdown
+ * @property {object} [icons] - Custom icons for toolbar items
+ * @property {object} [texts] - Custom texts for toolbar items
+ * @property {import('../../core/types/EditorConfig.js').FontConfig[] | null} [fonts] - Font options for the font picker dropdown
  * @property {boolean} [hideButtons=true] - Whether to hide buttons when the editor is not focused
  * @property {boolean} [pagination=false] - Whether to show pagination controls
  * @property {string} [mode='docx'] - Editor mode
  * @property {string[]} [excludeItems=[]] - Items to exclude from the toolbar
- * @property {Object} [groups=null] - Custom groups configuration
- * @property {Object} [editor=null] - The editor instance
- * @property {string} [aiApiKey=null] - API key for AI integration
- * @property {string} [aiEndpoint=null] - Endpoint for AI integration
- * @property {ToolbarItem[]} [customButtons=[]] - Custom buttons to add to the toolbar
+ * @property {Record<string, string[]>} [groups] - Custom groups configuration
+ * @property {object} [editor=null] - The editor instance
+ * @property {string} [aiApiKey] - API key for AI integration
+ * @property {string} [aiEndpoint] - Endpoint for AI integration
+ * @property {Array<Record<string, unknown>> | ToolbarItem[]} [customButtons=[]] - Custom buttons to add to the toolbar. SuperDoc forwards the structural `Array<Record<string, unknown>>` shape from `Modules.toolbar.customButtons`; the runtime wraps each entry into a full `ToolbarItem` via `useToolbarItem`.
+ * @property {boolean} [showFormattingMarksButton=false] - Show the formatting marks (pilcrow) button in the toolbar. Distinct from `layoutEngineOptions.showFormattingMarks`, which controls whether the marks render in the document.
+ * @property {boolean} [showTableOfContentsButton=false] - Show the table of contents insert button in the toolbar. Off by default until the feature is generally available.
+ * @property {boolean} [isDev] - Dev-mode flag forwarded from `SuperDoc.isDev`; gates debug tooltips and overlays.
+ * @property {object} [superdoc] - The owning SuperDoc instance. Set by SuperDoc when constructing the toolbar; the toolbar uses it to dispatch commands back through the parent.
+ * @property {boolean} [responsiveToContainer=false] - When `true`, the toolbar measures the container width instead of the document width when deciding which items to collapse.
+ * @property {string} [uiDisplayFallbackFont] - Forwarded from `Config.uiDisplayFallbackFont`; used as the default font for the toolbar's font picker when no explicit font is selected.
+ * @property {string} [documentMode] - Forwarded from `Config.documentMode`. Currently unused inside SuperToolbar (the toolbar reads the live mode via the `documentMode` toolbar item); kept on the type so SuperDoc's pass-through compiles cleanly.
  */
 
 /**
  * @typedef {Object} ToolbarItem
- * @property {Object} id - The unique ID of the toolbar item
- * @property {string} id.value - The value of the ID
- * @property {Object} name - The name of the toolbar item
- * @property {string} name.value - The value of the name
+ *
+ * Reactive toolbar item wrapper produced by `useToolbarItem`. Each
+ * field is a Vue `Ref`-shaped container with a `.value`. The `.value`
+ * types are tightened here (was `*` / `any`) so consumers configuring
+ * custom toolbar buttons get real IntelliSense on the values they
+ * pass through.
+ *
+ * @property {{ value: string }} id - The unique ID of the toolbar item
+ * @property {{ value: string }} name - The name of the toolbar item
  * @property {string} type - The type of toolbar item (button, options, separator, dropdown, overflow)
- * @property {Object} group - The group the item belongs to
- * @property {string} group.value - The value of the group
+ * @property {{ value: string }} group - The group the item belongs to
  * @property {string|CommandCallback} command - The command to execute
  * @property {string} [noArgumentCommand] - The command to execute when no argument is provided
- * @property {Object} icon - The icon for the item
- * @property {*} icon.value - The value of the icon
- * @property {Object} tooltip - The tooltip for the item
- * @property {*} tooltip.value - The value of the tooltip
+ * @property {{ value: string | undefined }} icon - The icon for the item (icon-name string)
+ * @property {{ value: string | undefined }} tooltip - The tooltip text
  * @property {boolean} [restoreEditorFocus] - Whether to restore editor focus after command execution
- * @property {Object} attributes - Additional attributes for the item
- * @property {Object} attributes.value - The value of the attributes
- * @property {Object} disabled - Whether the item is disabled
- * @property {boolean} disabled.value - The value of disabled
- * @property {Object} active - Whether the item is active
- * @property {boolean} active.value - The value of active
- * @property {Object} expand - Whether the item is expanded
- * @property {boolean} expand.value - The value of expand
- * @property {Object} nestedOptions - Nested options for the item
- * @property {Array} nestedOptions.value - The array of nested options
- * @property {Object} style - Custom style for the item
- * @property {*} style.value - The value of the style
- * @property {Object} isNarrow - Whether the item has narrow styling
- * @property {boolean} isNarrow.value - The value of isNarrow
- * @property {Object} isWide - Whether the item has wide styling
- * @property {boolean} isWide.value - The value of isWide
- * @property {Object} minWidth - Minimum width of the item
- * @property {*} minWidth.value - The value of minWidth
- * @property {Object} argument - The argument to pass to the command
- * @property {*} argument.value - The value of the argument
- * @property {Object} parentItem - The parent of this item if nested
- * @property {*} parentItem.value - The value of parentItem
- * @property {Object} childItem - The child of this item if it has one
- * @property {*} childItem.value - The value of childItem
- * @property {Object} iconColor - The color of the icon
- * @property {*} iconColor.value - The value of iconColor
- * @property {Object} hasCaret - Whether the item has a dropdown caret
- * @property {boolean} hasCaret.value - The value of hasCaret
- * @property {Object} dropdownStyles - Custom styles for dropdown
- * @property {*} dropdownStyles.value - The value of dropdownStyles
- * @property {Object} tooltipVisible - Whether the tooltip is visible
- * @property {boolean} tooltipVisible.value - The value of tooltipVisible
- * @property {Object} tooltipTimeout - Timeout for the tooltip
- * @property {*} tooltipTimeout.value - The value of tooltipTimeout
- * @property {Object} defaultLabel - The default label for the item
- * @property {*} defaultLabel.value - The value of the default label
- * @property {Object} label - The label for the item
- * @property {*} label.value - The value of the label
- * @property {Object} hideLabel - Whether to hide the label
- * @property {boolean} hideLabel.value - The value of hideLabel
- * @property {Object} inlineTextInputVisible - Whether inline text input is visible
- * @property {boolean} inlineTextInputVisible.value - The value of inlineTextInputVisible
- * @property {Object} hasInlineTextInput - Whether the item has inline text input
- * @property {boolean} hasInlineTextInput.value - The value of hasInlineTextInput
- * @property {Object} markName - The name of the mark
- * @property {*} markName.value - The value of markName
- * @property {Object} labelAttr - The attribute for the label
- * @property {*} labelAttr.value - The value of labelAttr
- * @property {Object} allowWithoutEditor - Whether the item can be used without an editor
- * @property {boolean} allowWithoutEditor.value - The value of allowWithoutEditor
- * @property {Object} dropdownValueKey - The key for dropdown value
- * @property {*} dropdownValueKey.value - The value of dropdownValueKey
- * @property {Object} selectedValue - The selected value for the item
- * @property {*} selectedValue.value - The value of the selected value
- * @property {Object} inputRef - Reference to an input element
- * @property {*} inputRef.value - The value of inputRef
+ * @property {{ value: Record<string, unknown> }} attributes - Additional attributes for the item
+ * @property {{ value: boolean }} disabled - Whether the item is disabled
+ * @property {{ value: boolean }} active - Whether the item is active
+ * @property {{ value: boolean }} expand - Whether the item is expanded
+ * @property {{ value: ToolbarItem[] }} nestedOptions - Nested options for the item
+ * @property {{ value: Record<string, string | number> | undefined }} style - Custom style for the item
+ * @property {{ value: boolean }} isNarrow - Whether the item has narrow styling
+ * @property {{ value: boolean }} isWide - Whether the item has wide styling
+ * @property {{ value: number | string | undefined }} minWidth - Minimum width of the item
+ *
+ * `argument.value` and `selectedValue.value` are intentionally
+ * `unknown` (not `any`): consumers pass arbitrary data through these
+ * to their custom command callbacks, so the toolbar cannot promise a
+ * narrower shape without becoming wrong. `unknown` forces the
+ * consumer to narrow at the call site they own.
+ *
+ * @property {{ value: unknown }} argument - The argument to pass to the command (consumer-typed)
+ * @property {{ value: ToolbarItem | undefined }} parentItem - The parent of this item if nested
+ * @property {{ value: ToolbarItem | undefined }} childItem - The child of this item if it has one
+ * @property {{ value: string | undefined }} iconColor - The color of the icon (CSS color)
+ * @property {{ value: boolean }} hasCaret - Whether the item has a dropdown caret
+ * @property {{ value: Record<string, string | number> | undefined }} dropdownStyles - Custom styles for the dropdown
+ * @property {{ value: boolean }} tooltipVisible - Whether the tooltip is visible
+ * @property {{ value: number | undefined }} tooltipTimeout - Timeout for the tooltip (ms)
+ * @property {{ value: string | undefined }} defaultLabel - The default label for the item
+ * @property {{ value: string | undefined }} label - The label for the item
+ * @property {{ value: boolean }} hideLabel - Whether to hide the label
+ * @property {{ value: boolean }} inlineTextInputVisible - Whether inline text input is visible
+ * @property {{ value: boolean }} hasInlineTextInput - Whether the item has inline text input
+ * @property {{ value: string | undefined }} markName - The name of the mark (e.g. 'bold')
+ * @property {{ value: string | undefined }} labelAttr - The attribute for the label
+ * @property {{ value: boolean }} allowWithoutEditor - Whether the item can be used without an editor
+ * @property {{ value: string | undefined }} dropdownValueKey - The key for dropdown value
+ * @property {{ value: unknown }} selectedValue - The selected value (consumer-typed)
+ * @property {{ value: HTMLInputElement | null }} inputRef - Reference to an input element
  * @property {Function} unref - Function to get unreferenced values
  * @property {Function} activate - Function to activate the item
  * @property {Function} deactivate - Function to deactivate the item
@@ -133,8 +123,8 @@ import { markerTextToBulletStyle } from '@helpers/list-numbering-helpers.js';
 /**
  * @typedef {Object} CommandItem
  * @property {ToolbarItem} item - The toolbar item
- * @property {*} [argument] - The argument to pass to the command
- * @property {*} [option] - The selected nested option for option-style commands
+ * @property {unknown} [argument] - The argument to pass to the command (consumer-typed)
+ * @property {unknown} [option] - The selected nested option for option-style commands (consumer-typed)
  */
 
 /**
@@ -180,7 +170,71 @@ export class SuperToolbar extends EventEmitter {
     aiApiKey: null,
     aiEndpoint: null,
     customButtons: [],
+    showFormattingMarksButton: false,
+    showTableOfContentsButton: false,
   };
+
+  /**
+   * Visible toolbar items in their resolved order. Populated by
+   * `#initToolbarItems` after `useToolbarItem` builds the reactive
+   * wrappers; mutated when items move to overflow on resize.
+   * @type {ToolbarItem[]}
+   */
+  toolbarItems = [];
+
+  /**
+   * Items moved into the overflow menu when the container is narrower
+   * than the toolbar's natural width.
+   * @type {ToolbarItem[]}
+   */
+  overflowItems = [];
+
+  /**
+   * Dev mode flag forwarded from `SuperDoc`'s config. Enables extra
+   * dropdowns (e.g. extension picker) used only by internal tooling.
+   * @type {boolean}
+   */
+  isDev = false;
+
+  /**
+   * Role propagated from the parent `SuperDoc` (typically `'editor'`
+   * or `'viewer'`); drives feature gating in the toolbar items.
+   * @type {string}
+   */
+  role = 'editor';
+
+  /**
+   * Back-reference to the owning `SuperDoc` instance. Marked private
+   * because it exposes the full SuperDoc internal graph and should
+   * not be part of the toolbar's public TypeScript surface. Internal
+   * paths that need a method on the parent SuperDoc reach for it
+   * through this field.
+   * @type {unknown}
+   * @private
+   */
+  superdoc;
+
+  /**
+   * Mounted toolbar container element, set after `render()`. Null
+   * before the first render or after `destroy()`.
+   * @type {HTMLElement | null}
+   */
+  toolbarContainer = null;
+
+  /**
+   * Mounted Vue component instance from `this.app.mount(...)`. Not
+   * consumer API: zero docs/examples reference `superdoc.toolbar.toolbar`,
+   * and no .ts or .js cross-file reader exists. The wrapper
+   * `SuperDoc.toolbar` (this class) is the documented public surface;
+   * this nested `.toolbar` field is the internal Vue mount handle.
+   *
+   * Same SD-3213f-style TS surface hide as `commentsList` and
+   * `SuperDoc.app`; not runtime privacy.
+   *
+   * @type {import('vue').ComponentPublicInstance | null}
+   * @private
+   */
+  toolbar = null;
 
   /**
    * Creates a new SuperToolbar instance
@@ -235,14 +289,23 @@ export class SuperToolbar extends EventEmitter {
 
     /**
      * Bound event handlers stored for proper cleanup when switching editors.
-     * @type {{transaction: Function|null, selectionUpdate: Function|null, focus: Function|null}}
+     * @type {{transaction: Function|null, selectionUpdate: Function|null, focus: Function|null, fontsChanged: Function|null}}
      * @private
      */
     this._boundEditorHandlers = {
       transaction: null,
       selectionUpdate: null,
       focus: null,
+      fontsChanged: null,
     };
+
+    /**
+     * Signature of the last-built document font options. Fonts resolve in several steps after a document
+     * opens, so `fonts-changed` fires repeatedly; this skips rebuilding the dropdown when the options did
+     * not actually change.
+     * @private
+     */
+    this._lastFontOptionsSignature = '';
 
     /**
      * Timeout ID for restoring editor focus after toolbar command execution.
@@ -338,36 +401,59 @@ export class SuperToolbar extends EventEmitter {
   }
 
   /**
+   * Detach listeners from the current active editor.
+   * @private
+   * @returns {void}
+   */
+  #detachActiveEditorListeners() {
+    if (!this.activeEditor || !this._boundEditorHandlers.transaction) return;
+
+    this.activeEditor.off('transaction', this._boundEditorHandlers.transaction);
+    this.activeEditor.off('selectionUpdate', this._boundEditorHandlers.selectionUpdate);
+    this.activeEditor.off('focus', this._boundEditorHandlers.focus);
+    this.activeEditor.off('fonts-changed', this._boundEditorHandlers.fontsChanged);
+    this._boundEditorHandlers.transaction = null;
+    this._boundEditorHandlers.selectionUpdate = null;
+    this._boundEditorHandlers.focus = null;
+    this._boundEditorHandlers.fontsChanged = null;
+  }
+
+  /**
    * The toolbar expects an active Super Editor instance.
    * Removes listeners from the previous editor (if any) before attaching to the new one.
    * @param {Object|null} editor - The editor instance to attach to the toolbar, or null to detach
    * @returns {void}
    */
   setActiveEditor(editor) {
-    // Remove listeners from previous editor to prevent memory leaks
-    if (this.activeEditor && this._boundEditorHandlers.transaction) {
-      this.activeEditor.off('transaction', this._boundEditorHandlers.transaction);
-      this.activeEditor.off('selectionUpdate', this._boundEditorHandlers.selectionUpdate);
-      this.activeEditor.off('focus', this._boundEditorHandlers.focus);
-      // Clear bound handlers when removing editor
-      this._boundEditorHandlers.transaction = null;
-      this._boundEditorHandlers.selectionUpdate = null;
-      this._boundEditorHandlers.focus = null;
+    const sameEditor = editor === this.activeEditor;
+    const alreadyListening = Boolean(this._boundEditorHandlers.transaction);
+    if (sameEditor && (!editor || alreadyListening)) {
+      this.updateToolbarState();
+      return;
     }
 
+    this.#detachActiveEditorListeners();
     this.activeEditor = editor;
 
-    // Only attach listeners if editor is not null
     if (editor) {
-      // Create and store bound handlers for later cleanup
       this._boundEditorHandlers.transaction = this.onEditorTransaction.bind(this);
       this._boundEditorHandlers.selectionUpdate = this.onEditorSelectionUpdate.bind(this);
       this._boundEditorHandlers.focus = this.onEditorFocus.bind(this);
+      // Document fonts resolve asynchronously after load (the report can settle with no transaction), so
+      // the font list must rebuild on `fonts-changed`, not only on edits.
+      this._boundEditorHandlers.fontsChanged = this.onEditorFontsChanged.bind(this);
 
       this.activeEditor.on('transaction', this._boundEditorHandlers.transaction);
       this.activeEditor.on('selectionUpdate', this._boundEditorHandlers.selectionUpdate);
       this.activeEditor.on('focus', this._boundEditorHandlers.focus);
+      this.activeEditor.on('fonts-changed', this._boundEditorHandlers.fontsChanged);
     }
+
+    // Recompute on active-editor change: the new document has its own fonts, so rebuild the dropdown
+    // OPTIONS (updateToolbarState alone only refreshes item state), then refresh state.
+    this.#rebuildToolbarItems();
+    this._lastFontOptionsSignature = this.#fontOptionsSignature();
+    this.updateToolbarState();
   }
 
   /**
@@ -385,7 +471,17 @@ export class SuperToolbar extends EventEmitter {
    * @returns {ToolbarItem|undefined} The toolbar item with the specified name or undefined if not found
    */
   getToolbarItemByName(name) {
-    return this.toolbarItems.find((item) => item.name.value === name);
+    return this.#getAllToolbarItems().find((item) => item.name.value === name);
+  }
+
+  /**
+   * Visible bar + overflow menu items (same object refs; responsive layout moves
+   * controls like tableOfContents between the two arrays).
+   * @private
+   * @returns {ToolbarItem[]}
+   */
+  #getAllToolbarItems() {
+    return [...this.toolbarItems, ...this.overflowItems];
   }
 
   /**
@@ -415,7 +511,7 @@ export class SuperToolbar extends EventEmitter {
       superToolbar,
       toolbarIcons: icons,
       toolbarTexts: texts,
-      toolbarFonts: fonts,
+      toolbarFonts: this.#resolveToolbarFonts(fonts),
       hideButtons,
       availableWidth,
       role: this.role,
@@ -439,6 +535,55 @@ export class SuperToolbar extends EventEmitter {
 
     this.toolbarItems = filteredItems;
     this.overflowItems = overflowItems.filter((item) => allConfigItems.includes(item.name.value));
+  }
+
+  /**
+   * The font dropdown options. Lifecycle only: get the active document's font options from the read API
+   * and hand the composition (dedupe, ordering, preview styling) to the pure
+   * {@link composeToolbarFontOptions} seam. A consumer-provided `configFonts` list is returned untouched.
+   * @private
+   * @param {Array|undefined} configFonts - the consumer's `fonts` config, if any
+   * @returns {Array|undefined} the toolbar font options, or undefined to fall back to the bundled defaults
+   */
+  #resolveToolbarFonts(configFonts) {
+    return composeToolbarFontOptions(this.superdoc?.fonts?.getDocumentFontOptions?.() ?? [], configFonts);
+  }
+
+  /**
+   * Rebuild the toolbar items (and so the font dropdown OPTIONS) from current config + document fonts.
+   * `updateToolbarState()` only refreshes existing item state; this re-creates the items, which is what
+   * surfaces a newly-resolved document font in the dropdown.
+   *
+   * `toolbarItems` / `overflowItems` are plain instance fields, not a Vue reactive source, so swapping them
+   * is invisible to the mounted `Toolbar.vue` until it re-renders. Emit `toolbar-items-changed` so the view
+   * forces that re-render (it bumps its render key). Without it the rebuilt items never reach the DOM and the
+   * toolbar keeps showing the previously-built set - e.g. the initial disabled items before an editor attaches.
+   * The resize path rebuilds and bumps the key from the view itself, so it does not go through this method.
+   * @private
+   * @returns {void}
+   */
+  #rebuildToolbarItems() {
+    this.#makeToolbarItems({
+      superToolbar: this,
+      icons: this.config.icons,
+      texts: this.config.texts,
+      fonts: this.config.fonts,
+      hideButtons: this.config.hideButtons,
+      isDev: this.isDev,
+    });
+    this.emit('toolbar-items-changed');
+  }
+
+  /**
+   * A stable signature of the active document's font options, to detect when a `fonts-changed` event
+   * actually changed the dropdown (vs the same options resolving again).
+   * @private
+   * @returns {string}
+   */
+  #fontOptionsSignature() {
+    if (this.config.fonts) return 'custom-fonts';
+    const options = this.superdoc?.fonts?.getDocumentFontOptions?.() ?? [];
+    return JSON.stringify(options.map((option) => [option.logicalFamily, option.previewFamily]));
   }
 
   /**
@@ -700,7 +845,7 @@ export class SuperToolbar extends EventEmitter {
 
     if (!this.activeEditor || currentMode === 'viewing') {
       this.#deactivateAll();
-      this.toolbarItems.forEach((item) => {
+      this.#getAllToolbarItems().forEach((item) => {
         if (item.allowWithoutEditor?.value) this.#applyHeadlessState(item);
       });
       return;
@@ -716,7 +861,7 @@ export class SuperToolbar extends EventEmitter {
     // active-state highlight (e.g., bold pressed, direction matched) to
     // reflect the current selection. Iterating only `toolbarItems` left
     // them frozen in their last-rendered state.
-    [...this.toolbarItems, ...this.overflowItems].forEach((item) => {
+    this.#getAllToolbarItems().forEach((item) => {
       item.resetDisabled();
       this.#applyHeadlessState(item);
     });
@@ -750,7 +895,7 @@ export class SuperToolbar extends EventEmitter {
    */
   #deactivateAll() {
     this.activeEditor = null;
-    this.toolbarItems.forEach((item) => {
+    this.#getAllToolbarItems().forEach((item) => {
       const { allowWithoutEditor } = item;
       if (allowWithoutEditor.value) return;
       item.setDisabled(true);
@@ -783,8 +928,9 @@ export class SuperToolbar extends EventEmitter {
    * Main handler for toolbar commands
    * @param {CommandItem} params - Command parameters
    * @param {ToolbarItem} params.item - An instance of the useToolbarItem composable
-   * @param {*} [params.argument] - The argument passed to the command
-   * @returns {*} The result of the executed command, undefined if no result is returned
+   * @param {unknown} [params.argument] - The argument passed to the command
+   * @returns {void} All control-flow branches use a bare `return;`; this method
+   *   side-effects (emits events, mutates state) and produces no value.
    */
   emitCommand({ item, argument, option }) {
     const hasFocusFn = this.activeEditor?.view?.hasFocus;
@@ -844,7 +990,9 @@ export class SuperToolbar extends EventEmitter {
       }
     }
 
-    if (this.activeEditor && this.activeEditor.commands && command in this.activeEditor.commands) {
+    if (command === 'insertTableOfContents' && this.activeEditor) {
+      insertTableOfContentsAtSelection(this.activeEditor);
+    } else if (this.activeEditor && this.activeEditor.commands && command in this.activeEditor.commands) {
       this.activeEditor.commands[command](argument);
     }
 
@@ -909,6 +1057,20 @@ export class SuperToolbar extends EventEmitter {
 
     const restored = this.#restoreStickyMarksIfNeeded();
     if (restored) this.updateToolbarState();
+  }
+
+  /**
+   * Rebuild the toolbar (and so the font dropdown) when the active document's font picture resolves.
+   * Fonts load asynchronously after a document opens, so document font options can change with no edit.
+   * @returns {void}
+   */
+  onEditorFontsChanged() {
+    const signature = this.#fontOptionsSignature();
+    if (signature !== this._lastFontOptionsSignature) {
+      this._lastFontOptionsSignature = signature;
+      this.#rebuildToolbarItems();
+    }
+    this.updateToolbarState();
   }
 
   /**
@@ -984,7 +1146,7 @@ export class SuperToolbar extends EventEmitter {
    * @private
    * @param {Object} params
    * @param {string} params.command
-   * @param {*} params.argument
+   * @param {unknown} params.argument
    * @returns {void}
    */
   #ensureStoredMarksForMarkToggle({ command, argument }) {
@@ -1022,6 +1184,7 @@ export class SuperToolbar extends EventEmitter {
       this._restoreFocusTimeoutId = null;
     }
 
+    this.#detachActiveEditorListeners();
     this.destroyHeadlessToolbar();
     this.app?.unmount();
   }

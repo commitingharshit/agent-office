@@ -1,12 +1,21 @@
-import { toFlowBlocks } from '@superdoc/pm-adapter';
+import { toFlowBlocks } from '@core/layout-adapter';
 import { getAtomNodeTypes as getAtomNodeTypesFromSchema } from '../presentation-editor/utils/SchemaNodeTypes.js';
-import type { FlowBlock, TrackedChangesMode } from '@superdoc/contracts';
+import {
+  formatPageNumber,
+  formatPageNumberFieldValue,
+  formatSectionPageNumberText,
+  type FlowBlock,
+  type PageNumberChapterSeparator,
+  type PageNumberFormat,
+  type TrackedChangesMode,
+} from '@superdoc/contracts';
 import type { HeaderFooterBatch } from '@superdoc/layout-bridge';
 import type { Editor } from '@core/Editor.js';
 import { EventEmitter } from '@core/EventEmitter.js';
 import { createHeaderFooterEditor, onHeaderFooterDataUpdate } from '@extensions/pagination/pagination-helpers.js';
-import type { ConverterContext } from '@superdoc/pm-adapter/converter-context.js';
+import type { ConverterContext } from '@core/layout-adapter/converter-context.js';
 import { buildStoryKey } from '../../document-api-adapters/story-runtime/story-key.js';
+import { getPageNumberFieldFormat } from '../layout-adapter/converters/inline-converters/page-number-field-format.js';
 
 const HEADER_FOOTER_VARIANTS = ['default', 'first', 'even', 'odd'] as const;
 const DEFAULT_HEADER_FOOTER_HEIGHT = 100;
@@ -29,12 +38,17 @@ type MinimalConverterContext = {
 };
 
 /**
- * Extended Editor interface that includes the converter property.
- * Used for type-safe access to header/footer data stored in the converter.
+ * SD-3240: `Editor.converter` is now typed as `EditorConverterSurface`
+ * (a public no-`any` facade) rather than the raw `SuperConverter`
+ * class. Header/footer code reads narrower-than-surface fields
+ * (`headers` / `footers` / `headerIds` / `footerIds` as the
+ * `HeaderFooterCollections` shape). Cast at the boundary instead of
+ * declaring an `interface … extends Editor` that overrides
+ * `converter` incompatibly with the surface.
  */
-interface EditorWithConverter extends Editor {
+type EditorWithConverter = Omit<Editor, 'converter'> & {
   converter: HeaderFooterCollections;
-}
+};
 
 export type HeaderFooterKind = 'header' | 'footer';
 export type HeaderFooterVariant = (typeof HEADER_FOOTER_VARIANTS)[number];
@@ -184,12 +198,18 @@ export class HeaderFooterEditorManager extends EventEmitter {
   }
 
   /**
-   * Type guard to check if an editor has a converter property.
+   * Runtime check that the editor has a usable converter handle.
+   *
+   * SD-3240: cannot be a type predicate (`editor is EditorWithConverter`)
+   * because `Editor.converter` is `EditorConverterSurface` while
+   * `EditorWithConverter` overrides it to `HeaderFooterCollections`.
+   * The two shapes don't share a subtype relationship. Callers narrow
+   * with a local cast after the check.
    *
    * @param editor - The editor instance to check
    * @returns True if the editor has a converter property
    */
-  #hasConverter(editor: Editor): editor is EditorWithConverter {
+  #hasConverter(editor: Editor): boolean {
     return 'converter' in editor && editor.converter !== undefined && editor.converter !== null;
   }
 
@@ -252,7 +272,12 @@ export class HeaderFooterEditorManager extends EventEmitter {
    * @param options.availableWidth - The width of the editing region in pixels. Must be a positive number if provided.
    * @param options.availableHeight - The height of the editing region in pixels. Must be a positive number if provided.
    * @param options.currentPageNumber - The current page number for PAGE field resolution. Must be a positive integer if provided.
+   * @param options.currentPageNumberText - The current formatted PAGE field display text if provided.
+   * @param options.currentPageDisplayNumber - The current numeric PAGE display value for local field formatting.
+   * @param options.currentPageChapterNumberText - The PAGE chapter prefix for local field formatting.
+   * @param options.currentPageChapterSeparator - The PAGE chapter separator for local field formatting.
    * @param options.totalPageCount - The total page count for NUMPAGES field resolution. Must be a positive integer if provided.
+   * @param options.sectionPageCount - The current section page count for SECTIONPAGES field resolution. Must be a positive integer if provided.
    * @returns The editor instance, or null if creation failed
    *
    * @throws Never throws - errors are logged and emitted as events. Invalid parameters return null with error logged.
@@ -264,7 +289,12 @@ export class HeaderFooterEditorManager extends EventEmitter {
       availableWidth?: number;
       availableHeight?: number;
       currentPageNumber?: number;
+      currentPageNumberText?: string;
+      currentPageDisplayNumber?: number;
+      currentPageChapterNumberText?: string;
+      currentPageChapterSeparator?: PageNumberChapterSeparator;
       totalPageCount?: number;
+      sectionPageCount?: number;
     },
   ): Promise<Editor | null> {
     if (!descriptor?.id) return null;
@@ -337,6 +367,21 @@ export class HeaderFooterEditorManager extends EventEmitter {
           this.emit('error', {
             descriptor,
             error: new TypeError('totalPageCount must be a positive integer'),
+          });
+          return null;
+        }
+      }
+
+      if (options.sectionPageCount !== undefined) {
+        if (
+          typeof options.sectionPageCount !== 'number' ||
+          !Number.isInteger(options.sectionPageCount) ||
+          options.sectionPageCount < 1
+        ) {
+          console.error('[HeaderFooterEditorManager] sectionPageCount must be a positive integer');
+          this.emit('error', {
+            descriptor,
+            error: new TypeError('sectionPageCount must be a positive integer'),
           });
           return null;
         }
@@ -414,7 +459,12 @@ export class HeaderFooterEditorManager extends EventEmitter {
       availableWidth?: number;
       availableHeight?: number;
       currentPageNumber?: number;
+      currentPageNumberText?: string;
+      currentPageDisplayNumber?: number;
+      currentPageChapterNumberText?: string;
+      currentPageChapterSeparator?: PageNumberChapterSeparator;
       totalPageCount?: number;
+      sectionPageCount?: number;
     },
   ): Editor | null {
     if (!descriptor?.id) return null;
@@ -448,18 +498,70 @@ export class HeaderFooterEditorManager extends EventEmitter {
     const opts = editor.options as Record<string, unknown>;
     const parentEditor = opts.parentEditor as Record<string, unknown> | undefined;
 
-    const currentPage = String(opts.currentPageNumber || '1');
-    const totalPages = String(opts.totalPageCount || parentEditor?.currentTotalPages || '1');
+    const currentPage = String(opts.currentPageNumberText || opts.currentPageNumber || '1');
+    const currentPageNumber = Number(opts.currentPageDisplayNumber || opts.currentPageNumber || 1);
+    const chapterNumberText =
+      typeof opts.currentPageChapterNumberText === 'string' ? opts.currentPageChapterNumberText : undefined;
+    const chapterSeparator =
+      typeof opts.currentPageChapterSeparator === 'string'
+        ? (opts.currentPageChapterSeparator as PageNumberChapterSeparator)
+        : undefined;
+    const totalPages = Number(opts.totalPageCount || parentEditor?.currentTotalPages || 1) || 1;
+    const sectionPages = opts.sectionPageCount;
 
     const pageNumberEls = container.querySelectorAll('[data-id="auto-page-number"]');
     const totalPagesEls = container.querySelectorAll('[data-id="auto-total-pages"]');
+    const sectionPagesEls = container.querySelectorAll('[data-id="auto-section-pages"]');
 
     pageNumberEls.forEach((el) => {
-      if (el.textContent !== currentPage) el.textContent = currentPage;
+      const pageNumberFormat = this.#getPageNumberFormatForDomNode(editor, el);
+      const text = pageNumberFormat
+        ? formatSectionPageNumberText({
+            displayNumber: currentPageNumber,
+            pageFormat: pageNumberFormat,
+            chapterNumberText,
+            chapterSeparator,
+          })
+        : currentPage;
+      if (el.textContent !== text) el.textContent = text;
     });
     totalPagesEls.forEach((el) => {
-      if (el.textContent !== totalPages) el.textContent = totalPages;
+      const pageNumberFieldFormat = this.#getPageNumberFieldFormatForDomNode(editor, el);
+      const text = formatPageNumberFieldValue(totalPages, pageNumberFieldFormat);
+      if (el.textContent !== text) el.textContent = text;
     });
+    sectionPagesEls.forEach((el) => {
+      if (sectionPages == null) return;
+      const pageNumberFormat = this.#getPageNumberFormatForDomNode(editor, el);
+      const sectionPageCount = Number(sectionPages) || 1;
+      const text = pageNumberFormat ? formatPageNumber(sectionPageCount, pageNumberFormat) : String(sectionPageCount);
+      if (el.textContent !== text) el.textContent = text;
+    });
+  }
+
+  #getPageNumberFormatForDomNode(editor: Editor, el: Element): PageNumberFormat | null {
+    try {
+      const view = editor.view;
+      if (!view) return null;
+      const pos = view.posAtDOM(el, 0);
+      const node = editor.state.doc.nodeAt(pos);
+      const format = node?.attrs?.pageNumberFormat;
+      return typeof format === 'string' ? (format as PageNumberFormat) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  #getPageNumberFieldFormatForDomNode(editor: Editor, el: Element): ReturnType<typeof getPageNumberFieldFormat> {
+    try {
+      const view = editor.view;
+      if (!view) return undefined;
+      const pos = view.posAtDOM(el, 0);
+      const node = editor.state.doc.nodeAt(pos);
+      return getPageNumberFieldFormat(node?.attrs);
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -719,7 +821,12 @@ export class HeaderFooterEditorManager extends EventEmitter {
       availableWidth?: number;
       availableHeight?: number;
       currentPageNumber?: number;
+      currentPageNumberText?: string;
+      currentPageDisplayNumber?: number;
+      currentPageChapterNumberText?: string;
+      currentPageChapterSeparator?: PageNumberChapterSeparator;
       totalPageCount?: number;
+      sectionPageCount?: number;
     },
   ): HeaderFooterEditorEntry | null {
     const json = this.getDocumentJson(descriptor);
@@ -739,7 +846,12 @@ export class HeaderFooterEditorManager extends EventEmitter {
         availableWidth: options?.availableWidth,
         availableHeight: options?.availableHeight ?? DEFAULT_HEADER_FOOTER_HEIGHT,
         currentPageNumber: options?.currentPageNumber ?? 1,
+        currentPageNumberText: options?.currentPageNumberText,
+        currentPageDisplayNumber: options?.currentPageDisplayNumber,
+        currentPageChapterNumberText: options?.currentPageChapterNumberText,
+        currentPageChapterSeparator: options?.currentPageChapterSeparator,
         totalPageCount: options?.totalPageCount ?? 1,
+        sectionPageCount: options?.sectionPageCount,
       }) as Editor;
     } catch (error) {
       console.error('[HeaderFooterEditorManager] Editor creation failed:', error);
@@ -855,7 +967,12 @@ export class HeaderFooterEditorManager extends EventEmitter {
       availableWidth?: number;
       availableHeight?: number;
       currentPageNumber?: number;
+      currentPageNumberText?: string;
+      currentPageDisplayNumber?: number;
+      currentPageChapterNumberText?: string;
+      currentPageChapterSeparator?: PageNumberChapterSeparator;
       totalPageCount?: number;
+      sectionPageCount?: number;
     },
   ): void {
     if (entry.container && options?.editorHost && entry.container.parentElement !== options.editorHost) {
@@ -870,8 +987,27 @@ export class HeaderFooterEditorManager extends EventEmitter {
     if (options.currentPageNumber !== undefined) {
       updateOptions.currentPageNumber = options.currentPageNumber;
     }
+    if (options.currentPageNumberText !== undefined) {
+      updateOptions.currentPageNumberText = options.currentPageNumberText;
+    }
+    if (options.currentPageDisplayNumber !== undefined) {
+      updateOptions.currentPageDisplayNumber = options.currentPageDisplayNumber;
+    }
+    const hasPageContext =
+      options.currentPageNumber !== undefined ||
+      options.currentPageNumberText !== undefined ||
+      options.currentPageDisplayNumber !== undefined;
+    if (hasPageContext || options.currentPageChapterNumberText !== undefined) {
+      updateOptions.currentPageChapterNumberText = options.currentPageChapterNumberText;
+    }
+    if (hasPageContext || options.currentPageChapterSeparator !== undefined) {
+      updateOptions.currentPageChapterSeparator = options.currentPageChapterSeparator;
+    }
     if (options.totalPageCount !== undefined) {
       updateOptions.totalPageCount = options.totalPageCount;
+    }
+    if (options.sectionPageCount !== undefined) {
+      updateOptions.sectionPageCount = options.sectionPageCount;
     }
     if (options.availableWidth !== undefined) {
       updateOptions.availableWidth = options.availableWidth;
@@ -905,7 +1041,7 @@ export class HeaderFooterEditorManager extends EventEmitter {
     if (!this.#hasConverter(this.#editor)) {
       return;
     }
-    const converter = this.#editor.converter as Record<string, unknown>;
+    const converter = this.#editor.converter as unknown as Record<string, unknown>;
     if (!converter) return;
 
     const targetKey = descriptor.kind === 'header' ? 'headerEditors' : 'footerEditors';
@@ -940,7 +1076,7 @@ export class HeaderFooterEditorManager extends EventEmitter {
     if (!this.#hasConverter(this.#editor)) {
       return;
     }
-    const converter = this.#editor.converter as Record<string, unknown>;
+    const converter = this.#editor.converter as unknown as Record<string, unknown>;
     if (!converter) return;
 
     const targetKey = descriptor.kind === 'header' ? 'headerEditors' : 'footerEditors';
@@ -1329,7 +1465,7 @@ export class HeaderFooterLayoutAdapter {
 
     const blockIdPrefix = `hf-${descriptor.kind}-${descriptor.id}-`;
     const converterContext = this.#getConverterContext();
-    const rootConverter = (this.#manager.rootEditor as EditorWithConverter | undefined)?.converter as
+    const rootConverter = (this.#manager.rootEditor as unknown as EditorWithConverter | undefined)?.converter as
       | { media?: Record<string, string>; getDocumentDefaultStyles?: () => { typeface?: string; fontSizePt?: number } }
       | undefined;
     const providedMedia = this.#mediaFiles;
@@ -1374,7 +1510,7 @@ export class HeaderFooterLayoutAdapter {
     if (!('converter' in rootEditor)) {
       return undefined;
     }
-    const converter = (rootEditor as EditorWithConverter).converter as Record<string, unknown> | undefined;
+    const converter = (rootEditor as unknown as EditorWithConverter).converter as Record<string, unknown> | undefined;
     if (!converter) return undefined;
 
     const context: ConverterContext = {

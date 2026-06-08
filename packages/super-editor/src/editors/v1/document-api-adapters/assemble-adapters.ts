@@ -19,6 +19,7 @@ import {
 } from './plan-engine/plan-wrappers.js';
 import { clearContentWrapper } from './plan-engine/clear-content-wrapper.js';
 import { stylesApplyAdapter } from './styles-adapter.js';
+import { templatesApplyAdapter } from './templates/templates-adapter.js';
 import {
   paragraphsSetStyleWrapper,
   paragraphsClearStyleWrapper,
@@ -49,6 +50,7 @@ import {
   trackChangesRejectWrapper,
   trackChangesAcceptAllWrapper,
   trackChangesRejectAllWrapper,
+  trackChangesDecideRangeWrapper,
 } from './plan-engine/track-changes-wrappers.js';
 import { createParagraphWrapper, createHeadingWrapper } from './plan-engine/create-wrappers.js';
 import { blocksListWrapper, blocksDeleteWrapper, blocksDeleteRangeWrapper } from './plan-engine/blocks-wrappers.js';
@@ -257,6 +259,7 @@ import {
   bookmarksRemoveWrapper,
 } from './plan-engine/bookmark-wrappers.js';
 import { createCustomXmlPartsAdapter } from './plan-engine/custom-xml-wrappers.js';
+import { createAnchoredMetadataAdapter } from './plan-engine/anchored-metadata-wrappers.js';
 import {
   protectionGetAdapter,
   protectionSetEditingRestrictionAdapter,
@@ -412,6 +415,9 @@ export function assembleDocumentApiAdapters(editor: Editor): DocumentApiAdapters
     styles: {
       apply: (input, options) => stylesApplyAdapter(editor, input, options),
     },
+    templates: {
+      apply: (input, options) => templatesApplyAdapter(editor, input, options),
+    },
     paragraphs: {
       setStyle: (input, options) => paragraphsSetStyleWrapper(editor, input, options),
       clearStyle: (input, options) => paragraphsClearStyleWrapper(editor, input, options),
@@ -442,6 +448,7 @@ export function assembleDocumentApiAdapters(editor: Editor): DocumentApiAdapters
       reject: (input, options) => trackChangesRejectWrapper(editor, input, options),
       acceptAll: (input, options) => trackChangesAcceptAllWrapper(editor, input, options),
       rejectAll: (input, options) => trackChangesRejectAllWrapper(editor, input, options),
+      decideRange: (input, options) => trackChangesDecideRangeWrapper(editor, input, options),
     },
     blocks: {
       list: (input) => blocksListWrapper(editor, input),
@@ -649,6 +656,7 @@ export function assembleDocumentApiAdapters(editor: Editor): DocumentApiAdapters
     customXml: {
       parts: createCustomXmlPartsAdapter(editor),
     },
+    metadata: createAnchoredMetadataAdapter(editor),
     footnotes: {
       list: (query) => footnotesListWrapper(editor, query),
       get: (input) => footnotesGetWrapper(editor, input),

@@ -1,17 +1,21 @@
 import {
   createDocumentModeExecute,
   createDocumentModeStateDeriver,
+  createDocumentOperationCapabilityStateDeriver,
   createFormattingMarksExecute,
   createFormattingMarksStateDeriver,
   createHistoryStateDeriver,
   createRulerExecute,
   createRulerStateDeriver,
   createZoomExecute,
+  createZoomFitWidthExecute,
+  createZoomFitWidthStateDeriver,
   createZoomStateDeriver,
 } from './helpers/document.js';
 import {
   createBoldStateDeriver,
   createBoldExecute,
+  createCopyFormatStateDeriver,
   createFontFamilyExecute,
   createFontFamilyStateDeriver,
   createFontSizeExecute,
@@ -42,6 +46,7 @@ import {
   createTextAlignStateDeriver,
 } from './helpers/paragraph.js';
 import { createDirectCommandExecute, createDisabledStateDeriver } from './helpers/general.js';
+import { createTableOfContentsInsertExecute } from './helpers/table-of-contents.js';
 import { createTableActionsStateDeriver } from './helpers/table.js';
 import { createTrackChangesSelectionActionStateDeriver } from './helpers/track-changes.js';
 import type { BuiltInToolbarRegistryEntry } from './internal-types.js';
@@ -184,6 +189,11 @@ export const createToolbarRegistry = (): Partial<Record<PublicToolbarItemId, Bui
       state: createZoomStateDeriver(),
       execute: createZoomExecute(),
     },
+    'zoom-fit-width': {
+      id: 'zoom-fit-width',
+      state: createZoomFitWidthStateDeriver(),
+      execute: createZoomFitWidthExecute(),
+    },
     'document-mode': {
       id: 'document-mode',
       state: createDocumentModeStateDeriver(),
@@ -199,7 +209,7 @@ export const createToolbarRegistry = (): Partial<Record<PublicToolbarItemId, Bui
     'copy-format': {
       id: 'copy-format',
       directCommandName: 'copyFormat',
-      state: createDisabledStateDeriver(),
+      state: createCopyFormatStateDeriver(),
     },
     'track-changes-accept-selection': {
       id: 'track-changes-accept-selection',
@@ -215,6 +225,11 @@ export const createToolbarRegistry = (): Partial<Record<PublicToolbarItemId, Bui
       id: 'image',
       state: createDisabledStateDeriver(),
       execute: createImageExecute(),
+    },
+    'table-of-contents-insert': {
+      id: 'table-of-contents-insert',
+      state: createDocumentOperationCapabilityStateDeriver('create.tableOfContents'),
+      execute: createTableOfContentsInsertExecute(),
     },
 
     // Table items

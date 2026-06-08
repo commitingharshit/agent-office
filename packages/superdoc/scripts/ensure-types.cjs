@@ -109,6 +109,54 @@ const SHARED_COMMON_DTS_TARGETS = typeSurface.sharedCommonDtsTargets;
   console.log(`[ensure-types] ✓ Emitted ${SHARED_COMMON_DTS_TARGETS.length} shared/common declarations`);
 }
 
+// Emit @superdoc/font-system public declarations into the published dist tree. Its font
+// report types surface on `superdoc.fonts` / `fonts-changed`. Like shared/common, adding
+// it to vite-plugin-dts would shift the common-ancestor, so emit it standalone from the
+// package's `index.ts` (which has no asset imports). The relocation rule rewrites bare
+// `@superdoc/font-system` specifiers in other dist files to `shared/font-system/src/index.d.ts`.
+{
+  const { spawnSync: _spawnSync } = require('node:child_process');
+  const tscBin = path.join(repoRoot, 'node_modules', '.bin', 'tsc');
+  const fontSystemSrc = path.join(repoRoot, 'shared/font-system/src');
+  const fontSystemDistDir = path.join(distRoot, 'shared/font-system/src');
+  fs.mkdirSync(fontSystemDistDir, { recursive: true });
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'superdoc-ensure-types-fs-'));
+  const tempTsconfig = path.join(tempDir, 'tsconfig.font-system.json');
+  fs.writeFileSync(
+    tempTsconfig,
+    `${JSON.stringify(
+      {
+        compilerOptions: {
+          declaration: true,
+          emitDeclarationOnly: true,
+          skipLibCheck: true,
+          target: 'ES2022',
+          module: 'ESNext',
+          moduleResolution: 'bundler',
+          types: [],
+          lib: ['ES2022', 'DOM'],
+          outDir: fontSystemDistDir,
+          rootDir: fontSystemSrc,
+        },
+        files: [path.join(fontSystemSrc, 'index.ts')],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  let tscResult;
+  try {
+    tscResult = _spawnSync(tscBin, ['-p', tempTsconfig], { stdio: 'inherit' });
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+  if (tscResult.status !== 0) {
+    console.error('[ensure-types] tsc failed emitting @superdoc/font-system declarations');
+    process.exit(1);
+  }
+  console.log('[ensure-types] ✓ Emitted @superdoc/font-system declarations');
+}
+
 // SD-2978: the package advertises CJS runtime entry points for `.`, `./types`,
 // and `./super-editor`. Node16/NodeNext TypeScript consumers resolving those
 // entries through `require` need CJS declaration entry points (`.d.cts`) so the
@@ -132,13 +180,52 @@ const cjsDeclarationShims = [
     source: path.join(distRoot, 'superdoc/src/super-editor.d.ts'),
     target: './super-editor.js',
   },
+  // SD-3178: explicit public facade root entry. The CJS shim is generated
+  // now so that Phase 4 (the `package.json#exports` flip) does not need a
+  // separate pipeline change.
+  {
+    file: path.join(distRoot, 'superdoc/src/public/index.d.cts'),
+    source: path.join(distRoot, 'superdoc/src/public/index.d.ts'),
+    target: './index.js',
+  },
+  // SD-3179: legacy headless-toolbar facade entry.
+  {
+    file: path.join(distRoot, 'superdoc/src/public/legacy/headless-toolbar.d.cts'),
+    source: path.join(distRoot, 'superdoc/src/public/legacy/headless-toolbar.d.ts'),
+    target: './headless-toolbar.js',
+  },
+  // SD-3207: legacy headless-toolbar framework helpers.
+  {
+    file: path.join(distRoot, 'superdoc/src/public/legacy/headless-toolbar-react.d.cts'),
+    source: path.join(distRoot, 'superdoc/src/public/legacy/headless-toolbar-react.d.ts'),
+    target: './headless-toolbar-react.js',
+  },
+  {
+    file: path.join(distRoot, 'superdoc/src/public/legacy/headless-toolbar-vue.d.cts'),
+    source: path.join(distRoot, 'superdoc/src/public/legacy/headless-toolbar-vue.d.ts'),
+    target: './headless-toolbar-vue.js',
+  },
+  // SD-3184: types facade — type-only entry. The existing `./types`
+  // subpath has split types.import/types.require declarations, so the
+  // facade needs a real .d.cts shim. `typeOnly: true` forces the shim
+  // to re-export every name with `export type`, never `export declare
+  // const`, even for names that have value origins upstream (defineNode,
+  // defineMark, isNodeType, assertNodeType, isMarkType). This matches
+  // the ESM .d.ts which uses `export type { ... }` for the same names
+  // and the runtime contract (`dist/public/types.es.js` is empty).
+  {
+    file: path.join(distRoot, 'superdoc/src/public/types.d.cts'),
+    source: path.join(distRoot, 'superdoc/src/public/types.d.ts'),
+    target: './types.js',
+    typeOnly: true,
+  },
 ];
 
 function isValidIdentifier(name) {
   return /^[$A-Z_a-z][$\w]*$/.test(name);
 }
 
-function emitCjsDeclarationShim({ file, source, target }) {
+function emitCjsDeclarationShim({ file, source, target, typeOnly = false }) {
   const ts = require('typescript');
   const program = ts.createProgram([source], {
     target: ts.ScriptTarget.ES2022,
@@ -170,6 +257,19 @@ function emitCjsDeclarationShim({ file, source, target }) {
     const hasValue = Boolean(resolved.flags & ts.SymbolFlags.Value);
     const hasType = Boolean(resolved.flags & ts.SymbolFlags.Type);
 
+    // typeOnly: re-export every name as a type, regardless of upstream
+    // origin. SD-3184: `superdoc/types` is contracted as type-only, so
+    // value-origin names (defineNode, defineMark, isNodeType,
+    // assertNodeType, isMarkType) must NOT appear as `export declare
+    // const` in the CJS shim — that would advertise a runtime value
+    // the empty runtime bundle does not provide.
+    if (typeOnly) {
+      const typeAlias = `__Cjs_${name}`;
+      importLines.push(`import type { ${name} as ${typeAlias} } from '${target}' with { "resolution-mode": "import" };`);
+      exportLines.push(`export type { ${typeAlias} as ${name} };`);
+      continue;
+    }
+
     if (hasType) {
       const typeAlias = `__Cjs_${name}`;
       importLines.push(`import type { ${name} as ${typeAlias} } from '${target}' with { "resolution-mode": "import" };`);
@@ -198,39 +298,46 @@ if (!hasSuperDocExport) {
   process.exit(1);
 }
 
-// @superdoc/common is a private workspace package, so consumers can't
-// resolve a bare `from '@superdoc/common'` import. The main entry
-// (superdoc/src/index.d.ts) imports runtime values from it — DOCX/PDF/
-// HTML constants, getFileObject, compareVersions, BlankDOCX (the last
-// from a Vite `?url` import that vite-plugin-dts can't type). Strip
-// that import statement and inline ambient declarations for those
-// values. Type-only imports of @superdoc/common from other dist files
-// are handled separately by the RELOCATION_RULES rewriter below, which
+// @superdoc/common is a private workspace package, so consumers can't resolve
+// bare or deep `@superdoc/common` imports from emitted declarations. The root
+// entry and the path-as-contract public facade both expose a small set of
+// runtime values from common (DOCX/PDF/HTML constants, getFileObject,
+// compareVersions, BlankDOCX). Strip those imports and inline declarations for
+// the exported names. Type-only imports of @superdoc/common from other dist
+// files are handled separately by the RELOCATION_RULES rewriter below, which
 // maps bare @superdoc/common to dist/shared/common/comments-types.d.ts.
-const hadWorkspaceImport = content.includes('@superdoc/common');
-if (hadWorkspaceImport) {
-  // Replace the @superdoc/common import with inline declarations
-  content = content.replace(
-    /import\s*\{[^}]*\}\s*from\s*['"]@superdoc\/common['"];?\s*\n?/g,
-    '',
-  );
+function inlineCommonRuntimeDeclarations(filePath) {
+  let fileContent = fs.readFileSync(filePath, 'utf8');
+  if (!fileContent.includes('@superdoc/common')) return false;
 
-  // BlankDOCX comes from a Vite ?url import (resolves to a string at runtime)
-  // Declare it since vite-plugin-dts can't generate types for ?url imports
-  const inlineDeclarations = [
-    '/** Document MIME type constants */',
-    "declare const DOCX: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';",
-    "declare const PDF: 'application/pdf';",
-    "declare const HTML: 'text/html';",
-    'declare function getFileObject(fileUrl: string, name: string, type: string): Promise<File>;',
-    'declare function compareVersions(version1: string, version2: string): -1 | 0 | 1;',
-    '/** URL to the blank DOCX template */',
-    'declare const BlankDOCX: string;',
-  ].join('\n');
+  fileContent = fileContent
+    .replace(/import\s*\{[^}]*\}\s*from\s*['"]@superdoc\/common['"];?\s*\n?/g, '')
+    .replace(/import\s*\{[^}]*\}\s*from\s*['"]@superdoc\/common\/document-types['"];?\s*\n?/g, '')
+    .replace(/import\s*\{[^}]*\}\s*from\s*['"]@superdoc\/common\/helpers\/get-file-object['"];?\s*\n?/g, '')
+    .replace(/import\s*\{[^}]*\}\s*from\s*['"]@superdoc\/common\/helpers\/compare-superdoc-versions['"];?\s*\n?/g, '');
 
-  content = inlineDeclarations + '\n' + content;
-  fs.writeFileSync(indexPath, content);
-  console.log('[ensure-types] ✓ Inlined @superdoc/common types');
+  const hasExportedBlankDocxDeclaration = /\bexport\s+declare\s+const\s+BlankDOCX\b/.test(fileContent);
+  const declarations = [
+    fileContent.includes('DOCX') && "declare const DOCX: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';",
+    fileContent.includes('PDF') && "declare const PDF: 'application/pdf';",
+    fileContent.includes('HTML') && "declare const HTML: 'text/html';",
+    fileContent.includes('getFileObject') && 'declare function getFileObject(fileUrl: string, name: string, type: string): Promise<File>;',
+    fileContent.includes('compareVersions') && 'declare function compareVersions(version1: string, version2: string): -1 | 0 | 1;',
+    fileContent.includes('BlankDOCX') && !hasExportedBlankDocxDeclaration && '/** URL to the blank DOCX template */',
+    fileContent.includes('BlankDOCX') && !hasExportedBlankDocxDeclaration && 'declare const BlankDOCX: string;',
+  ].filter(Boolean);
+
+  fs.writeFileSync(filePath, `${declarations.join('\n')}\n${fileContent}`);
+  return true;
+}
+
+const commonInlineTargets = [
+  path.join(distRoot, 'superdoc/src/index.d.ts'),
+  path.join(distRoot, 'superdoc/src/public/index.d.ts'),
+];
+const inlinedCommonTargets = commonInlineTargets.filter((target) => fs.existsSync(target) && inlineCommonRuntimeDeclarations(target));
+if (inlinedCommonTargets.length) {
+  console.log(`[ensure-types] ✓ Inlined @superdoc/common runtime declarations in ${inlinedCommonTargets.length} entry point(s)`);
 }
 
 // ---------------------------------------------------------------------------
