@@ -17,14 +17,15 @@
  *
  * @param {import('../../v2/types/index.js').OpenXmlNode[]} nodesToCombine The nodes to combine.
  * @param {string} instrText The instruction text.
- * @param {import('../../v2/docxHelper').ParsedDocx} [_docx] The docx object (unused).
- * @param {Array<{type: string, text?: string}>} [instructionTokens] Raw instruction tokens.
+ * @param {{ instructionTokens?: Array<{type: string, text?: string}> | null }} [options]
  * @returns {import('../../v2/types/index.js').OpenXmlNode[]}
  */
-export function preProcessTcInstruction(nodesToCombine, instrText, _docx, instructionTokens = null) {
+export function preProcessTcInstruction(nodesToCombine, instrText, _docx, options = {}) {
   const before = [];
   const after = [];
   const entryElements = [];
+  const instructionTokens = options.instructionTokens ?? null;
+
   let seenContent = false;
   for (const node of nodesToCombine) {
     const isBookmarkMarker = node?.name === 'w:bookmarkStart' || node?.name === 'w:bookmarkEnd';
