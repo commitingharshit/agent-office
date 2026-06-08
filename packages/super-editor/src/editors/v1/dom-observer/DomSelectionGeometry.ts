@@ -578,18 +578,22 @@ export function computeDomCaretPageLocal(
     const elRect = targetEl.getBoundingClientRect();
 
     if (targetEl.classList.contains('superdoc-line')) {
+      const paddingLeft = parseFloat(targetEl.style.paddingLeft) || 0;
+      const paddingRight = parseFloat(targetEl.style.paddingRight) || 0;
+      const lineLeft = (elRect.left - pageRect.left) / zoom + paddingLeft;
+      const lineRight = (elRect.right - pageRect.left) / zoom - paddingRight;
       const textAlign = targetEl.style.textAlign;
-      let startX: number;
+      let x: number;
       if (textAlign === 'center') {
-        startX = (elRect.left + elRect.right) / 2;
+        x = (lineLeft + lineRight) / 2;
       } else if (textAlign === 'right') {
-        startX = elRect.right;
+        x = lineRight;
       } else {
-        startX = elRect.left;
+        x = lineLeft;
       }
       return {
         pageIndex: Number(page.dataset.pageIndex ?? '0'),
-        x: (startX - pageRect.left) / zoom,
+        x,
         y: (elRect.top - pageRect.top) / zoom,
       };
     }
