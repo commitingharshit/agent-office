@@ -305,10 +305,7 @@ describe('verdict-aware evidence (rendered substitutes only)', () => {
   it('Cambria Regular face: per-face metric_safe, and NO unrelated (Bold Italic) glyph exception', () => {
     const reg = new FaceRegistry();
     reg.setFace('Caladea', '400', 'normal', 'loaded');
-    const [row] = buildFaceReport(
-      [{ logicalFamily: 'Cambria', weight: '400', style: 'normal' }],
-      reg.asRegistry(),
-    );
+    const [row] = buildFaceReport([{ logicalFamily: 'Cambria', weight: '400', style: 'normal' }], reg.asRegistry());
     expect(row.reason).toBe('bundled_substitute');
     expect(row.evidence).toEqual({
       evidenceId: 'cambria',
@@ -321,10 +318,7 @@ describe('verdict-aware evidence (rendered substitutes only)', () => {
   it('Cambria Bold Italic face: per-face visual_only, includes its grave-accent exception', () => {
     const reg = new FaceRegistry();
     reg.setFace('Caladea', '700', 'italic', 'loaded');
-    const [row] = buildFaceReport(
-      [{ logicalFamily: 'Cambria', weight: '700', style: 'italic' }],
-      reg.asRegistry(),
-    );
+    const [row] = buildFaceReport([{ logicalFamily: 'Cambria', weight: '700', style: 'italic' }], reg.asRegistry());
     expect(row.reason).toBe('bundled_substitute');
     expect(row.evidence?.verdict).toBe('visual_only');
     expect(row.evidence?.lineBreakSafe).toBe(false);
@@ -357,10 +351,7 @@ describe('verdict-aware evidence (rendered substitutes only)', () => {
     // registered_face: a real Calibri face registered for the logical family.
     const reg2 = new FaceRegistry();
     reg2.setFace('Calibri', '400', 'normal', 'loaded');
-    const [calRow] = buildFaceReport(
-      [{ logicalFamily: 'Calibri', weight: '400', style: 'normal' }],
-      reg2.asRegistry(),
-    );
+    const [calRow] = buildFaceReport([{ logicalFamily: 'Calibri', weight: '400', style: 'normal' }], reg2.asRegistry());
     expect(calRow.reason).toBe('registered_face');
     expect(calRow.evidence).toBeUndefined();
   });

@@ -1,12 +1,7 @@
 import { resolveFontFamily, resolveFace, type FaceKey, type FontResolutionReason, type FontResolver } from './resolver';
 import type { FontRegistry } from './registry';
 import { getRenderableFallback, getRenderableFallbackForFace } from '@docfonts/fallbacks';
-import type {
-  FaceSlot,
-  GlyphException,
-  SubstituteVerdict,
-  SubstitutePolicyAction,
-} from './substitution-evidence';
+import type { FaceSlot, GlyphException, SubstituteVerdict, SubstitutePolicyAction } from './substitution-evidence';
 import { isSettled, type FontLoadStatus } from './types';
 
 /**
@@ -55,9 +50,7 @@ const RENDER_ALL = { canRenderFamily: (): boolean => true };
  * {@link ResolvedFontEvidence}. Copies only the report-safe fields, so the package's types never enter
  * the emitted `.d.ts`. A null fallback (none renderable) becomes undefined.
  */
-function toEvidence(
-  fallback: ReturnType<typeof getRenderableFallback>,
-): ResolvedFontEvidence | undefined {
+function toEvidence(fallback: ReturnType<typeof getRenderableFallback>): ResolvedFontEvidence | undefined {
   if (!fallback) return undefined;
   return {
     evidenceId: fallback.evidenceId,
@@ -140,9 +133,7 @@ export function buildFontReport(
     // `fonts.map`; fall back to the shared bundled map for callers without a context.
     const { physicalFamily, reason } = resolver ? resolver.resolveFontFamily(logical) : resolveFontFamily(logical);
     const loadStatus = registry.getStatus(physicalFamily);
-    const evidence = isRenderedSubstitute(reason)
-      ? toEvidence(getRenderableFallback(logical, RENDER_ALL))
-      : undefined;
+    const evidence = isRenderedSubstitute(reason) ? toEvidence(getRenderableFallback(logical, RENDER_ALL)) : undefined;
     report.push({
       logicalFamily: logical,
       physicalFamily,
