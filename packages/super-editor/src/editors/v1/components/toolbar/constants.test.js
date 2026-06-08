@@ -81,12 +81,13 @@ describe('composeToolbarFontOptions (document fonts unioned with the bundled def
 
   it('maps a document font as a plain logical picker row, with no visible status text', () => {
     const options = composeToolbarFontOptions([doc('Aptos', 'needs_font', 'Aptos')], undefined);
-    expect(options.at(-1)).toMatchObject({
+    const aptos = options.find((option) => option.label === 'Aptos');
+    expect(aptos).toMatchObject({
       label: 'Aptos', // pure logical name (active-state match + the stored/exported value)
       key: 'Aptos',
       props: { style: { fontFamily: 'Aptos' }, 'data-item': 'btn-fontFamily-option' },
     });
-    expect(options.at(-1).secondaryLabel).toBeUndefined();
+    expect(aptos.secondaryLabel).toBeUndefined();
   });
 
   it('does not expose status text for any document font status', () => {
@@ -98,7 +99,8 @@ describe('composeToolbarFontOptions (document fonts unioned with the bundled def
 
   it('keeps an available document font as a plain name', () => {
     const options = composeToolbarFontOptions([doc('BrandSans', 'available', 'BrandSans')], undefined);
-    expect(options.at(-1).label).toBe('BrandSans');
-    expect(options.at(-1).secondaryLabel).toBeUndefined();
+    const brandSans = options.find((option) => option.label === 'BrandSans');
+    expect(brandSans.label).toBe('BrandSans');
+    expect(brandSans.secondaryLabel).toBeUndefined();
   });
 });

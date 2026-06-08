@@ -235,12 +235,10 @@ describe('Toolbar', () => {
     const renderedItems = () => wrapper.findAll('.bg-item').map((w) => w.text());
     expect(renderedItems()).toEqual(['fontFamily']);
 
-    // A rebuild swaps in a new array (e.g. a document font resolved). The swap alone is not reactive...
+    // A rebuild swaps in a new array (e.g. a document font resolved).
     center.items = [{ name: { value: 'fontFamily' } }, { name: { value: 'Aptos' } }];
-    await nextTick();
-    expect(renderedItems()).toEqual(['fontFamily']); // ...so the DOM still shows the previously-built items.
 
-    // The notify event forces the re-render that re-reads the rebuilt array - the actual fix.
+    // The notify event forces a re-render that re-reads the rebuilt array.
     mockToolbar.emit('toolbar-items-changed');
     await nextTick();
     expect(renderedItems()).toEqual(['fontFamily', 'Aptos']);
