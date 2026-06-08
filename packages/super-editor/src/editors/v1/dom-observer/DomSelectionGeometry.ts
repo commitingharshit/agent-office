@@ -576,6 +576,24 @@ export function computeDomCaretPageLocal(
   const boundary = resolveTextBoundaryInElement(targetEl, pos, entry.pmStart, entry.pmEnd, 'forward');
   if (!boundary) {
     const elRect = targetEl.getBoundingClientRect();
+
+    if (targetEl.classList.contains('superdoc-line')) {
+      const textAlign = targetEl.style.textAlign;
+      let startX: number;
+      if (textAlign === 'center') {
+        startX = (elRect.left + elRect.right) / 2;
+      } else if (textAlign === 'right') {
+        startX = elRect.right;
+      } else {
+        startX = elRect.left;
+      }
+      return {
+        pageIndex: Number(page.dataset.pageIndex ?? '0'),
+        x: (startX - pageRect.left) / zoom,
+        y: (elRect.top - pageRect.top) / zoom,
+      };
+    }
+
     // For non-text elements (images, math), position caret at the right edge
     // when pos matches pmEnd (cursor after the element)
     const isEmptySdtPlaceholder =
@@ -583,7 +601,8 @@ export function computeDomCaretPageLocal(
       targetEl.classList.contains('superdoc-empty-inline-sdt-placeholder') ||
       targetEl.classList.contains('superdoc-empty-block-sdt-placeholder');
     const atEnd = isEmptySdtPlaceholder ? pos > entry.pmEnd : pos >= entry.pmEnd;
-    const lineEl = isEmptySdtPlaceholder ? (targetEl.closest('.superdoc-line') as HTMLElement | null) : null;
+    const useLineTopForY = isEmptySdtPlaceholder || targetEl.classList.contains('superdoc-tab');
+    const lineEl = useLineTopForY ? (targetEl.closest('.superdoc-line') as HTMLElement | null) : null;
     const yRect = lineEl?.getBoundingClientRect() ?? elRect;
     return {
       pageIndex: Number(page.dataset.pageIndex ?? '0'),
