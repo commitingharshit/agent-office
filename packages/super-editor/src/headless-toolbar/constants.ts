@@ -1,4 +1,4 @@
-import { getToolbarFontFamilyOptions } from '@superdoc/font-system';
+import { getDefaultFontFamilyOptions } from '@superdoc/font-system';
 
 export const DEFAULT_TEXT_ALIGN_OPTIONS = [
   { label: 'Left', value: 'left' },
@@ -61,8 +61,14 @@ export const DEFAULT_FONT_SIZE_OPTIONS = [
   { label: '96', value: '96pt' },
 ] as const;
 
-/** Default headless-toolbar font options from the DocFonts-backed catalog. Values stay logical names. */
-export const DEFAULT_FONT_FAMILY_OPTIONS = getToolbarFontFamilyOptions();
+/**
+ * Default headless-toolbar font options, DERIVED from the shared font-offering registry
+ * (`@superdoc/font-system`) instead of a hand-maintained list. Only metric-safe, bundled-backed fonts
+ * are advertised; previously-listed Aptos and Georgia are not bundled (so they cannot render
+ * deterministically) and are intentionally dropped from defaults until they ship. `label` is the
+ * Word-facing logical name (stored/exported); `value` is the logical CSS stack applied to the run.
+ */
+export const DEFAULT_FONT_FAMILY_OPTIONS = getDefaultFontFamilyOptions();
 
 export const DEFAULT_TEXT_COLOR_OPTIONS = [
   { label: 'Black', value: '#000000' },

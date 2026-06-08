@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   buildDocumentFontOptions,
   buildFontFamilyOptions,
-  getToolbarFontCatalog,
   type FontFaceRequest,
   type FontLoadStatus,
   type FontRegistry,
@@ -117,20 +116,23 @@ describe('buildDocumentFontOptions (document-specific toolbar fonts)', () => {
 });
 
 describe('buildFontFamilyOptions (custom UI font picker rows)', () => {
-  it('combines the toolbar catalog and document fonts alphabetically with no status field', () => {
+  it('combines bundled defaults and document fonts alphabetically with no status field', () => {
     const options = buildFontFamilyOptions([
-      { logicalFamily: 'Aptos', previewFamily: 'Aptos' }, // already in the catalog -> deduped
-      { logicalFamily: 'Bangla MN', previewFamily: 'Bangla MN' }, // document-only -> appended
-      { logicalFamily: 'Calibri', previewFamily: 'Carlito' }, // already in the catalog -> deduped
-      { logicalFamily: 'Apple Chancery', previewFamily: 'Apple Chancery' }, // document-only -> appended
+      { logicalFamily: 'Aptos', previewFamily: 'Aptos' },
+      { logicalFamily: 'Bangla MN', previewFamily: 'Bangla MN' },
+      { logicalFamily: 'Calibri', previewFamily: 'Carlito' },
+      { logicalFamily: 'Apple Chancery', previewFamily: 'Apple Chancery' },
     ]);
-    // Catalog ∪ the two document-only fonts, deduped + alphabetical. Derived from the catalog so the
-    // assertion tracks DocFonts growth instead of pinning a list.
-    const catalogNames = getToolbarFontCatalog().map((entry) => entry.logicalFamily);
-    const expected = [...new Set([...catalogNames, 'Bangla MN', 'Apple Chancery'])].sort((a, b) =>
-      a.localeCompare(b, 'en', { sensitivity: 'base' }),
-    );
-    expect(options.map((option) => option.label)).toEqual(expected);
+    expect(options.map((option) => option.label)).toEqual([
+      'Apple Chancery',
+      'Aptos',
+      'Arial',
+      'Bangla MN',
+      'Calibri',
+      'Courier New',
+      'Helvetica',
+      'Times New Roman',
+    ]);
     expect(options.filter((option) => option.label === 'Calibri')).toHaveLength(1);
     expect(options.every((option) => !('status' in option))).toBe(true);
   });

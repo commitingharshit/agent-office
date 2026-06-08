@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render } from '@testing-library/react';
-import { getToolbarFontCatalog } from '@superdoc/font-system';
 import { SuperDocUIProvider, useSetSuperDoc, useSuperDocUI } from './provider.js';
 import {
   useSuperDocCommand,
@@ -11,12 +10,6 @@ import {
   useSuperDocSelection,
   useSuperDocToolbar,
 } from './hooks.js';
-
-/** Catalog labels ∪ extra document-only labels, deduped + alphabetical (matches buildFontFamilyOptions). */
-function expectedFontLabels(...documentOnly: string[]): string[] {
-  const catalog = getToolbarFontCatalog().map((entry) => entry.logicalFamily);
-  return [...new Set([...catalog, ...documentOnly])].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
-}
 
 function makeSuperdocStub(
   overrides: {
@@ -163,7 +156,7 @@ describe('domain hooks', () => {
     expect(toolbar).toEqual({ context: null, commands: {} });
   });
 
-  it('useSuperDocFontOptions returns the toolbar catalog plus active document fonts', () => {
+  it('useSuperDocFontOptions returns defaults plus active document fonts', () => {
     let options: ReturnType<typeof useSuperDocFontOptions> | undefined;
     let setSuperDoc: ReturnType<typeof useSetSuperDoc> | undefined;
 
@@ -189,8 +182,14 @@ describe('domain hooks', () => {
       );
     });
 
-    // Aptos is already in the catalog, so it dedupes rather than appending a second row.
-    expect(options?.map((option) => option.label)).toEqual(expectedFontLabels());
+    expect(options?.map((option) => option.label)).toEqual([
+      'Aptos',
+      'Arial',
+      'Calibri',
+      'Courier New',
+      'Helvetica',
+      'Times New Roman',
+    ]);
     expect(options?.find((option) => option.label === 'Aptos')).toEqual({
       label: 'Aptos',
       value: 'Aptos',

@@ -77,14 +77,5 @@ export {
   fontOfferingRenderStack,
 } from './font-offerings';
 
-export type { FontCatalogEntry } from './font-catalog';
-export {
-  FONT_CATALOG,
-  getToolbarFontCatalog,
-  getToolbarFontFamilyOptions,
-  fontCatalogStack,
-  fontCatalogPreviewStack,
-} from './font-catalog';
-
 export type { DocumentFontOption, FontFamilyOption } from './document-font-options';
 export { buildDocumentFontOptions, buildFontFamilyOptions } from './document-font-options';

@@ -1,12 +1,21 @@
-import { getToolbarFontCatalog, fontCatalogStack, fontCatalogPreviewStack } from '@superdoc/font-system';
+import { getDefaultFontOfferings, fontOfferingStack, fontOfferingRenderStack } from '@superdoc/font-system';
 
-/** Built-in font options from the DocFonts-backed catalog. Labels and keys stay logical names. */
-export const TOOLBAR_FONTS = getToolbarFontCatalog().map((entry) => ({
-  label: entry.logicalFamily,
-  key: fontCatalogStack(entry),
+/**
+ * Built-in toolbar font dropdown options, DERIVED from the shared font-offering registry
+ * (`@superdoc/font-system`) instead of a hand-maintained list. Only metric-safe, bundled-backed fonts
+ * are advertised as defaults; Cambria (qualified), Calibri Light (category fallback), and not-yet-
+ * bundled candidates like Georgia are intentionally absent from the static defaults.
+ *
+ * Per `FontConfig`: `label` is the Word-facing logical name (stored on the selection + active-state
+ * match), `key` is the logical CSS stack, and the row preview renders in the physical clone that
+ * actually paints (e.g. Carlito), so the dropdown looks like the rendered result.
+ */
+export const TOOLBAR_FONTS = getDefaultFontOfferings().map((offering) => ({
+  label: offering.logicalFamily,
+  key: fontOfferingStack(offering),
   fontWeight: 400,
   props: {
-    style: { fontFamily: fontCatalogPreviewStack(entry) },
+    style: { fontFamily: fontOfferingRenderStack(offering) },
     'data-item': 'btn-fontFamily-option',
   },
 }));
@@ -23,7 +32,21 @@ function compareToolbarFontOptions(a, b) {
     .localeCompare(String(b.label ?? '').trim(), 'en', { sensitivity: 'base' });
 }
 
-/** Compose catalog fonts with active document-only fonts. Consumer config wins unchanged. */
+/**
+ * The single seam that composes the font dropdown options: it turns the active document's
+ * {@link import('@superdoc/font-system').DocumentFontOption}s into toolbar font options and unions them
+ * with the bundled defaults. The toolbar only asks for the result; it does not know how a font previews.
+ *
+ * - A consumer-provided `configFonts` list is returned UNCHANGED (custom toolbars own their list).
+ * - With no document options, returns `undefined` so the caller keeps its fallback to {@link TOOLBAR_FONTS}.
+ * - Otherwise: bundled defaults and document fonts are deduped by normalized logical family, then sorted
+ *   alphabetically by the visible font name. `label`/`key` stay the pure logical family (active-state
+ *   matching + the stored value), and the preview renders in `previewFamily`.
+ *
+ * @param {ReadonlyArray<import('@superdoc/font-system').DocumentFontOption>} documentOptions
+ * @param {Array} [configFonts] - the consumer's `fonts` config, if any
+ * @returns {Array|undefined}
+ */
 export function composeToolbarFontOptions(documentOptions, configFonts) {
   if (configFonts) return configFonts;
   if (!documentOptions?.length) return undefined;

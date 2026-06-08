@@ -1,36 +1,34 @@
 import { describe, it, expect } from 'vitest';
 import { TOOLBAR_FONTS, composeToolbarFontOptions } from './constants';
 
-describe('TOOLBAR_FONTS (built-in font dropdown, the DocFonts toolbar catalog)', () => {
-  const labels = () => TOOLBAR_FONTS.map((f) => f.label);
-
-  it('lists the catalog in alphabetical order', () => {
-    const sorted = [...labels()].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
-    expect(labels()).toEqual(sorted);
+describe('TOOLBAR_FONTS (built-in font dropdown, derived from the font-offering registry)', () => {
+  it('advertises only the metric-safe bundled defaults, in alphabetical order', () => {
+    expect(TOOLBAR_FONTS.map((f) => f.label)).toEqual([
+      'Arial',
+      'Calibri',
+      'Courier New',
+      'Helvetica',
+      'Times New Roman',
+    ]);
   });
 
-  it('lists fonts beyond the metric-safe bundled defaults (bundled or not)', () => {
-    const set = new Set(labels());
-    // Metric-safe defaults plus qualified / category-fallback / unbundled candidates.
-    for (const name of ['Arial', 'Calibri', 'Georgia', 'Aptos', 'Cambria', 'Calibri Light']) {
-      expect(set.has(name)).toBe(true);
+  it('does not leak non-bundled or qualified fonts into the default dropdown', () => {
+    const labels = new Set(TOOLBAR_FONTS.map((f) => f.label));
+    for (const name of ['Georgia', 'Aptos', 'Cambria', 'Calibri Light']) {
+      expect(labels.has(name)).toBe(false);
     }
   });
 
-  it('previews a bundled clone as the clone, an unbundled candidate as the logical family', () => {
-    const calibri = TOOLBAR_FONTS.find((f) => f.label === 'Calibri');
-    expect(calibri.props.style.fontFamily).toBe('Carlito, sans-serif'); // bundled clone
-    const georgia = TOOLBAR_FONTS.find((f) => f.label === 'Georgia');
-    expect(georgia.props.style.fontFamily).toBe('Georgia, serif'); // Gelasio not bundled -> logical
-  });
-
-  it('builds a FontConfig: logical label + logical key', () => {
+  it('builds a FontConfig: logical label + logical key + physical-clone preview', () => {
     const calibri = TOOLBAR_FONTS.find((f) => f.label === 'Calibri');
     expect(calibri).toMatchObject({
       label: 'Calibri', // applied to the selection + active-state match (Word-facing name)
       key: 'Calibri, sans-serif', // logical CSS stack (option identity)
       fontWeight: 400,
-      props: { 'data-item': 'btn-fontFamily-option' },
+      props: {
+        style: { fontFamily: 'Carlito, sans-serif' }, // preview renders in the bundled clone that paints
+        'data-item': 'btn-fontFamily-option',
+      },
     });
   });
 
@@ -57,28 +55,31 @@ describe('composeToolbarFontOptions (document fonts unioned with the bundled def
     expect(composeToolbarFontOptions(undefined, undefined)).toBeUndefined();
   });
 
-  it('combines the catalog and document fonts alphabetically, deduping one already in the catalog', () => {
+  it('combines defaults and document fonts alphabetically, deduping one already in the defaults', () => {
     const options = composeToolbarFontOptions(
       [doc('Calibri', 'Carlito'), doc('Bangla MN'), doc('Aptos'), doc('Apple Chancery')],
       undefined,
     );
-    // Calibri and Aptos are already in the catalog (deduped); Bangla MN and Apple Chancery are
-    // document-only and get appended. Expectation derived from TOOLBAR_FONTS so it tracks the catalog.
-    const catalogLabels = TOOLBAR_FONTS.map((f) => f.label);
-    const expected = [...new Set([...catalogLabels, 'Bangla MN', 'Apple Chancery'])].sort((a, b) =>
-      a.localeCompare(b, 'en', { sensitivity: 'base' }),
-    );
-    expect(options.map((o) => o.label)).toEqual(expected);
+    expect(options.map((o) => o.label)).toEqual([
+      'Apple Chancery',
+      'Aptos',
+      'Arial',
+      'Bangla MN',
+      'Calibri',
+      'Courier New',
+      'Helvetica',
+      'Times New Roman',
+    ]);
     expect(options.filter((o) => o.label === 'Calibri')).toHaveLength(1);
   });
 
-  it('maps a document-only font as a plain logical picker row, with no visible status text', () => {
-    const options = composeToolbarFontOptions([doc('Apple Chancery')], undefined);
-    const appleChancery = options.find((option) => option.label === 'Apple Chancery');
-    expect(appleChancery).toMatchObject({
-      label: 'Apple Chancery', // pure logical name (active-state match + the stored/exported value)
-      key: 'Apple Chancery',
-      props: { style: { fontFamily: 'Apple Chancery' }, 'data-item': 'btn-fontFamily-option' },
+  it('maps a document font as a plain logical picker row, with no visible status text', () => {
+    const options = composeToolbarFontOptions([doc('Aptos')], undefined);
+    const aptos = options.find((option) => option.label === 'Aptos');
+    expect(aptos).toMatchObject({
+      label: 'Aptos', // pure logical name (active-state match + the stored/exported value)
+      key: 'Aptos',
+      props: { style: { fontFamily: 'Aptos' }, 'data-item': 'btn-fontFamily-option' },
     });
   });
 

@@ -31,9 +31,7 @@ const fontFamilyItem = (toolbarFonts) => ({
   allowWithoutEditor: { value: false },
 });
 
-// A document-only font the catalog does NOT carry (e.g. an embedded / customer-added face), so its
-// appearance in the dropdown can only come from a rebuild that threaded the current document options in.
-const embeddedFont = { logicalFamily: 'Brand Embedded', previewFamily: 'Brand Embedded' };
+const aptos = { logicalFamily: 'Aptos', previewFamily: 'Aptos' };
 
 describe('SuperToolbar font dropdown rebuild trigger', () => {
   let toolbar;
@@ -64,24 +62,24 @@ describe('SuperToolbar font dropdown rebuild trigger', () => {
   const fontOptions = () => toolbar.getToolbarItemByName('fontFamily').options.value ?? [];
 
   it('rebuilds the dropdown options when fonts-changed reports a newly-resolved document font', () => {
-    // Before resolution the dropdown carries only the catalog (this embedded font is not in it).
-    expect(fontOptions().some((o) => o.label === 'Brand Embedded')).toBe(false);
+    // Before resolution the dropdown carries only the bundled defaults (no document font).
+    expect(fontOptions().some((o) => o.label === 'Aptos')).toBe(false);
 
-    // Fonts settle asynchronously after load: the document now uses an embedded font.
-    documentOptions = [embeddedFont];
+    // Fonts settle asynchronously after load: the document now uses Aptos (no open substitute).
+    documentOptions = [aptos];
     editor.emit('fonts-changed');
 
-    // The dropdown was rebuilt (not merely state-refreshed): the embedded font now appears.
-    const option = fontOptions().find((o) => o.label === 'Brand Embedded');
+    // The dropdown was rebuilt (not merely state-refreshed): Aptos now appears.
+    const option = fontOptions().find((o) => o.label === 'Aptos');
     expect(option).toBeTruthy();
   });
 
   it('rebuilds on active-editor change so a document that already resolved its fonts is reflected', () => {
     // The next document already knows its fonts before it becomes active.
-    documentOptions = [embeddedFont];
+    documentOptions = [aptos];
     toolbar.setActiveEditor(new EventEmitter());
 
-    expect(fontOptions().some((o) => o.label === 'Brand Embedded')).toBe(true);
+    expect(fontOptions().some((o) => o.label === 'Aptos')).toBe(true);
   });
 
   it('emits toolbar-items-changed on active-editor change so a freshly attached editor is not left locked', () => {
@@ -104,7 +102,7 @@ describe('SuperToolbar font dropdown rebuild trigger', () => {
   });
 
   it('does not rebuild when fonts-changed fires with the same options (signature guard)', () => {
-    documentOptions = [embeddedFont];
+    documentOptions = [aptos];
     editor.emit('fonts-changed'); // first change -> rebuild
     const buildsAfterChange = makeDefaultItemsSpy.mock.calls.length;
 
@@ -117,7 +115,7 @@ describe('SuperToolbar font dropdown rebuild trigger', () => {
     const changed = vi.fn();
     toolbar.on('toolbar-items-changed', changed);
 
-    documentOptions = [embeddedFont];
+    documentOptions = [aptos];
     editor.emit('fonts-changed'); // a real change -> one rebuild -> one notify
     expect(changed).toHaveBeenCalledTimes(1);
 
@@ -138,7 +136,7 @@ describe('SuperToolbar font dropdown rebuild trigger', () => {
     toolbar.setActiveEditor(editor);
     const buildsAfterAttach = makeDefaultItemsSpy.mock.calls.length;
 
-    documentOptions = [embeddedFont];
+    documentOptions = [aptos];
     editor.emit('fonts-changed');
 
     expect(makeDefaultItemsSpy.mock.calls.length).toBe(buildsAfterAttach);
