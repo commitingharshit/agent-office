@@ -102,6 +102,12 @@ toolbar.appendChild(fontSelect);
 
 let currentFontValue = '';
 let currentFontOptions: FontOption[] = [];
+let capturedFontSelection: ReturnType<typeof ui.selection.capture> | null = null;
+
+const rememberFontSelection = () => {
+  const capture = ui.selection.capture();
+  if (capture) capturedFontSelection = capture;
+};
 
 scope.add(
   ui.fonts.observe((snapshot) => {
@@ -119,6 +125,9 @@ scope.add(
   }),
 );
 
+fontSelect.addEventListener('pointerdown', rememberFontSelection);
+fontSelect.addEventListener('focus', rememberFontSelection);
+
 const fontCommand = ui.commands.get('font-family');
 if (fontCommand) {
   scope.add(
@@ -131,6 +140,10 @@ if (fontCommand) {
 }
 
 fontSelect.addEventListener('change', () => {
+  if (capturedFontSelection) {
+    ui.selection.restore(capturedFontSelection);
+    capturedFontSelection = null;
+  }
   ui.toolbar.execute('font-family', fontSelect.value);
 });
 

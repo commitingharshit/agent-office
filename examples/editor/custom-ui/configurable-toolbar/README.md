@@ -9,6 +9,7 @@ A custom toolbar binds controls to commands. The same surface holds built-ins (`
 `ui.commands.register({ id, execute, getState })` puts a custom command on the same surface as built-ins. The example registers one and binds a button to it the same way it binds the bold button.
 
 The font-family picker uses `ui.fonts.observe(...)` for its options and applies the chosen value with `ui.toolbar.execute('font-family', value)`. The options include bundled defaults and fonts used by the active document.
+Because a native `<select>` takes focus, the picker captures the editor selection before it opens and restores it before applying the chosen font.
 
 This example shows that flow and nothing else. No threading, no resolve / reopen, no comments, no mode toggle. For the full Custom UI sidebar pattern, see [`demos/custom-ui`](../../../../../demos/custom-ui).
 

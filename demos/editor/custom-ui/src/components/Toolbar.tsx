@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { DocumentMode } from 'superdoc';
+import type { SelectionCapture } from 'superdoc/ui';
 import {
   useSuperDocUI,
   useSuperDocCommand,
@@ -121,16 +122,41 @@ function FontFamilyPicker() {
   const ui = useSuperDocUI();
   const font = useSuperDocCommand('font-family');
   const options = useSuperDocFontOptions();
-  const current = normalizeFontValue(font.value);
+  const capturedSelection = useRef<SelectionCapture | null>(null);
+  const current = normalizeFontValue(font.value).toLowerCase();
+  const selected =
+    options.find((option) => {
+      return (
+        normalizeFontValue(option.value).toLowerCase() === current ||
+        normalizeFontValue(option.label).toLowerCase() === current ||
+        normalizeFontValue(option.previewFamily).toLowerCase() === current
+      );
+    })?.value ?? '';
+
+  const rememberSelection = () => {
+    const capture = ui?.selection.capture();
+    if (capture) capturedSelection.current = capture;
+  };
+
+  const applyFont = (value: string) => {
+    if (!ui) return;
+    if (capturedSelection.current) {
+      ui.selection.restore(capturedSelection.current);
+      capturedSelection.current = null;
+    }
+    ui.toolbar.execute('font-family', value);
+  };
 
   return (
     <select
       className="tb-select tb-font-select"
-      value={current}
+      value={selected}
       disabled={!ui || font.disabled}
       aria-label="Font family"
       title="Font family"
-      onChange={(event) => ui?.toolbar.execute('font-family', event.target.value)}
+      onPointerDown={rememberSelection}
+      onFocus={rememberSelection}
+      onChange={(event) => applyFont(event.target.value)}
     >
       <option value="" disabled>
         Font
