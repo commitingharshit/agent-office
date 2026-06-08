@@ -1421,13 +1421,16 @@ export interface SuperDocCommentsUpdatePayload {
    * The Document API selection snapshot captured at the moment a
    * `'pending'` comment was started, before the pending mark is
    * inserted (which clears the live DOM selection). Present only on the
-   * `'pending'` event. Forward it straight to
+   * `'pending'` event. When it has a `target`, forward it straight to
    * `ui.comments.createFromCapture(pendingSelection, { text })` to build
-   * the comment from a custom composer — it removes the need to track
-   * the selection yourself ahead of the floating-bubble click. A
-   * non-text or empty selection still yields a `SelectionInfo` whose
-   * `target` is `null`; the field itself is `null` only when there's no
-   * active editor.
+   * the comment from a custom composer without tracking the selection
+   * yourself ahead of the floating-bubble click.
+   *
+   * `null` means the pending comment did not start from an addressable
+   * SuperEditor text selection, or the active editor/selection API was
+   * unavailable. PDF and other non-SuperEditor selections emit `null`.
+   * Empty SuperEditor selections can still yield a `SelectionInfo` with
+   * `target: null`.
    */
   pendingSelection?: SelectionInfo | null;
 }

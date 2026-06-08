@@ -856,15 +856,27 @@ export const useCommentsStore = defineStore('comments', () => {
     }, delay);
   };
 
+  const getPendingSelectionSnapshot = (superdoc, selection) => {
+    if (selection?.source !== 'super-editor') return null;
+
+    const editor = superdoc?.activeEditor;
+    const selectionDocumentId = selection?.documentId ?? null;
+    const editorDocumentId = editor?.options?.documentId ?? null;
+    if (!selectionDocumentId || !editorDocumentId || selectionDocumentId !== editorDocumentId) return null;
+
+    try {
+      return editor?.doc?.selection?.current?.() ?? null;
+    } catch {
+      return null;
+    }
+  };
+
   const showAddComment = (superdoc, targetClientY = null) => {
     // Snapshot the selection BEFORE `insertComment('pending')` below adds
     // the pending mark and the floating-bubble click clears the live DOM
-    // selection. This is the Document API `SelectionInfo` (carries
-    // `target`); consumers forward it to `ui.comments.createFromCapture`
-    // instead of tracking the selection themselves. A non-text/empty
-    // selection still yields a `SelectionInfo` with `target: null`; the
-    // value is `null` only when there's no active editor / selection API.
-    const pendingSelection = superdoc.activeEditor?.doc?.selection?.current?.({ includeText: true }) ?? null;
+    // selection. Only SuperEditor selections have a Document API text
+    // target; PDF / non-editor selections intentionally emit null.
+    const pendingSelection = getPendingSelectionSnapshot(superdoc, superdocStore.activeSelection);
     const event = { type: COMMENT_EVENTS.PENDING, pendingSelection };
     superdoc.emit('comments-update', event);
 

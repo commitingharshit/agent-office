@@ -384,10 +384,9 @@ describe('ui.comments — actions route through editor.doc.*', () => {
     const ui = createSuperDocUI({ superdoc });
 
     // Shape of `pendingSelection` on a pending `comments-update` event:
-    // a SelectionInfo (target + text), NOT a full SelectionCapture (no
+    // a SelectionInfo (target-bearing), NOT a full SelectionCapture (no
     // selectionTarget / quotedText). The widened CommentAnchorCapture
-    // input accepts it directly — no cast here, so this also pins the
-    // type widening at compile time.
+    // input accepts it directly; no cast is needed at the call site.
     const pendingSelection = {
       empty: false,
       target: { kind: 'text' as const, segments: [{ blockId: 'p1', range: { start: 0, end: 4 } }] },
