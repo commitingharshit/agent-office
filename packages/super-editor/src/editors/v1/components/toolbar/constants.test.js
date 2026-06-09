@@ -6,7 +6,6 @@ describe('TOOLBAR_FONTS (built-in font dropdown, derived from the font-offering 
     expect(TOOLBAR_FONTS.map((f) => f.label)).toEqual([
       'Arial',
       'Calibri',
-      'Cooper Black',
       'Courier New',
       'Helvetica',
       'Times New Roman',
@@ -15,7 +14,7 @@ describe('TOOLBAR_FONTS (built-in font dropdown, derived from the font-offering 
 
   it('does not leak non-bundled or qualified fonts into the default dropdown', () => {
     const labels = new Set(TOOLBAR_FONTS.map((f) => f.label));
-    for (const name of ['Georgia', 'Aptos', 'Cambria', 'Calibri Light']) {
+    for (const name of ['Georgia', 'Aptos', 'Cambria', 'Cooper Black', 'Calibri Light']) {
       expect(labels.has(name)).toBe(false);
     }
   });
@@ -67,7 +66,6 @@ describe('composeToolbarFontOptions (document fonts unioned with the bundled def
       'Arial',
       'Bangla MN',
       'Calibri',
-      'Cooper Black',
       'Courier New',
       'Helvetica',
       'Times New Roman',

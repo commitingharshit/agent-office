@@ -37,12 +37,12 @@ export interface FontOffering {
   /** Product classification: which UI surface this font may appear on (distinct from the verdict). */
   offering: OfferingClass;
   /**
-   * STATIC fact: `physicalFamily` ships in the bundled pack. This is NOT runtime renderability - a
+   * Static fact: `physicalFamily` ships in the bundled pack. This is NOT runtime renderability - a
    * document's `fonts.add` faces or embedded fonts are unknown to this static module and belong to a
    * later document-scoped offering function.
    */
   bundled: boolean;
-  /** docfonts fidelity verdict, carried for the later fidelity-badge layer; not read for defaults. */
+  /** docfonts fidelity verdict, used to separate clean defaults from qualified bundled fallbacks. */
   verdict: SubstituteVerdict;
   /** Provenance back to the evidence row. */
   evidenceId: string;

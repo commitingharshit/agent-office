@@ -98,14 +98,25 @@ describe('substitution evidence -> resolver derivation', () => {
     expect(new Set(BUNDLED_MANIFEST.map((f) => f.family)).has('Carlito')).toBe(true);
   });
 
-  it('Cooper Black activates only the Regular Caprasimo face from the metric-safe DocFonts row', () => {
+  it('Cooper Black activates Caprasimo with explicit synthetic styled faces from DocFonts', () => {
     const row = SUBSTITUTION_EVIDENCE.find((r) => r.evidenceId === 'cooper-black');
     expect(row).toMatchObject({
       logicalFamily: 'Cooper Black',
       physicalFamily: 'Caprasimo',
       policyAction: 'substitute',
-      verdict: 'metric_safe',
+      verdict: 'visual_only',
       faces: { regular: true, bold: false, italic: false, boldItalic: false },
+      faceSources: {
+        bold: { kind: 'synthetic', from: 'regular' },
+        italic: { kind: 'synthetic', from: 'regular' },
+        boldItalic: { kind: 'synthetic', from: 'regular' },
+      },
+      faceVerdicts: {
+        regular: 'metric_safe',
+        bold: 'visual_only',
+        italic: 'visual_only',
+        boldItalic: 'visual_only',
+      },
     });
     expect(resolveFontFamily('Cooper Black')).toEqual({
       logicalFamily: 'Cooper Black',

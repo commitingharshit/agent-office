@@ -365,7 +365,7 @@ describe('face-aware resolution (resolveFace / resolvePhysicalFamilyForFace)', (
     );
   });
 
-  it('single-face bundled substitute: Cooper Black maps Regular only, never faux-styles Caprasimo', () => {
+  it('single-face bundled substitute: Cooper Black uses DocFonts-approved synthetic faces', () => {
     const r = createFontResolver();
     const caprasimoRegular = (f: string, w: '400' | '700', s: 'normal' | 'italic') =>
       norm(f) === 'caprasimo' && w === '400' && s === 'normal';
@@ -377,14 +377,19 @@ describe('face-aware resolution (resolveFace / resolvePhysicalFamilyForFace)', (
     expect(
       r.resolvePhysicalFamilyForFace('Cooper Black, serif', { weight: '400', style: 'normal' }, caprasimoRegular),
     ).toBe('Caprasimo, serif');
-    expect(r.resolveFace('Cooper Black', { weight: '700', style: 'normal' }, caprasimoRegular)).toEqual({
-      logicalFamily: 'Cooper Black',
-      physicalFamily: 'Cooper Black',
-      reason: 'fallback_face_absent',
-    });
-    expect(
-      r.resolvePhysicalFamilyForFace('Cooper Black, serif', { weight: '700', style: 'normal' }, caprasimoRegular),
-    ).toBe('Cooper Black, serif');
+    for (const face of [
+      { weight: '700' as const, style: 'normal' as const },
+      { weight: '400' as const, style: 'italic' as const },
+      { weight: '700' as const, style: 'italic' as const },
+    ]) {
+      expect(r.resolveFace('Cooper Black', face, caprasimoRegular)).toEqual({
+        logicalFamily: 'Cooper Black',
+        physicalFamily: 'Caprasimo',
+        reason: 'bundled_substitute',
+        sourceFace: { weight: '400', style: 'normal' },
+      });
+      expect(r.resolvePhysicalFamilyForFace('Cooper Black, serif', face, caprasimoRegular)).toBe('Caprasimo, serif');
+    }
   });
 
   it('map to an UNREGISTERED physical family passes through (fallback_face_absent), never faux-styled', () => {

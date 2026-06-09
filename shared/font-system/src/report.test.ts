@@ -347,20 +347,27 @@ describe('verdict-aware evidence (rendered substitutes only)', () => {
     });
   });
 
-  it('Cooper Black Bold face: missing because Caprasimo is Regular-only', () => {
+  it('Cooper Black Bold face: loads Caprasimo Regular as a qualified synthetic face', () => {
     const reg = new FaceRegistry();
-    reg.setAwaitedFaceStatus('Cooper Black', '700', 'normal', 'fallback_used');
+    reg.setFace('Caprasimo', '400', 'normal', 'loaded');
     const [row] = buildFaceReport(
       [{ logicalFamily: 'Cooper Black', weight: '700', style: 'normal' }],
       reg.asRegistry(),
     );
     expect(row).toMatchObject({
       logicalFamily: 'Cooper Black',
-      physicalFamily: 'Cooper Black',
-      reason: 'fallback_face_absent',
-      missing: true,
+      physicalFamily: 'Caprasimo',
+      reason: 'bundled_substitute',
+      loadStatus: 'loaded',
+      missing: false,
+      face: { weight: '700', style: 'normal' },
     });
-    expect(row.evidence).toBeUndefined();
+    expect(row.evidence).toEqual({
+      evidenceId: 'cooper-black',
+      policyAction: 'substitute',
+      verdict: 'visual_only',
+      lineBreakSafe: false,
+    });
   });
 
   it('attaches NO evidence for as_requested / custom_mapping / registered_face / fallback_face_absent', () => {

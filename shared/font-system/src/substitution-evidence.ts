@@ -57,6 +57,11 @@ export interface FaceCoverage {
   boldItalic: boolean;
 }
 
+/** How a reviewed fallback renders a requested RIBBI face. Only synthetic sources change loading. */
+export type FallbackFaceSource = { kind: 'real' } | { kind: 'synthetic'; from: FaceSlot };
+
+export type FallbackFaceSources = Partial<Record<FaceSlot, FallbackFaceSource>>;
+
 /** The four derived gate statuses behind a verdict; the proof is the referenced measurements. */
 export interface SubstituteGates {
   static: SubstituteGateStatus;
@@ -102,6 +107,8 @@ export interface SubstitutionEvidence {
    * fidelity must show this breakdown, not the rolled-up verdict alone.
    */
   faceVerdicts?: Partial<Record<FaceSlot, SubstituteVerdict>>;
+  /** Synthetic face instructions for reviewed fallback faces. Real faces stay represented by `faces`. */
+  faceSources?: FallbackFaceSources;
   /** named glyph-level divergences that qualify a face (e.g. one codepoint reflows). */
   glyphExceptions?: readonly GlyphException[];
   faces: FaceCoverage;
@@ -111,7 +118,7 @@ export interface SubstitutionEvidence {
   policyAction: SubstitutePolicyAction;
   /** proof pointers back into docfonts, by MeasurementId. */
   measurementRefs: readonly string[];
-  /** SPDX id of the substitute's license. */
+  /** Candidate license id or expression. SPDX when exact, stable docfonts label otherwise. */
   candidateLicense?: string | null;
   /** SuperDoc renders substitutes but always exports the original name. Always this for now. */
   exportRule: 'preserve_original_name';

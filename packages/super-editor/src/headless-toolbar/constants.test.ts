@@ -6,16 +6,16 @@ describe('DEFAULT_FONT_FAMILY_OPTIONS (headless default font options, derived fr
     expect(DEFAULT_FONT_FAMILY_OPTIONS).toEqual([
       { label: 'Arial', value: 'Arial, sans-serif' },
       { label: 'Calibri', value: 'Calibri, sans-serif' },
-      { label: 'Cooper Black', value: 'Cooper Black, serif' },
       { label: 'Courier New', value: 'Courier New, monospace' },
       { label: 'Helvetica', value: 'Helvetica, sans-serif' },
       { label: 'Times New Roman', value: 'Times New Roman, serif' },
     ]);
   });
 
-  it('drops the previously-listed non-bundled fonts (Aptos, Georgia) from defaults', () => {
+  it('drops non-bundled and qualified fonts from defaults', () => {
     const labels = new Set(DEFAULT_FONT_FAMILY_OPTIONS.map((o) => o.label));
     expect(labels.has('Aptos')).toBe(false);
     expect(labels.has('Georgia')).toBe(false);
+    expect(labels.has('Cooper Black')).toBe(false);
   });
 });
