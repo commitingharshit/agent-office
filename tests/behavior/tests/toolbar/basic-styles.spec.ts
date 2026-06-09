@@ -82,7 +82,7 @@ test('font family dropdown changes font', async ({ superdoc }) => {
 
   // Open the font family dropdown
   const fontButton = superdoc.page.locator('[data-item="btn-fontFamily"]');
-  await fontButton.click();
+  await fontButton.locator('[data-item="btn-fontFamily-toggle"]').click();
   await superdoc.waitForStable();
   await superdoc.snapshot('font family dropdown open');
 

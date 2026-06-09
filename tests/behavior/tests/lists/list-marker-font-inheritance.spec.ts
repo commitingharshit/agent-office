@@ -32,7 +32,7 @@ test('existing list markers restyle when font family changes (SD-3238)', async (
 
   await superdoc.selectAll();
   await superdoc.waitForStable();
-  await superdoc.page.locator('[data-item="btn-fontFamily"]').click();
+  await superdoc.page.locator('[data-item="btn-fontFamily-toggle"]').click();
   await superdoc.page.locator('[data-item="btn-fontFamily-option"]').filter({ hasText: 'Times New Roman' }).click();
   await superdoc.waitForStable();
 
@@ -64,7 +64,7 @@ test('new empty list item marker inherits font from previous paragraph', async (
 
   await superdoc.selectAll();
   await superdoc.waitForStable();
-  await superdoc.page.locator('[data-item="btn-fontFamily"]').click();
+  await superdoc.page.locator('[data-item="btn-fontFamily-toggle"]').click();
   await superdoc.page.locator('[data-item="btn-fontFamily-option"]').filter({ hasText: 'Times New Roman' }).click();
   await superdoc.waitForStable();
 
@@ -84,7 +84,7 @@ test('new empty list item marker inherits font from previous paragraph', async (
 });
 
 test('existing list markers restyle after toggle-list flow with pre-typed font (SD-3238)', async ({ superdoc }) => {
-  await superdoc.page.locator('[data-item="btn-fontFamily"]').click();
+  await superdoc.page.locator('[data-item="btn-fontFamily-toggle"]').click();
   await superdoc.page.locator('[data-item="btn-fontFamily-option"]').filter({ hasText: 'Times New Roman' }).click();
   await superdoc.waitForStable();
   await superdoc.page.locator('[data-item="btn-fontSize"]').click();

@@ -3,10 +3,11 @@ import { test, expect, type SuperDocFixture } from '../../fixtures/superdoc.js';
 test.use({ config: { toolbar: 'full', showSelection: true } });
 
 const FONT_OPTION = '[data-item="btn-fontFamily-option"]';
+const FONT_TOGGLE = '[data-item="btn-fontFamily-toggle"]';
 const OPTION_LABEL = `${FONT_OPTION} .toolbar-dropdown-option__label`;
 
 async function openFontFamilyDropdown(superdoc: SuperDocFixture): Promise<void> {
-  await superdoc.page.locator('[data-item="btn-fontFamily"]').click();
+  await superdoc.page.locator(FONT_TOGGLE).click();
   await superdoc.page.locator(FONT_OPTION).first().waitFor({ state: 'visible', timeout: 5000 });
   await superdoc.waitForStable();
 }
@@ -70,6 +71,26 @@ test('selecting a default font applies its logical Word-facing family to the sel
 
   await expect(superdoc.page.locator('[data-item="btn-fontFamily"] .sd-button-label')).toHaveText('Helvetica');
   await superdoc.assertTextMarkAttrs('Default font sample', 'textStyle', { fontFamily: 'Helvetica' });
+});
+
+test('typing in the font combobox applies to the selected text without opening the list', async ({ superdoc }) => {
+  await superdoc.type('Combobox font sample');
+  await superdoc.waitForStable();
+
+  const pos = await superdoc.findTextPos('Combobox font sample');
+  await superdoc.setTextSelection(pos, pos + 'Combobox font sample'.length);
+  await superdoc.waitForStable();
+
+  const fontInput = superdoc.page.locator('[data-item="btn-fontFamily"] input');
+  await fontInput.click();
+  await expectFontFamilyDropdownClosed(superdoc);
+
+  await fontInput.fill('co');
+  await fontInput.press('Enter');
+  await superdoc.waitForStable();
+
+  await expect(superdoc.page.locator('[data-item="btn-fontFamily"] .sd-button-label')).toHaveText('Courier New');
+  await superdoc.assertTextMarkAttrs('Combobox font sample', 'textStyle', { fontFamily: 'Courier New' });
 });
 
 test('a document-specific font reaches the live dropdown without status text and applies the logical family', async ({

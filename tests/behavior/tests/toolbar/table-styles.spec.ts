@@ -104,7 +104,7 @@ test('font family and size in a table cell', async ({ superdoc }) => {
   await superdoc.snapshot('text selected in cell');
 
   // Change font family
-  await superdoc.page.locator('[data-item="btn-fontFamily"]').click();
+  await superdoc.page.locator('[data-item="btn-fontFamily-toggle"]').click();
   await superdoc.waitForStable();
   await superdoc.page.locator('[data-item="btn-fontFamily-option"]').filter({ hasText: 'Times New Roman' }).click();
   await superdoc.waitForStable();

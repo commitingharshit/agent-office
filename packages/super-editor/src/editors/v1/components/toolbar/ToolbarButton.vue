@@ -3,7 +3,7 @@ import ToolbarButtonIcon from './ToolbarButtonIcon.vue';
 import { ref, computed, nextTick } from 'vue';
 import { toolbarIcons } from './toolbarIcons.js';
 import { useHighContrastMode } from '../../composables/use-high-contrast-mode';
-const emit = defineEmits(['buttonClick', 'textSubmit', 'mainClick']);
+const emit = defineEmits(['buttonClick', 'textSubmit', 'mainClick', 'tabOut']);
 
 const props = defineProps({
   iconColor: {
@@ -72,11 +72,17 @@ const inlineTextInput = ref(label);
 const inlineInput = ref(null);
 const { isHighContrastMode } = useHighContrastMode();
 
+const selectInlineInput = () => {
+  nextTick(() => {
+    inlineInput.value?.select();
+  });
+};
+
 const handleClick = () => {
   if (hasInlineTextInput) {
     nextTick(() => {
       inlineInput.value?.focus();
-      inlineInput.value?.select();
+      selectInlineInput();
     });
   }
   emit('buttonClick');
@@ -111,6 +117,14 @@ const handleInputSubmit = () => {
   const cleanValue = value.match(/^\d+(\.5)?$/) ? value : Math.floor(parseFloat(value)).toString();
   emit('textSubmit', cleanValue);
   inlineTextInput.value = cleanValue;
+};
+
+const handleInputTab = (event) => {
+  if (name?.value !== 'fontSize') return;
+  event.preventDefault();
+  handleInputSubmit();
+  inlineInput.value?.blur();
+  emit('tabOut', event);
 };
 
 const getStyle = computed(() => {
@@ -189,6 +203,9 @@ const caretIcon = computed(() => {
             v-if="name === 'fontSize'"
             v-model="inlineTextInput"
             @keydown.enter.prevent="handleInputSubmit"
+            @keydown.tab="handleInputTab"
+            @focus="selectInlineInput"
+            @click.stop
             type="text"
             class="button-text-input button-text-input--font-size"
             :class="{ 'high-contrast': isHighContrastMode }"
@@ -414,7 +431,12 @@ const caretIcon = computed(() => {
 }
 
 .button-text-input--font-size {
-  width: 36px;
+  width: 34px;
+  margin-right: 2px;
+  padding: 0;
+  border-color: transparent;
+  background-color: transparent;
+  font-size: var(--sd-ui-font-size-500, 15px);
 }
 
 .button-text-input::placeholder {

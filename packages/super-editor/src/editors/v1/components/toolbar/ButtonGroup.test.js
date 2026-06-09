@@ -314,4 +314,131 @@ describe('ButtonGroup dropdown trigger keyboard activation (codex P2 regression)
     expect(events[0][0].item.command).toBe('toggleBulletList');
     expect(events[0][0].argument).toBeNull();
   });
+
+  it('does not open the font size dropdown when clicking inside the size input', async () => {
+    const item = {
+      ...createFullDropdownItem('12pt'),
+      name: ref('fontSize'),
+      label: ref('12'),
+      selectedValue: ref('12pt'),
+      inlineTextInputVisible: ref(true),
+      hasInlineTextInput: ref(true),
+      nestedOptions: ref([{ key: '12pt', label: '12', props: { 'data-item': 'btn-fontSize-option' } }]),
+    };
+    wrapper = mountWithDropdownItem(item);
+
+    await wrapper.get('#inlineTextInput-fontSize').trigger('click');
+    expect(item.expand.value).toBe(false);
+
+    await wrapper.get('[data-item="btn-fontSize"] .sd-dropdown-caret').trigger('click');
+    expect(item.expand.value).toBe(true);
+  });
+
+  it('wraps the font family combobox in the toolbar tooltip', () => {
+    const item = {
+      ...createFullDropdownItem('Arial'),
+      command: 'setFontFamily',
+      id: ref('font-family'),
+      name: ref('fontFamily'),
+      label: ref('Arial'),
+      selectedValue: ref('Arial'),
+      nestedOptions: ref([
+        { key: 'Arial', label: 'Arial', props: { style: { fontFamily: 'Arial' } } },
+        { key: 'Helvetica', label: 'Helvetica', props: { style: { fontFamily: 'Helvetica' } } },
+      ]),
+    };
+    wrapper = mountWithDropdownItem(item);
+
+    expect(wrapper.findComponent({ name: 'SdTooltip' }).exists()).toBe(true);
+    expect(wrapper.findComponent({ name: 'FontFamilyCombobox' }).exists()).toBe(true);
+  });
+
+  it('moves from font family to font size on Tab', async () => {
+    const fontFamily = {
+      ...createFullDropdownItem('Arial'),
+      command: 'setFontFamily',
+      id: ref('font-family'),
+      name: ref('fontFamily'),
+      label: ref('Arial'),
+      selectedValue: ref('Arial'),
+      nestedOptions: ref([
+        { key: 'Arial', label: 'Arial', props: { style: { fontFamily: 'Arial' } } },
+        { key: 'Helvetica', label: 'Helvetica', props: { style: { fontFamily: 'Helvetica' } } },
+      ]),
+    };
+    const separator = {
+      type: 'separator',
+      id: ref('separator'),
+      disabled: ref(false),
+      isNarrow: ref(false),
+      isWide: ref(false),
+    };
+    const fontSize = {
+      ...createFullDropdownItem('12pt'),
+      command: 'setFontSize',
+      id: ref('font-size'),
+      name: ref('fontSize'),
+      label: ref('12'),
+      selectedValue: ref('12pt'),
+      inlineTextInputVisible: ref(true),
+      hasInlineTextInput: ref(true),
+      nestedOptions: ref([{ key: '12pt', label: '12', props: { 'data-item': 'btn-fontSize-option' } }]),
+    };
+    wrapper = mountWithDropdownItem(fontFamily);
+    await wrapper.setProps({ toolbarItems: [fontFamily, separator, fontSize] });
+
+    const input = wrapper.get('[data-item="btn-fontFamily"] input');
+    await input.trigger('focus');
+    await input.setValue('hel');
+    const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    input.element.dispatchEvent(event);
+    const refreshedFontFamily = {
+      ...fontFamily,
+      id: ref('font-family-refreshed'),
+      label: ref('Helvetica'),
+      selectedValue: ref('Helvetica'),
+    };
+    await wrapper.setProps({ toolbarItems: [refreshedFontFamily, separator, fontSize] });
+    await nextTick();
+    await waitForAnimationFrame();
+    await nextTick();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(wrapper.emitted('command')?.[0]?.[0].argument).toBe('Helvetica');
+    const fontSizeInput = wrapper.get('#inlineTextInput-fontSize').element;
+    expect(document.activeElement).toBe(fontSizeInput);
+    await nextTick();
+    expect(fontSizeInput.selectionStart).toBe(0);
+    expect(fontSizeInput.selectionEnd).toBe(fontSizeInput.value.length);
+  });
+
+  it('moves from font size to the editor on Tab', async () => {
+    const item = {
+      ...createFullDropdownItem('12pt'),
+      command: 'setFontSize',
+      id: ref('font-size'),
+      name: ref('fontSize'),
+      label: ref('12'),
+      selectedValue: ref('12pt'),
+      inlineTextInputVisible: ref(true),
+      hasInlineTextInput: ref(true),
+      nestedOptions: ref([{ key: '12pt', label: '12', props: { 'data-item': 'btn-fontSize-option' } }]),
+    };
+    wrapper = mountWithDropdownItem(item);
+    const editor = document.createElement('div');
+    editor.className = 'ProseMirror';
+    editor.tabIndex = 0;
+    document.body.appendChild(editor);
+
+    const input = wrapper.get('#inlineTextInput-fontSize');
+    await input.trigger('focus');
+    await input.setValue('18');
+    const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    input.element.dispatchEvent(event);
+    await nextTick();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(wrapper.emitted('command')?.[0]?.[0].argument).toBe('18');
+    expect(document.activeElement).toBe(editor);
+  });
 });
