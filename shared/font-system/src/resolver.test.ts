@@ -392,6 +392,25 @@ describe('face-aware resolution (resolveFace / resolvePhysicalFamilyForFace)', (
     }
   });
 
+  it('single-face bundled substitute: a real requested substitute face beats a synthetic source face', () => {
+    const r = createFontResolver();
+    const caprasimoRegularAndBold = (f: string, w: '400' | '700', s: 'normal' | 'italic') =>
+      norm(f) === 'caprasimo' && (w === '400' || w === '700') && s === 'normal';
+
+    expect(r.resolveFace('Cooper Black', { weight: '700', style: 'normal' }, caprasimoRegularAndBold)).toEqual({
+      logicalFamily: 'Cooper Black',
+      physicalFamily: 'Caprasimo',
+      reason: 'bundled_substitute',
+    });
+    expect(
+      r.resolvePhysicalFamilyForFace(
+        'Cooper Black, serif',
+        { weight: '700', style: 'normal' },
+        caprasimoRegularAndBold,
+      ),
+    ).toBe('Caprasimo, serif');
+  });
+
   it('map to an UNREGISTERED physical family passes through (fallback_face_absent), never faux-styled', () => {
     const r = createFontResolver();
     r.map('Georgia', 'Some System Font'); // not bundled, not added via fonts.add() -> hasFace false

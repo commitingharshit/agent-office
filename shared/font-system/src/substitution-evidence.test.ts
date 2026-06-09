@@ -86,6 +86,14 @@ describe('substitution evidence -> resolver derivation', () => {
     expect(cambria?.glyphExceptions?.[0]).toMatchObject({ slot: 'boldItalic', codepoint: 0x60 });
   });
 
+  it('keeps the advance basis so proportional and monospace rows are not conflated', () => {
+    const calibri = SUBSTITUTION_EVIDENCE.find((r) => r.evidenceId === 'calibri');
+    const lucidaConsole = SUBSTITUTION_EVIDENCE.find((r) => r.evidenceId === 'lucida-console');
+
+    expect(calibri?.advance).toMatchObject({ basis: 'latin_full', meanDelta: 0, maxDelta: 0 });
+    expect(lucidaConsole?.advance).toMatchObject({ basis: 'monospace_cell' });
+  });
+
   it('Calibri Light is a category_fallback (visual_only), not a metric substitute', () => {
     const cl = SUBSTITUTION_EVIDENCE.find((r) => r.evidenceId === 'calibri-light');
     expect(cl).toMatchObject({ policyAction: 'category_fallback', verdict: 'visual_only', physicalFamily: 'Carlito' });

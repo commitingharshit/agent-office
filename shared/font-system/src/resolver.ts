@@ -144,6 +144,12 @@ function resolveDocfontsFace(primary: string, face: FaceKey, hasFace: HasFace): 
   if (decision.kind !== 'fallback') return null;
   const fallback = decision.fallback;
   if (fallback.policyAction !== 'substitute' && fallback.policyAction !== 'category_fallback') return null;
+  if (hasFace(fallback.substituteFamily, face.weight, face.style)) {
+    return {
+      physical: fallback.substituteFamily,
+      reason: reasonForFallback(fallback.policyAction),
+    };
+  }
   const sourceFace = fallback.faceSource?.kind === 'synthetic' ? faceKeyForSlot(fallback.faceSource.from) : face;
   if (!hasFace(fallback.substituteFamily, sourceFace.weight, sourceFace.style)) {
     return fallback.policyAction === 'substitute' ? { physical: primary, reason: 'fallback_face_absent' } : null;

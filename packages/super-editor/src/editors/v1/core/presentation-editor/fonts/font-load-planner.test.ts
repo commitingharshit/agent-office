@@ -210,6 +210,17 @@ describe('planFontFaces (face-aware single plan)', () => {
     );
   });
 
+  it('DocFonts synthetic face: a real requested substitute face is queued before the synthetic source', () => {
+    const resolver = createFontResolver();
+    const caprasimoRegularAndBold = (f: string, w: '400' | '700', s: 'normal' | 'italic') =>
+      f.replace(/^["']|["']$/g, '').toLowerCase() === 'caprasimo' && (w === '400' || w === '700') && s === 'normal';
+    const plan = planFontFaces([para('p', [text('Cooper Black', { bold: true })])], resolver, caprasimoRegularAndBold);
+    expect(keyset(plan.requiredFaces)).toEqual(new Set(['Caprasimo|700|normal']));
+    expect(plan.effectiveSignature).toContain(
+      '["cooper black","700","normal","caprasimo","700","normal","bundled_substitute"]',
+    );
+  });
+
   it('a quoted registered family produces a BARE required face (Calibri|..., not "Calibri"|...)', () => {
     const resolver = createFontResolver();
     // A run whose CSS family is quoted (`"Calibri"`) and whose real face is registered. The required
