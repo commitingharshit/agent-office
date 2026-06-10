@@ -12,12 +12,10 @@ const execFile = promisify(execFileCb);
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
-export const REPO_ROOT = path.resolve(SCRIPT_DIR, '../..');
+export const REPO_ROOT = path.resolve(SCRIPT_DIR, '../../../..');
 export const DEFAULT_CORPUS_ROOT = path.join(REPO_ROOT, 'test-corpus');
 export const REGISTRY_KEY = 'registry.json';
 export const DOCX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-export const CORPUS_BUCKET_NAME = 'docx-test-documents';
-export const CORPUS_ACCOUNT_ID = 'afc2655a510195709ae6fa06772d73f2';
 
 const WRANGLER_CONFIG_PATHS =
   process.platform === 'darwin'
@@ -33,6 +31,7 @@ const WRANGLER_CONFIG_PATHS =
 const ACCOUNT_ID_ENV_KEYS = ['SUPERDOC_CORPUS_R2_ACCOUNT_ID', 'SD_TESTING_R2_ACCOUNT_ID'];
 const ACCESS_KEY_ID_ENV_KEYS = ['SUPERDOC_CORPUS_R2_ACCESS_KEY_ID', 'SD_TESTING_R2_ACCESS_KEY_ID'];
 const SECRET_ACCESS_KEY_ENV_KEYS = ['SUPERDOC_CORPUS_R2_SECRET_ACCESS_KEY', 'SD_TESTING_R2_SECRET_ACCESS_KEY'];
+const BUCKET_ENV_KEYS = ['SUPERDOC_CORPUS_R2_BUCKET', 'SD_TESTING_R2_BUCKET_NAME'];
 
 function shouldUseTerminalColors(stream = process.stdout) {
   if (typeof process.env.NO_COLOR === 'string') {
@@ -149,15 +148,22 @@ async function fetchCloudflareJson(url, token) {
   return parsed;
 }
 
-async function resolveAccountId() {
+export function resolveAccountId() {
   const explicit = firstEnv(ACCOUNT_ID_ENV_KEYS);
   if (explicit) return explicit;
 
-  return CORPUS_ACCOUNT_ID;
+  throw new Error(
+    `Missing R2 account id for the shared test corpus. Set ${ACCOUNT_ID_ENV_KEYS.join(' or ')} in your environment (or tests/visual/.env).`,
+  );
 }
 
-async function resolveBucketName() {
-  return CORPUS_BUCKET_NAME;
+export function resolveBucketName() {
+  const explicit = firstEnv(BUCKET_ENV_KEYS);
+  if (explicit) return explicit;
+
+  throw new Error(
+    `Missing R2 bucket name for the shared test corpus. Set ${BUCKET_ENV_KEYS.join(' or ')} in your environment (or tests/visual/.env).`,
+  );
 }
 
 function isMissingWranglerBinary(error) {
@@ -214,7 +220,7 @@ function resolveS3Credentials() {
   if (!accessKeyId && !secretAccessKey) return null;
 
   const accountId = firstEnv(ACCOUNT_ID_ENV_KEYS);
-  const bucketName = CORPUS_BUCKET_NAME;
+  const bucketName = resolveBucketName();
 
   if (!accountId || !accessKeyId || !secretAccessKey) {
     throw new Error(
@@ -325,8 +331,8 @@ async function createS3R2Client(config) {
 
 async function createWranglerR2Client() {
   const token = assertWranglerToken();
-  const accountId = await resolveAccountId();
-  const bucketName = await resolveBucketName();
+  const accountId = resolveAccountId();
+  const bucketName = resolveBucketName();
 
   const listObjects = async (prefix = '') => {
     const keys = [];
@@ -575,9 +581,8 @@ export function applyPathFilters(paths, { filters = [], matches = [], excludes =
 export function printCorpusEnvHint() {
   const lines = [
     'Auth options:',
-    '- Local (recommended): `npx wrangler login`',
-    '- CI / explicit creds: set SUPERDOC_CORPUS_R2_* (or SD_TESTING_R2_*)',
-    `- Corpus bucket is fixed to: ${CORPUS_BUCKET_NAME}`,
+    '- Local (recommended): `npx wrangler login`, plus SUPERDOC_CORPUS_R2_ACCOUNT_ID + SUPERDOC_CORPUS_R2_BUCKET',
+    '- CI / explicit creds: set SUPERDOC_CORPUS_R2_* (or SD_TESTING_R2_*) account, bucket, and key vars',
   ];
   return lines.join('\n');
 }

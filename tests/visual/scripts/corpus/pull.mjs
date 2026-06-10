@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -41,7 +42,8 @@ const VISUAL_LEGACY_PATH_MAP = {
 function printHelp() {
   console.log(`
 Usage:
-  node scripts/corpus/pull.mjs [options]
+  pnpm --dir tests/visual docs:download [-- options]
+  node tests/visual/scripts/corpus/pull.mjs [options]
 
 Options:
       --dest <path>        Local destination root (default: ${DEFAULT_CORPUS_ROOT})
@@ -333,9 +335,7 @@ async function main() {
           console.log(
             `[corpus] No docs matched filters in registry.json, but ${unregisteredMatches.length} live bucket doc(s) do match.`,
           );
-          console.log(
-            '[corpus] Re-run with --include-unregistered or run `pnpm corpus:update-registry` to reconcile shared registry.json.',
-          );
+          console.log('[corpus] Re-run with --include-unregistered to pull them.');
           return;
         }
       }

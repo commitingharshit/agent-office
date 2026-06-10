@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
+import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { spawn, spawnSync } from 'node:child_process';
 import {
-  CORPUS_BUCKET_NAME,
   DOCX_CONTENT_TYPE,
   REGISTRY_KEY,
   buildDocRelativePath,
@@ -13,6 +13,7 @@ import {
   createCorpusR2Client,
   normalizePath,
   printCorpusEnvHint,
+  resolveBucketName,
   saveRegistry,
   sha256Buffer,
 } from './shared.mjs';
@@ -28,7 +29,8 @@ const BENCHMARK_REQUIRED_ENV_KEYS = [
 function printHelp() {
   console.log(`
 Usage:
-  node scripts/corpus/push.mjs [--path <relative>] [--folder <name>] [--dry-run] [--no-word-baseline] <file.docx>
+  pnpm --dir tests/visual docs:upload <file.docx>
+  node tests/visual/scripts/corpus/push.mjs [--path <relative>] [--folder <name>] [--dry-run] [--no-word-baseline] <file.docx>
 
 Options:
       --path <relative>   Relative corpus path (e.g. rendering/sd-1234-fix.docx)
@@ -130,7 +132,7 @@ function buildBenchmarkEnv(baseEnv) {
   if (accountId && !env.SD_TESTING_R2_ACCOUNT_ID) env.SD_TESTING_R2_ACCOUNT_ID = accountId;
   if (accessKeyId && !env.SD_TESTING_R2_ACCESS_KEY_ID) env.SD_TESTING_R2_ACCESS_KEY_ID = accessKeyId;
   if (secretAccessKey && !env.SD_TESTING_R2_SECRET_ACCESS_KEY) env.SD_TESTING_R2_SECRET_ACCESS_KEY = secretAccessKey;
-  env.SD_TESTING_R2_BUCKET_NAME = CORPUS_BUCKET_NAME;
+  if (!env.SD_TESTING_R2_BUCKET_NAME) env.SD_TESTING_R2_BUCKET_NAME = resolveBucketName();
   if (wordBucketName && !env.SD_TESTING_R2_WORD_BUCKET_NAME) env.SD_TESTING_R2_WORD_BUCKET_NAME = wordBucketName;
 
   return env;
