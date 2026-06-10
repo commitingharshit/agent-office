@@ -46,6 +46,7 @@ export type {
   CommandHandle,
   CommandsHandle,
   CommentAddress,
+  CommentAnchorCapture,
   CommentInfo,
   CommentsHandle,
   CommentsListQuery,

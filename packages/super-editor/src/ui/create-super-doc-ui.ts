@@ -185,6 +185,28 @@ const EMPTY_ACTIVE_IDS: readonly string[] = Object.freeze<string[]>([]);
 
 const FONT_SIZE_OPTIONS: FontSizeOption[] = DEFAULT_FONT_SIZE_OPTIONS.map(({ label, value }) => ({ label, value }));
 
+function resolveActiveCommentIdFromList(items: CommentsListResult['items'], commentId: string): string | null {
+  const matches = (item: CommentsListResult['items'][number], id: string) => {
+    const importedId = (item as { importedId?: string }).importedId;
+    return item.id === id || importedId === id;
+  };
+
+  let item = items.find((candidate) => matches(candidate, commentId));
+  const visited = new Set<string>();
+
+  while (item) {
+    if (visited.has(item.id)) return null;
+    visited.add(item.id);
+
+    const parentId = (item as { parentCommentId?: string }).parentCommentId;
+    if (!parentId) return item.id;
+
+    item = items.find((candidate) => matches(candidate, parentId));
+  }
+
+  return null;
+}
+
 /**
  * Recursive structural clone for `ui.selection.capture()` (SD-2821).
  * The captured handle is consumer-facing; it must not share array
@@ -1154,6 +1176,12 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
   };
   const onWindowScrollGeometry = () => scheduleGeometry('scroll');
   const onWindowResizeGeometry = () => scheduleGeometry('resize');
+  // The comments rail toggling shifts/reflows document geometry but does
+  // not reliably emit a layout repaint on its own, so cached rects would
+  // silently go stale. Bridge the explicit sidebar-toggle signal into a
+  // geometry invalidation. Reuses the 'layout' reason; consumers only
+  // re-query on it, so no new public reason is warranted.
+  const onGeometrySidebar = () => scheduleGeometry('layout');
   let domGeometryAttached = false;
   const attachDomGeometryListeners = () => {
     if (domGeometryAttached || typeof window === 'undefined') return;
@@ -1188,10 +1216,12 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
     // from the slice recompute that SUPERDOC_EVENTS triggers.
     superdoc.on?.('zoomChange', onGeometryZoom);
     superdoc.on?.('fonts-changed', refreshFontOptionsAndNotify);
+    superdoc.on?.('sidebar-toggle', onGeometrySidebar);
     teardown.push(() => {
       SUPERDOC_EVENTS.forEach((name) => superdoc.off?.(name, scheduleNotify));
       superdoc.off?.('zoomChange', onGeometryZoom);
       superdoc.off?.('fonts-changed', refreshFontOptionsAndNotify);
+      superdoc.off?.('sidebar-toggle', onGeometrySidebar);
     });
   }
 
@@ -1914,6 +1944,28 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
       refreshAndNotify();
       return receipt;
     },
+    setActive(commentId) {
+      const editor = resolveHostEditor(superdoc) as unknown as {
+        commands?: { setActiveComment?(input: { commentId: string | null }): boolean };
+        doc?: { comments?: { list?(): CommentsListResult } };
+      } | null;
+
+      try {
+        const setActiveComment = editor?.commands?.setActiveComment;
+        if (typeof setActiveComment !== 'function') return false;
+
+        let resolvedCommentId: string | null = null;
+        if (commentId !== null) {
+          const items = editor?.doc?.comments?.list?.().items ?? [];
+          resolvedCommentId = resolveActiveCommentIdFromList(items, commentId);
+          if (!resolvedCommentId) return false;
+        }
+
+        return setActiveComment({ commentId: resolvedCommentId }) === true;
+      } catch {
+        return false;
+      }
+    },
     async scrollTo(commentId) {
       // `CommentAddress` is body-scoped in the contract — it has no
       // `story` field today. Story-aware comment navigation lands as
@@ -2288,6 +2340,11 @@ export function createSuperDocUI(options: SuperDocUIOptions): SuperDocUI {
     getHost(): HTMLElement | null {
       const editor = resolveHostEditor(superdoc);
       return editor?.presentationEditor?.visibleHost ?? null;
+    },
+
+    getScrollContainer(): HTMLElement | null {
+      const editor = resolveHostEditor(superdoc);
+      return editor?.presentationEditor?.scrollContainer ?? null;
     },
 
     positionAt(input: ViewportPositionAtInput): ViewportPositionHit | null {
