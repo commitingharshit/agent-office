@@ -46,14 +46,17 @@ export interface Subscribable<T> {
  * a SuperDoc-like host. Differs from `HeadlessToolbarSuperdocHostEvent`
  * (which adds `formatting-marks-change` but not `viewport-change`); a
  * custom UI host stub only has to support the events the UI
- * controller actually consumes.
+ * controller actually consumes. `sidebar-toggle` feeds the
+ * `ui.viewport.observe` geometry signal when the comments rail shifts
+ * layout.
  */
 export type SuperDocUIHostEvent =
   | 'editorCreate'
   | 'document-mode-change'
   | 'zoomChange'
   | 'viewport-change'
-  | 'fonts-changed';
+  | 'fonts-changed'
+  | 'sidebar-toggle';
 
 /**
  * Structural typing for the SuperDoc instance. Keeps the UI controller
@@ -303,6 +306,12 @@ export interface SuperDocEditorLike {
      * from the wrong instance.
      */
     visibleHost?: HTMLElement;
+    /**
+     * Resolved scroll container (the scrollable ancestor of the host, or
+     * the host itself). Consumed by `ui.viewport.getScrollContainer`.
+     * `null` when the document/window scrolls instead of an element.
+     */
+    scrollContainer?: HTMLElement | null;
     /**
      * Coordinate-to-position helper. Consumed by
      * `ui.viewport.positionAt` to resolve a viewport `(x, y)` to a
@@ -2177,6 +2186,20 @@ export interface ViewportHandle {
    * which scope correctly across painted-DOM and hidden-DOM events.
    */
   getHost(): HTMLElement | null;
+  /**
+   * The element SuperDoc actually scrolls — the scrollable ancestor of
+   * the painted host (occasionally the host itself), resolved by walking
+   * up for `overflow: auto`/`scroll`. This is what overlay consumers
+   * attach scroll listeners to and measure against; {@link getHost} is
+   * the painted host and is often NOT the scroller.
+   *
+   * Returns `null` when no editor is mounted, or when the document /
+   * window scrolls rather than a dedicated element — fall back to
+   * `window` in that case. The scroller can change after the first
+   * layout, so read it when you need it rather than caching across
+   * layout changes (pair with {@link observe}).
+   */
+  getScrollContainer(): HTMLElement | null;
   /**
    * Resolve a viewport coordinate to a position in the editor's
    * document, or `null` when the point is outside the painted host or
