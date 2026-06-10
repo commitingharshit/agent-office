@@ -53,6 +53,8 @@ test('font dropdown opens immediately with the built-in font list and an enabled
   const labels = await fontOptionLabels(superdoc);
   expect(labels).toEqual([
     'Arial',
+    'Baskerville Old Face',
+    'Brush Script MT',
     'Calibri',
     'Comic Sans MS',
     'Cooper Black',
@@ -60,6 +62,7 @@ test('font dropdown opens immediately with the built-in font list and an enabled
     'Garamond',
     'Georgia',
     'Helvetica',
+    'Lucida Console',
     'Tahoma',
     'Times New Roman',
     'Trebuchet MS',
@@ -106,6 +109,8 @@ test('a document-specific font reaches the live dropdown without status text and
     'Aptos',
     'Arial',
     'Bangla MN',
+    'Baskerville Old Face',
+    'Brush Script MT',
     'Calibri',
     'Comic Sans MS',
     'Cooper Black',
@@ -113,6 +118,7 @@ test('a document-specific font reaches the live dropdown without status text and
     'Garamond',
     'Georgia',
     'Helvetica',
+    'Lucida Console',
     'Tahoma',
     'Times New Roman',
     'Trebuchet MS',
