@@ -12,9 +12,11 @@ import { SUBSTITUTION_EVIDENCE } from './substitution-evidence';
 const EXPECTED_DEFAULTS = ['Arial', 'Calibri', 'Courier New', 'Helvetica', 'Times New Roman'];
 const EXPECTED_BUILT_IN_TOOLBAR = [
   'Arial',
+  'Arial Narrow',
   'Baskerville Old Face',
   'Brush Script MT',
   'Calibri',
+  'Century',
   'Comic Sans MS',
   'Cooper Black',
   'Courier New',
@@ -28,11 +30,10 @@ const EXPECTED_BUILT_IN_TOOLBAR = [
 ];
 
 /**
- * Must NOT appear as DEFAULT options yet. Aptos has no clone, Arial Narrow still requires an asset,
- * Cambria/Georgia/Cooper Black/Baskerville Old Face are qualified, and Calibri
- * Light/Tahoma/Trebuchet MS/Garamond/Comic Sans MS/Brush Script MT/Lucida Console are category
- * fallbacks. Some may be explicit built-in picker choices, but none should become silent strict
- * defaults.
+ * Must NOT appear as DEFAULT options yet. Aptos has no clone, Cambria/Georgia/Cooper Black/
+ * Baskerville Old Face/Arial Narrow/Century/Century Schoolbook are qualified, and Calibri Light/
+ * Tahoma/Trebuchet MS/Garamond/Comic Sans MS/Brush Script MT/Lucida Console are category fallbacks.
+ * Some may be explicit built-in picker choices, but none should become silent strict defaults.
  */
 const NOT_DEFAULT_YET = [
   'Aptos',
@@ -42,6 +43,8 @@ const NOT_DEFAULT_YET = [
   'Calibri Light',
   'Baskerville Old Face',
   'Arial Narrow',
+  'Century',
+  'Century Schoolbook',
   'Tahoma',
   'Trebuchet MS',
   'Garamond',
@@ -83,6 +86,24 @@ describe('font offerings', () => {
       bundled: true,
       physicalFamily: 'Bacasime Antique',
     });
+    expect(byName('Arial Narrow')).toMatchObject({
+      offering: 'qualified',
+      verdict: 'visual_only',
+      bundled: true,
+      physicalFamily: 'Liberation Sans Narrow',
+    });
+    expect(byName('Century')).toMatchObject({
+      offering: 'qualified',
+      verdict: 'visual_only',
+      bundled: true,
+      physicalFamily: 'C059',
+    });
+    expect(byName('Century Schoolbook')).toMatchObject({
+      offering: 'qualified',
+      verdict: 'visual_only',
+      bundled: true,
+      physicalFamily: 'C059',
+    });
     expect(byName('Calibri Light')).toMatchObject({ offering: 'category_fallback', bundled: true });
     expect(byName('Tahoma')).toMatchObject({
       offering: 'category_fallback',
@@ -115,9 +136,11 @@ describe('font offerings', () => {
   it('getDefaultFontFamilyOptions returns logical label + logical stack', () => {
     expect(getDefaultFontFamilyOptions()).toEqual([
       { label: 'Arial', value: 'Arial, sans-serif' },
+      { label: 'Arial Narrow', value: 'Arial Narrow, sans-serif' },
       { label: 'Baskerville Old Face', value: 'Baskerville Old Face, serif' },
       { label: 'Brush Script MT', value: 'Brush Script MT, serif' },
       { label: 'Calibri', value: 'Calibri, sans-serif' },
+      { label: 'Century', value: 'Century, serif' },
       { label: 'Comic Sans MS', value: 'Comic Sans MS, sans-serif' },
       { label: 'Cooper Black', value: 'Cooper Black, serif' },
       { label: 'Courier New', value: 'Courier New, monospace' },

@@ -10,8 +10,12 @@
  * to space-free file prefixes (e.g. "Liberation Sans" -> `LiberationSans-*.woff2`).
  */
 
-/** SPDX identifier of a bundled font's license, for provenance + diagnostics. */
-export type BundledLicense = 'OFL-1.1' | 'Apache-2.0';
+/** License identifier or expression for provenance and diagnostics. */
+export type BundledLicense =
+  | 'OFL-1.1'
+  | 'Apache-2.0'
+  | 'AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817'
+  | 'GPL-2.0-only WITH Font-exception-2.0';
 
 /** One shippable face of a bundled family: its style axis + the asset filename. */
 export interface BundledFaceFile {
@@ -59,9 +63,16 @@ export const BUNDLED_MANIFEST: readonly BundledFamilyManifest[] = Object.freeze(
   family('Carlito', 'Carlito', 'OFL-1.1'),
   family('Caladea', 'Caladea', 'Apache-2.0'),
   family('Liberation Sans', 'LiberationSans', 'OFL-1.1'),
+  family('Liberation Sans Narrow', 'LiberationSansNarrow', 'GPL-2.0-only WITH Font-exception-2.0'),
   family('Liberation Serif', 'LiberationSerif', 'OFL-1.1'),
   family('Liberation Mono', 'LiberationMono', 'OFL-1.1'),
   familyWithFaces('Caprasimo', 'OFL-1.1', [{ weight: 'normal', style: 'normal', file: 'Caprasimo-Regular.woff2' }]),
+  familyWithFaces('C059', 'AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817', [
+    { weight: 'normal', style: 'normal', file: 'C059-Roman.woff2' },
+    { weight: 'bold', style: 'normal', file: 'C059-Bold.woff2' },
+    { weight: 'normal', style: 'italic', file: 'C059-Italic.woff2' },
+    { weight: 'bold', style: 'italic', file: 'C059-BdIta.woff2' },
+  ]),
   familyWithFaces('Bacasime Antique', 'OFL-1.1', [
     { weight: 'normal', style: 'normal', file: 'BacasimeAntique-Regular.woff2' },
   ]),

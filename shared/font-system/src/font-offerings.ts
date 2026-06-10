@@ -52,8 +52,10 @@ export interface FontOffering {
 
 const BUNDLED_FAMILIES: ReadonlySet<string> = new Set(BUNDLED_MANIFEST.map((f) => f.family));
 const ADVERTISED_BUILT_IN_TOOLBAR_FAMILIES: ReadonlySet<string> = new Set([
+  'Arial Narrow',
   'Baskerville Old Face',
   'Brush Script MT',
+  'Century',
   'Cooper Black',
   'Comic Sans MS',
   'Garamond',
@@ -103,9 +105,9 @@ function compareLogicalFamily(a: FontOffering, b: FontOffering): number {
 
 /**
  * The metric-safe, bundled-backed offerings safe to treat as clean defaults, sorted by logical family.
- * Excludes qualified rows (Cambria, Cooper Black, Georgia, Baskerville Old Face), category fallbacks
- * (Calibri Light, Tahoma, Trebuchet MS, Garamond, Comic Sans MS, Brush Script MT, Lucida Console),
- * and not-yet-bundled candidates.
+ * Excludes qualified rows (Arial Narrow, Cambria, Century, Century Schoolbook, Cooper Black, Georgia,
+ * Baskerville Old Face), category fallbacks (Calibri Light, Tahoma, Trebuchet MS, Garamond,
+ * Comic Sans MS, Brush Script MT, Lucida Console), and not-yet-bundled candidates.
  */
 export function getDefaultFontOfferings(): FontOffering[] {
   return FONT_OFFERINGS.filter((o) => o.offering === 'default').sort(compareLogicalFamily);

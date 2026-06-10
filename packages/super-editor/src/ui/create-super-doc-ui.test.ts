@@ -152,10 +152,12 @@ describe('createSuperDocUI', () => {
     expect(options.map((option) => option.label)).toEqual([
       'Aptos',
       'Arial',
+      'Arial Narrow',
       'Bangla MN',
       'Baskerville Old Face',
       'Brush Script MT',
       'Calibri',
+      'Century',
       'Comic Sans MS',
       'Cooper Black',
       'Courier New',
@@ -208,9 +210,11 @@ describe('createSuperDocUI', () => {
 
     expect(observed.at(0)).toEqual([
       'Arial',
+      'Arial Narrow',
       'Baskerville Old Face',
       'Brush Script MT',
       'Calibri',
+      'Century',
       'Comic Sans MS',
       'Cooper Black',
       'Courier New',
@@ -225,9 +229,11 @@ describe('createSuperDocUI', () => {
     expect(observed.at(-1)).toEqual([
       'Aptos',
       'Arial',
+      'Arial Narrow',
       'Baskerville Old Face',
       'Brush Script MT',
       'Calibri',
+      'Century',
       'Comic Sans MS',
       'Cooper Black',
       'Courier New',

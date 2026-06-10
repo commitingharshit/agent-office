@@ -7,9 +7,11 @@ const FONT_TOGGLE = '[data-item="btn-fontFamily-toggle"]';
 const OPTION_LABEL = `${FONT_OPTION} .toolbar-dropdown-option__label`;
 const DEFAULT_FONT_LABELS = [
   'Arial',
+  'Arial Narrow',
   'Baskerville Old Face',
   'Brush Script MT',
   'Calibri',
+  'Century',
   'Comic Sans MS',
   'Cooper Black',
   'Courier New',
@@ -96,7 +98,7 @@ test('font dropdown opens immediately with the built-in font list and an enabled
 
   const labels = await fontOptionLabels(superdoc);
   expect(labels).toEqual(DEFAULT_FONT_LABELS);
-  for (const absent of ['Aptos', 'Cambria', 'Calibri Light', 'Arial Narrow']) {
+  for (const absent of ['Aptos', 'Cambria', 'Calibri Light', 'Century Schoolbook']) {
     expect(labels).not.toContain(absent);
   }
 });
@@ -251,8 +253,11 @@ test('a document-specific font reaches the live dropdown without status text and
     'Apple Chancery',
     'Aptos',
     'Arial',
+    'Arial Narrow',
     'Bangla MN',
-    ...DEFAULT_FONT_LABELS.slice(1),
+    // Arial and Arial Narrow already appear above (Arial Narrow is both a document font and a
+    // built-in), so skip both from the built-in tail to keep the deduped dropdown order.
+    ...DEFAULT_FONT_LABELS.slice(2),
   ]);
 
   const aptosOption = superdoc.page

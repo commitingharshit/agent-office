@@ -5,9 +5,11 @@ describe('TOOLBAR_FONTS (built-in font dropdown, derived from the font-offering 
   it('advertises bundled defaults and selected bundled fallback choices, in alphabetical order', () => {
     expect(TOOLBAR_FONTS.map((f) => f.label)).toEqual([
       'Arial',
+      'Arial Narrow',
       'Baskerville Old Face',
       'Brush Script MT',
       'Calibri',
+      'Century',
       'Comic Sans MS',
       'Cooper Black',
       'Courier New',
@@ -23,7 +25,7 @@ describe('TOOLBAR_FONTS (built-in font dropdown, derived from the font-offering 
 
   it('does not leak non-advertised fonts into the default dropdown', () => {
     const labels = new Set(TOOLBAR_FONTS.map((f) => f.label));
-    for (const name of ['Aptos', 'Cambria', 'Calibri Light', 'Arial Narrow']) {
+    for (const name of ['Aptos', 'Cambria', 'Calibri Light', 'Century Schoolbook']) {
       expect(labels.has(name)).toBe(false);
     }
   });
@@ -73,10 +75,12 @@ describe('composeToolbarFontOptions (document fonts unioned with the bundled def
       'Apple Chancery',
       'Aptos',
       'Arial',
+      'Arial Narrow',
       'Bangla MN',
       'Baskerville Old Face',
       'Brush Script MT',
       'Calibri',
+      'Century',
       'Comic Sans MS',
       'Cooper Black',
       'Courier New',
