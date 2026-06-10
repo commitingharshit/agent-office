@@ -4,7 +4,7 @@
  * The controller exposes a single observation pipeline (the **selector
  * substrate** at `ui.select(...)`) that the domain namespaces
  * (`ui.toolbar`, `ui.commands`, `ui.comments`, `ui.trackChanges`,
- * `ui.viewport`, `ui.selection`) are implemented on top of. Consumers
+ * `ui.viewport`, `ui.selection`, `ui.fonts`) are implemented on top of. Consumers
  * building their own UI typically reach for the domain handles
  * (`ui.comments.subscribe(...)`, `ui.commands.bold.observe(...)`)
  * and only drop down to `ui.select` for slices the domain handles
@@ -17,6 +17,13 @@
 export type EqualityFn<T> = (a: T, b: T) => boolean;
 
 export type SelectorFn<TState, TSlice> = (state: TState) => TSlice;
+
+export type { FontFamilyOption } from '@superdoc/font-system';
+
+export type FontSizeOption = {
+  label: string;
+  value: string;
+};
 
 /**
  * A read-only signal. `get()` is synchronous; `subscribe()` invokes the
@@ -36,12 +43,17 @@ export interface Subscribable<T> {
 
 /**
  * Event names the UI controller (`createSuperDocUI`) subscribes to on
- * a SuperDoc-like host. Narrower than
- * `HeadlessToolbarSuperdocHostEvent` (which adds
- * `formatting-marks-change`); a custom UI host stub only has to
- * support the three events the UI controller actually consumes.
+ * a SuperDoc-like host. Differs from `HeadlessToolbarSuperdocHostEvent`
+ * (which adds `formatting-marks-change` but not `viewport-change`); a
+ * custom UI host stub only has to support the events the UI
+ * controller actually consumes.
  */
-export type SuperDocUIHostEvent = 'editorCreate' | 'document-mode-change' | 'zoomChange';
+export type SuperDocUIHostEvent =
+  | 'editorCreate'
+  | 'document-mode-change'
+  | 'zoomChange'
+  | 'viewport-change'
+  | 'fonts-changed';
 
 /**
  * Structural typing for the SuperDoc instance. Keeps the UI controller
@@ -52,7 +64,21 @@ export interface SuperDocLike {
   on?(event: SuperDocUIHostEvent, handler: (...args: unknown[]) => void): unknown;
   off?(event: SuperDocUIHostEvent, handler: (...args: unknown[]) => void): unknown;
   activeEditor?: SuperDocEditorLike | null;
-  config?: { documentMode?: 'editing' | 'suggesting' | 'viewing' };
+  config?: {
+    documentMode?: 'editing' | 'suggesting' | 'viewing';
+    /**
+     * Track-changes module config. The controller reads
+     * `modules.trackChanges.authorColors` to resolve per-author colors for
+     * the `ui.trackChanges` snapshot (authors + per-item `authorColor`),
+     * matching the colors the layout engine paints. Loosely typed so test
+     * stubs need not model the full module config.
+     */
+    modules?: {
+      trackChanges?: {
+        authorColors?: import('@superdoc/contracts').AuthorColorsConfig;
+      };
+    };
+  };
   /**
    * Optional setter for documentMode. Consumed by `ui.document.setMode`
    * (SD-2816) and reserved for future `ui.<domain>` surfaces (SD-2799)
@@ -68,6 +94,45 @@ export interface SuperDocLike {
    * browser test stubs stay valid without a host implementation.
    */
   export?(options?: DocumentExportInput): Promise<unknown>;
+  /**
+   * Optional zoom bridge consumed by `ui.zoom`. Mirrors the superdoc
+   * package's zoom surface (`setZoom` switches the mode to manual,
+   * `setZoomMode` toggles fitting, the getters snapshot state and
+   * viewport metrics). All optional so stubs and older hosts stay
+   * valid; `ui.zoom` degrades to a static manual/100 snapshot.
+   */
+  setZoom?(percent: number): unknown;
+  setZoomMode?(mode: ZoomMode): unknown;
+  getZoomState?(): {
+    mode: ZoomMode;
+    value: number;
+    fitZoom: number | null;
+    min: number;
+    max: number;
+  };
+  getViewportMetrics?(): ZoomViewportMetrics | null;
+  fonts?: {
+    getDocumentFontOptions?(): import('@superdoc/font-system').DocumentFontOption[];
+  };
+}
+
+/**
+ * Zoom mode mirrored from the superdoc package: `manual` holds the
+ * last-set value, `fit-width` continuously re-fits to the container.
+ */
+export type ZoomMode = 'manual' | 'fit-width';
+
+/**
+ * Pure viewport measurements mirrored from the superdoc package's
+ * `viewport-change` payload / `getViewportMetrics()`.
+ */
+export interface ZoomViewportMetrics {
+  /** Width available to the document in pixels (container minus the comments sidebar). */
+  availableWidth: number;
+  /** Widest document page width in pixels at 100% zoom. */
+  documentWidth: number;
+  /** Unclamped zoom percentage that fits the document in the available width. */
+  fitZoom: number;
 }
 
 export interface SuperDocEditorLike {
@@ -212,6 +277,25 @@ export interface SuperDocEditorLike {
       height: number;
     }>;
     /**
+     * Body-surface variant of `getRangeRects`, consumed by
+     * `ui.viewport.getRect`'s text-target path so a body-anchored target
+     * returns body geometry even while a header/footer/note session is
+     * active. Optional in the structural typing for stub validity.
+     */
+    getBodyRangeRects?(
+      from: number,
+      to: number,
+      relativeTo?: HTMLElement,
+    ): Array<{
+      pageIndex: number;
+      left: number;
+      right: number;
+      top: number;
+      bottom: number;
+      width: number;
+      height: number;
+    }>;
+    /**
      * Painted-DOM host element. `ui.viewport.entityAt` reads it to
      * confirm the hit returned by `document.elementFromPoint` lives
      * inside this controller's editor — without that scope check, a
@@ -295,6 +379,42 @@ export interface SuperDocUIState {
    * document transactions; `activeIds` derives from the selection.
    */
   contentControls: ContentControlsSlice;
+  /**
+   * Zoom slice. Sourced from the host's `getZoomState()` /
+   * `getViewportMetrics()` and recomputed on `zoomChange` /
+   * `viewport-change`. Hosts without the zoom surface yield a static
+   * manual/100 snapshot.
+   */
+  zoom: ZoomSlice;
+  /** Font-family picker options for custom UI. */
+  fonts: FontsSlice;
+}
+
+export interface FontsSlice {
+  /** Final font-family picker rows: bundled defaults plus active document fonts. */
+  options: import('@superdoc/font-system').FontFamilyOption[];
+  /** Default font-size picker rows for custom toolbar UIs. */
+  sizeOptions: FontSizeOption[];
+}
+
+/**
+ * Zoom snapshot exposed on `state.zoom` and through `ui.zoom`. Combines
+ * the host's zoom state (mode, value, fit bounds) with the latest
+ * viewport metrics so a zoom UI renders from one slice.
+ */
+export interface ZoomSlice {
+  /** Current zoom mode. */
+  mode: ZoomMode;
+  /** Current zoom value as a percentage. */
+  value: number;
+  /** Latest unclamped fit zoom, or `null` before the first viewport measurement. */
+  fitZoom: number | null;
+  /** Effective lower bound of the fit-width policy. */
+  min: number;
+  /** Effective upper bound of the fit-width policy. */
+  max: number;
+  /** Latest viewport measurements, or `null` before editors mount. */
+  metrics: ZoomViewportMetrics | null;
 }
 
 /**
@@ -630,8 +750,35 @@ export interface CommentsSlice {
 export interface TrackChangesItem {
   /** Tracked-change id. */
   id: string;
-  /** Full change record from `editor.doc.trackChanges.list()`. */
-  change: import('@superdoc/document-api').TrackChangesListResult['items'][number];
+  /**
+   * Full change record from `editor.doc.trackChanges.list()`, augmented with
+   * the resolved per-author `authorColor` when per-author colors are
+   * configured on `modules.trackChanges.authorColors`.
+   */
+  change: import('@superdoc/document-api').TrackChangesListResult['items'][number] & {
+    /** Resolved per-author color for this change. Absent when unconfigured. */
+    authorColor?: string;
+  };
+  /**
+   * Resolved per-author color for this change, mirroring `change.authorColor`.
+   * Absent when per-author colors are disabled or unconfigured.
+   */
+  authorColor?: string;
+}
+
+/**
+ * One unique tracked-change author exposed on `state.trackChanges.authors`.
+ * Authors appear in the order their first change is seen in `items`.
+ */
+export interface TrackChangesAuthor {
+  /** Author display name. */
+  name?: string;
+  /** Author email, when available. */
+  email?: string;
+  /** Author avatar image URL, when available. */
+  image?: string;
+  /** Resolved per-author color. Absent when per-author colors are unconfigured. */
+  color?: string;
 }
 
 /**
@@ -652,6 +799,12 @@ export interface TrackChangesSlice {
    * scrollTo` calls. `null` when nothing is focused.
    */
   activeId: string | null;
+  /**
+   * Unique tracked-change authors seen across `items`, in first-seen
+   * document order, each carrying its resolved per-author `color`. Empty
+   * when there are no authored changes or per-author colors are unconfigured.
+   */
+  authors: TrackChangesAuthor[];
 }
 
 export interface SuperDocUIOptions {
@@ -763,6 +916,23 @@ export interface SuperDocUI {
    * successful `export` or `replaceFile`; see {@link DocumentSlice}.
    */
   document: DocumentHandle;
+
+  /**
+   * Zoom domain. One slice for zoom UIs (mode, value, fit zoom,
+   * bounds, viewport metrics) plus the two mutations: `set(percent)`
+   * (numeric zoom, switches the host to manual mode) and
+   * `setMode('fit-width' | 'manual')`. Sugar over `state.zoom` and
+   * passthroughs to the host's `setZoom` / `setZoomMode`; the slice
+   * recomputes on the host's `zoomChange` and `viewport-change`
+   * events, including mode-only transitions.
+   */
+  zoom: ZoomHandle;
+
+  /**
+   * Font-family options domain for custom toolbar UIs. Read-only: apply a chosen
+   * option with `ui.toolbar.execute('font-family', option.value)`.
+   */
+  fonts: FontsHandle;
 
   /**
    * Create a {@link SuperDocUIScope} for collecting subscriptions,
@@ -999,6 +1169,52 @@ export interface DocumentHandle {
    * active editor or the engine swap throws.
    */
   replaceFile(file: File): Promise<void>;
+}
+
+/**
+ * Zoom domain handle (`ui.zoom`). Read / observe the {@link ZoomSlice}
+ * and mutate through the host's zoom surface. Hosts without zoom
+ * methods (older builds, minimal stubs) degrade gracefully: the slice
+ * is a static manual/100 snapshot and the mutations are no-ops.
+ */
+export interface ZoomHandle {
+  /** Current zoom snapshot. */
+  getSnapshot(): ZoomSlice;
+  /**
+   * Subscribe to zoom snapshots. Fires on value changes, mode-only
+   * transitions, and fit-relevant viewport metric updates (the host's
+   * deduped `viewport-change`); `getSnapshot()` always reads the
+   * latest stored metrics. Returns the unsubscribe function; pair
+   * with `scope.add(...)` for lifecycle handling.
+   */
+  observe(listener: (snapshot: ZoomSlice) => void): () => void;
+  /**
+   * Set a numeric zoom percentage. Routes through `superdoc.setZoom`,
+   * which switches the mode to `manual` by contract.
+   */
+  set(percent: number): void;
+  /**
+   * Switch the zoom mode. Routes through `superdoc.setZoomMode`;
+   * `'fit-width'` applies the fit immediately when viewport metrics
+   * are available.
+   */
+  setMode(mode: ZoomMode): void;
+}
+
+export interface FontsHandle {
+  /** Snapshot current font-family picker options synchronously. */
+  getSnapshot(): FontsSlice;
+  /**
+   * Subscribe to font-family picker option changes. Fires once with the current snapshot,
+   * then when document font options actually change.
+   */
+  subscribe(listener: (event: { snapshot: FontsSlice }) => void): () => void;
+  /** Value-shaped alias of {@link subscribe}. */
+  observe(listener: (snapshot: FontsSlice) => void): () => void;
+  /** Convenience read for `getSnapshot().options`. */
+  getOptions(): import('@superdoc/font-system').FontFamilyOption[];
+  /** Convenience read for `getSnapshot().sizeOptions`. */
+  getSizeOptions(): FontSizeOption[];
 }
 
 /**
@@ -1815,17 +2031,24 @@ export type ViewportEntityAddress = import('@superdoc/document-api').EntityAddre
 
 export interface ViewportGetRectInput {
   /**
-   * Entity to look up — comment, tracked change, or content control
-   * (SDT) by id. Today `getRect` resolves rects via the painter's
-   * data attributes (`data-comment-ids`, `data-track-change-id`,
-   * `data-sdt-id`) which only stamp entity addresses, not
-   * text-anchored ranges. Text targets (`TextAddress` / `TextTarget`)
-   * are intentionally not in the union: surface should match real
-   * behavior so a typed call site isn't lying about what works at
-   * runtime. They land via a follow-up that adds story-aware text
-   * resolution to the rect helper.
+   * What to measure. Either:
+   * - an entity address (comment / tracked change / content control by
+   *   id), resolved via the painter's data attributes; or
+   * - a Document API text address/target (`TextAddress` single block, or
+   *   `TextTarget` multi-segment), resolved to document positions and
+   *   then to painted rects. A `TextTarget` yields one set of rects per
+   *   segment, concatenated in document order.
+   *
+   * Text targets are **body-story only** today: a target carrying a
+   * non-body `story` (header/footer/footnote/endnote) returns
+   * `{ success: false, reason: 'unresolved' }`. Story-aware text rects
+   * are a follow-up. Entity targets remain story-aware via their
+   * `story` field.
    */
-  target: ViewportEntityAddress;
+  target:
+    | ViewportEntityAddress
+    | import('@superdoc/document-api').TextAddress
+    | import('@superdoc/document-api').TextTarget;
 }
 
 export type ViewportRectResult =
