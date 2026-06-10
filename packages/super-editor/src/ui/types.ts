@@ -1400,6 +1400,19 @@ export interface SelectionAnchorRectOptions {
 export type SelectionCapture = SelectionSlice;
 
 /**
+ * The minimal anchor `ui.comments.createFromCapture` needs: anything
+ * carrying a positional `target`. Both a full {@link SelectionCapture}
+ * (from `ui.selection.capture()`) and the Document API
+ * {@link import('@superdoc/document-api').SelectionInfo} satisfy it —
+ * the latter is what a pending `comments-update` event exposes as
+ * `pendingSelection`, so consumers can forward it straight to
+ * `createFromCapture` without first reconstructing a `SelectionCapture`.
+ */
+export type CommentAnchorCapture = {
+  target: import('@superdoc/document-api').TextTarget | null;
+};
+
+/**
  * Aggregate toolbar handle exposed on `ui.toolbar`. Compatible with
  * `HeadlessToolbarController` from `superdoc/headless-toolbar` so the
  * built-in `SuperToolbar.vue` (and any external consumer using the
@@ -1895,8 +1908,13 @@ export interface CommentsHandle {
    * pass it here. Routes through `editor.doc.comments.create` with
    * the captured `target`. Returns a `NO_OP` receipt when the capture
    * lacks a positional target.
+   *
+   * Accepts any {@link CommentAnchorCapture} (only `target` is read),
+   * so the `pendingSelection` from a pending `comments-update` event —
+   * a Document API `SelectionInfo` — can be passed directly without
+   * reconstructing a full `SelectionCapture`.
    */
-  createFromCapture(capture: SelectionCapture, input: { text: string }): import('@superdoc/document-api').Receipt;
+  createFromCapture(capture: CommentAnchorCapture, input: { text: string }): import('@superdoc/document-api').Receipt;
   /**
    * Post a reply to an existing thread. Routes through
    * `editor.doc.comments.create({ parentCommentId, text })`; the

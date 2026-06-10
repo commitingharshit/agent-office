@@ -5,6 +5,7 @@ export {
   type CommandHandle,
   type CommandsHandle,
   type CommentAddress,
+  type CommentAnchorCapture,
   type CommentInfo,
   type CommentsHandle,
   type CommentsListQuery,
