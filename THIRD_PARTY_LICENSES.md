@@ -29,11 +29,12 @@ files.
 
 SPDX license expression for this bundled font set: `OFL-1.1 AND Apache-2.0 AND (AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817) AND (GPL-2.0-only WITH Font-exception-2.0) AND LicenseRef-GUST-Font-License-1.0`.
 
-C059 and Liberation Sans Narrow are copyleft fonts with document-embedding
-exceptions. The exceptions mean embedding the fonts into a rendered document does
-not impose AGPL/GPL terms on that document. Distributing the font binaries
-themselves carries the corresponding-source obligation, satisfied by the
-unmodified upstream release pointers recorded in `shared/font-system/assets/LICENSES.md`.
+C059, URW Gothic, and Liberation Sans Narrow are copyleft fonts with
+document-embedding exceptions. The exceptions mean embedding the fonts into a
+rendered document does not impose AGPL/GPL terms on that document. Distributing
+the font binaries themselves carries the corresponding-source obligation,
+satisfied by the unmodified upstream release pointers recorded in
+`shared/font-system/assets/LICENSES.md`.
 
 ### Components
 
@@ -48,12 +49,14 @@ unmodified upstream release pointers recorded in `shared/font-system/assets/LICE
 | Caprasimo | Cooper Black | OFL-1.1 | none | 1.001 |
 | Archivo Black | Arial Black | OFL-1.1 | none | 1.006 |
 | C059 | Century, Century Schoolbook | AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817 | none | 1.00 |
+| URW Gothic | Century Gothic | AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817 | none | 1.00 |
 | Bacasime Antique | Baskerville Old Face | OFL-1.1 | "Playfair" | 2.000 |
 | Oregano Italic | Brush Script MT | OFL-1.1 | "Oregano Italic" | 1.000 |
 | Gelasio | Georgia | OFL-1.1 | none | 1.008 |
 | Cardo | Garamond | OFL-1.1 | none | Regular 1.0451; Bold 1.0011; Italic 0.991 |
 | Comic Relief | Comic Sans MS | OFL-1.1 | none | 1.200 |
 | Noto Sans | Tahoma | OFL-1.1 | none | 2.015 |
+| Selawik | Segoe UI | OFL-1.1 | "Selawik" | 1.01 |
 | Noto Sans Mono | Lucida Console | OFL-1.1 | none | 2.014 |
 | Inconsolata SemiExpanded | Consolas | OFL-1.1 | none | 3.001 |
 | PT Sans | Trebuchet MS | OFL-1.1 | "PT Sans", "PT Serif", "ParaType" | 2.003W OFL |
@@ -69,12 +72,14 @@ unmodified upstream release pointers recorded in `shared/font-system/assets/LICE
 - **Caprasimo** (OFL-1.1): `Copyright 2023 The Caprasimo Project Authors (https://github.com/docrepair-fonts/caprasimo-fonts).` The v1.001 file declares no OFL Reserved Font Name.
 - **Archivo Black** (OFL-1.1): `Copyright 2017 The Archivo Black Project Authors (https://github.com/Omnibus-Type/ArchivoBlack).` The v1.006 file declares no OFL Reserved Font Name.
 - **C059** (AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817): `(URW)++,Copyright 2014 by (URW)++ Design & Development`. These files declare no trademark string and no Reserved Font Name.
+- **URW Gothic** (AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817): `(URW)++,Copyright 2014 by (URW)++ Design & Development`. These files declare no trademark string and no Reserved Font Name.
 - **Bacasime Antique** (OFL-1.1): `Copyright 2023 The Bacasime Antique Project Authors (https://github.com/docrepair-fonts/bacasime-antique-fonts), with Reserved Font Name "Playfair".` Playfair is a trademark of Claus Eggers Sørensen.
 - **Oregano Italic** (OFL-1.1): `Copyright (c) 2012 by Brian J. Bonislawsky DBA Astigmatic (AOETI) (astigma@astigmatic.com), with Reserved Font Name "Oregano Italic".` Oregano Italic is a trademark of Astigmatic.
 - **Gelasio** (OFL-1.1): `Copyright 2022 The Gelasio Project Authors (https://github.com/SorkinType/Gelasio).` The v1.008 files declare no OFL Reserved Font Name.
 - **Cardo** (OFL-1.1): `Copyright (c) 2002-2011, David J. Perry (hospes02@scholarsfonts.net).` These files declare no OFL Reserved Font Name.
 - **Comic Relief** (OFL-1.1): `Copyright 2013 The Comic Relief Project Authors (https://github.com/loudifier/Comic-Relief).` The v1.200 files declare no OFL Reserved Font Name.
 - **Noto Sans** (OFL-1.1): `Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic).` Noto is a trademark of Google LLC. The v2.015 files declare no OFL Reserved Font Name.
+- **Selawik** (OFL-1.1): `© 2015 Microsoft Corporation (www.microsoft.com), with Reserved Font Name "Selawik". Selawik is a trademark of Microsoft Corporation in the United States and/or other countries.` Selawik is a trademark of the Microsoft group of companies.
 - **Noto Sans Mono** (OFL-1.1): `Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic).` Noto is a trademark of Google LLC. The v2.014 files declare no OFL Reserved Font Name.
 - **Inconsolata SemiExpanded** (OFL-1.1): `Copyright 2006 The Inconsolata Project Authors (https://github.com/cyrealtype/Inconsolata).` These v3.001 files declare no OFL Reserved Font Name.
 - **PT Sans** (OFL-1.1): `Copyright (c) 2010, ParaType Ltd. (http://www.paratype.com/public), with Reserved Font Names "PT Sans", "PT Serif" and "ParaType".`
@@ -90,8 +95,8 @@ and Noto Sans Mono ship as static WOFF2 instances generated from upstream
 variable TrueType sources at the regular and bold weights; Noto Sans and Noto
 Sans Mono are also instanced at normal width.
 
-Verified for this ship set: 49 / 59 faces are static-source conversions with a
-WOFF2 `name` table byte-identical to their source font, and 10 / 59 faces are
+Verified for this ship set: 55 / 65 faces are static-source conversions with a
+WOFF2 `name` table byte-identical to their source font, and 10 / 65 faces are
 static variable-font instances with no subsetting. All metrics are preserved.
 Under OFL FAQ 2.2.1 the static-source conversions are not Modified Versions and
 retain the original font names. For Caladea, this also serves as the Apache-2.0

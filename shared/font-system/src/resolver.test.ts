@@ -12,12 +12,16 @@ describe('font resolver', () => {
     expect(resolvePhysicalFamily('Calibri')).toBe('Carlito');
     expect(resolvePhysicalFamily('Cambria')).toBe('Caladea');
     expect(resolvePhysicalFamily('Arial')).toBe('Liberation Sans');
+    expect(resolvePhysicalFamily('Arial MT')).toBe('Liberation Sans');
     expect(resolvePhysicalFamily('Arial Black')).toBe('Archivo Black');
+    expect(resolvePhysicalFamily('Times')).toBe('Liberation Serif');
     expect(resolvePhysicalFamily('Times New Roman')).toBe('Liberation Serif');
+    expect(resolvePhysicalFamily('Courier')).toBe('Liberation Mono');
     expect(resolvePhysicalFamily('Courier New')).toBe('Liberation Mono');
     expect(resolvePhysicalFamily('Helvetica')).toBe('Liberation Sans');
     expect(resolvePhysicalFamily('Arial Narrow')).toBe('Liberation Sans Narrow');
     expect(resolvePhysicalFamily('Century')).toBe('C059');
+    expect(resolvePhysicalFamily('Century Gothic')).toBe('URW Gothic');
     expect(resolvePhysicalFamily('Century Schoolbook')).toBe('C059');
     expect(resolvePhysicalFamily('Cooper Black')).toBe('Caprasimo');
     expect(resolvePhysicalFamily('Baskerville Old Face')).toBe('Bacasime Antique');
@@ -29,6 +33,7 @@ describe('font resolver', () => {
     expect(resolvePhysicalFamily('Consolas')).toBe('Inconsolata SemiExpanded');
     expect(resolvePhysicalFamily('Comic Sans MS')).toBe('Comic Relief');
     expect(resolvePhysicalFamily('Lucida Console')).toBe('Noto Sans Mono');
+    expect(resolvePhysicalFamily('Segoe UI')).toBe('Selawik');
     expect(resolvePhysicalFamily('Tahoma')).toBe('Noto Sans');
     expect(resolvePhysicalFamily('Trebuchet MS')).toBe('PT Sans');
     expect(resolvePhysicalFamily('Verdana')).toBe('Noto Sans');
@@ -93,19 +98,44 @@ describe('font resolver', () => {
       physicalFamily: 'Archivo Black',
       reason: 'bundled_substitute',
     });
+    expect(resolveFontFamily('Arial MT')).toEqual({
+      logicalFamily: 'Arial MT',
+      physicalFamily: 'Liberation Sans',
+      reason: 'bundled_substitute',
+    });
     expect(resolveFontFamily('Century')).toEqual({
       logicalFamily: 'Century',
       physicalFamily: 'C059',
       reason: 'bundled_substitute',
+    });
+    expect(resolveFontFamily('Century Gothic')).toEqual({
+      logicalFamily: 'Century Gothic',
+      physicalFamily: 'URW Gothic',
+      reason: 'category_fallback',
     });
     expect(resolveFontFamily('Century Schoolbook')).toEqual({
       logicalFamily: 'Century Schoolbook',
       physicalFamily: 'C059',
       reason: 'bundled_substitute',
     });
+    expect(resolveFontFamily('Times')).toEqual({
+      logicalFamily: 'Times',
+      physicalFamily: 'Liberation Serif',
+      reason: 'bundled_substitute',
+    });
+    expect(resolveFontFamily('Courier')).toEqual({
+      logicalFamily: 'Courier',
+      physicalFamily: 'Liberation Mono',
+      reason: 'category_fallback',
+    });
     expect(resolveFontFamily('Tahoma')).toEqual({
       logicalFamily: 'Tahoma',
       physicalFamily: 'Noto Sans',
+      reason: 'category_fallback',
+    });
+    expect(resolveFontFamily('Segoe UI')).toEqual({
+      logicalFamily: 'Segoe UI',
+      physicalFamily: 'Selawik',
       reason: 'category_fallback',
     });
     expect(resolveFontFamily('Brush Script MT')).toEqual({

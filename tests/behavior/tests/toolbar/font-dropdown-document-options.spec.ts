@@ -14,6 +14,7 @@ const DEFAULT_FONT_LABELS = [
   'Brush Script MT',
   'Calibri',
   'Century',
+  'Century Gothic',
   'Comic Sans MS',
   'Cooper Black',
   'Courier New',
@@ -22,6 +23,7 @@ const DEFAULT_FONT_LABELS = [
   'Gill Sans MT Condensed',
   'Helvetica',
   'Lucida Console',
+  'Segoe UI',
   'Tahoma',
   'Times New Roman',
   'Trebuchet MS',
@@ -108,7 +110,7 @@ test('font dropdown opens immediately with the built-in font list and an enabled
 
   const labels = await fontOptionLabels(superdoc);
   expect(labels).toEqual(DEFAULT_FONT_LABELS);
-  for (const absent of ['Aptos', 'Cambria', 'Calibri Light', 'Century Schoolbook']) {
+  for (const absent of ['Aptos', 'Cambria', 'Calibri Light', 'Century Schoolbook', 'Arial MT', 'Courier', 'Times']) {
     expect(labels).not.toContain(absent);
   }
 });

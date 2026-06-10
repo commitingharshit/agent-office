@@ -12,7 +12,8 @@ Google Fonts provenance on 2026-06-09. C059 and Liberation Sans Narrow were
 added from the legal-reviewed asset package on 2026-06-09. Archivo Black, PT
 Sans Narrow, and Inconsolata SemiExpanded were added from DocFonts' Google Fonts
 provenance on 2026-06-10. TeX Gyre Bonum was added from CTAN TeX Gyre
-provenance on 2026-06-10._
+provenance on 2026-06-10. URW Gothic and Selawik were added from DocFonts
+corpus provenance on 2026-06-10._
 
 ## Scope (read first)
 
@@ -25,13 +26,13 @@ obligations below are stated to the broadest redistribution case. Lighter
 delivery models are covered too. **No edit to this file is required if the
 delivery model changes.**
 
-Two families are copyleft: **C059** (AGPL-3.0) and **Liberation Sans Narrow**
-(GPL-2.0). Their PostScript/PDF font exceptions mean embedding a font into a
-rendered document does not impose AGPL/GPL terms on that document. Distributing
-the **font binaries themselves** carries the AGPL/GPL corresponding-source
-obligation; SuperDoc satisfies it by pointing to the exact unmodified upstream
-release recorded in the table below. These fonts are not relicensed under
-SuperDoc's AGPLv3 or commercial terms.
+Three families are copyleft: **C059** and **URW Gothic** (AGPL-3.0) and
+**Liberation Sans Narrow** (GPL-2.0). Their PostScript/PDF font exceptions mean
+embedding a font into a rendered document does not impose AGPL/GPL terms on that
+document. Distributing the **font binaries themselves** carries the AGPL/GPL
+corresponding-source obligation; SuperDoc satisfies it by pointing to the exact
+unmodified upstream release recorded in the table below. These fonts are not
+relicensed under SuperDoc's AGPLv3 or commercial terms.
 
 These notices, `OFL.txt`, `Apache-2.0.txt`, `AGPL-3.0.txt`, `GPL-2.0.txt`, and
 `GUST-Font-License-1.0.txt` are a single unit. Distribute them together with the
@@ -53,12 +54,14 @@ Machine-readable asset metadata: `font-assets.manifest.json`.
 | Caprasimo | Cooper Black | OFL-1.1 | none | 1.001 | google/fonts c89741abbf4eeabce432c3ed2fd7dc28b022701e, ofl/caprasimo |
 | Archivo Black | Arial Black | OFL-1.1 | none | 1.006 | google/fonts c89741abbf4eeabce432c3ed2fd7dc28b022701e, ofl/archivoblack |
 | C059 | Century, Century Schoolbook | AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817 | none | 1.00 | github.com/ArtifexSoftware/urw-base35-fonts (unmodified) |
+| URW Gothic | Century Gothic | AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817 | none | 1.00 | github.com/ArtifexSoftware/urw-base35-fonts (unmodified) |
 | Bacasime Antique | Baskerville Old Face | OFL-1.1 | "Playfair" | 2.000 | google/fonts c89741abbf4eeabce432c3ed2fd7dc28b022701e, ofl/bacasimeantique |
 | Oregano Italic | Brush Script MT | OFL-1.1 | "Oregano Italic" | 1.000 | google/fonts c89741abbf4eeabce432c3ed2fd7dc28b022701e, ofl/oregano |
 | Gelasio | Georgia | OFL-1.1 | none | 1.008 | google/fonts c89741abbf4eeabce432c3ed2fd7dc28b022701e, ofl/gelasio |
 | Cardo | Garamond | OFL-1.1 | none | Regular 1.0451; Bold 1.0011; Italic 0.991 | google/fonts c89741abbf4eeabce432c3ed2fd7dc28b022701e, ofl/cardo |
 | Comic Relief | Comic Sans MS | OFL-1.1 | none | 1.200 | google/fonts c89741abbf4eeabce432c3ed2fd7dc28b022701e, ofl/comicrelief |
 | Noto Sans | Tahoma | OFL-1.1 | none | 2.015 | google/fonts c89741abbf4eeabce432c3ed2fd7dc28b022701e, ofl/notosans |
+| Selawik | Segoe UI | OFL-1.1 | "Selawik" | 1.01 | github.com/microsoft/Selawik release 1.01 |
 | Noto Sans Mono | Lucida Console | OFL-1.1 | none | 2.014 | google/fonts c89741abbf4eeabce432c3ed2fd7dc28b022701e, ofl/notosansmono |
 | Inconsolata SemiExpanded | Consolas | OFL-1.1 | none | 3.001 | google/fonts c89741abbf4eeabce432c3ed2fd7dc28b022701e, ofl/inconsolata/static |
 | PT Sans | Trebuchet MS | OFL-1.1 | "PT Sans", "PT Serif", "ParaType" | 2.003W OFL | google/fonts c89741abbf4eeabce432c3ed2fd7dc28b022701e, ofl/ptsans |
@@ -133,6 +136,14 @@ No OFL Reserved Font Name is declared in this file.
 
 No trademark string and no Reserved Font Name are declared in these files.
 
+**URW Gothic** - AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817
+
+```text
+(URW)++,Copyright 2014 by (URW)++ Design & Development
+```
+
+No trademark string and no Reserved Font Name are declared in these files.
+
 **Bacasime Antique** - OFL-1.1
 
 ```text
@@ -185,6 +196,14 @@ License description: This Font Software is licensed under the SIL Open Font Lice
 ```
 
 No OFL Reserved Font Name is declared in these files.
+
+**Selawik** - OFL-1.1
+
+```text
+© 2015 Microsoft Corporation (www.microsoft.com), with Reserved Font Name "Selawik". Selawik is a trademark of Microsoft Corporation in the United States and/or other countries.
+Trademark: Selawik is a trademark of the Microsoft group of companies.
+License description: This Font Software is licensed under the SIL Open Font License, Version 1.1.
+```
 
 **Noto Sans Mono** - OFL-1.1
 
@@ -248,11 +267,11 @@ same statement satisfies the Apache-2.0 section 4(b) "modified files" notice.
 Caladea carries **no upstream `NOTICE` file**, so Apache-2.0 section 4(d) adds
 nothing.
 
-For C059 under AGPL-3.0 and Liberation Sans Narrow under GPL-2.0, the same
-format-only WOFF2 conversion applies, with no design, metric, glyph, `cmap`, or
-`name`-table change. The corresponding-source obligation is satisfied by the
-exact upstream releases recorded in the Families table; the unmodified upstream
-OTF/TTF files are the preferred form for modification.
+For C059 and URW Gothic under AGPL-3.0 and Liberation Sans Narrow under
+GPL-2.0, the same format-only WOFF2 conversion applies, with no design, metric,
+glyph, `cmap`, or `name`-table change. The corresponding-source obligation is
+satisfied by the exact upstream releases recorded in the Families table; the
+unmodified upstream OTF/TTF files are the preferred form for modification.
 
 For TeX Gyre Bonum under the GUST Font License, the same format-only WOFF2
 conversion applies, with no design, metric, glyph, `cmap`, or `name`-table
@@ -260,10 +279,10 @@ change.
 
 ## Verification evidence (current ship set)
 
-- **49 / 59 WOFF2 faces:** static-source WOFF2 flavor, WOFF2 metadata block
+- **55 / 65 WOFF2 faces:** static-source WOFF2 flavor, WOFF2 metadata block
   omitted, `name` table byte-identical to the source font, identical glyph count
   and `cmap`.
-- **10 / 59 WOFF2 faces:** static variable-font instances for Gelasio, Noto
+- **10 / 65 WOFF2 faces:** static variable-font instances for Gelasio, Noto
   Sans, and Noto Sans Mono, generated at regular and bold weights with no
   subsetting.
 - **Metrics:** `unitsPerEm`, `hhea` ascent/descent, selected OS/2 metrics,
@@ -273,18 +292,18 @@ change.
 ## Full license texts
 
 - OFL-1.1 (Carlito, Liberation, Caprasimo, Archivo Black, Bacasime Antique,
-  Oregano Italic, Gelasio, Cardo, Comic Relief, Noto Sans, Noto Sans Mono,
-  Inconsolata SemiExpanded, PT Sans, PT Sans Narrow): `OFL.txt` in this
+  Oregano Italic, Gelasio, Cardo, Comic Relief, Noto Sans, Selawik, Noto Sans
+  Mono, Inconsolata SemiExpanded, PT Sans, PT Sans Narrow): `OFL.txt` in this
   directory. The copyright notices above are also stacked at the top of that
   file.
 - Apache-2.0 (Caladea): `Apache-2.0.txt` in this directory.
-- AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817 (C059): `AGPL-3.0.txt` in
-  this directory.
+- AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817 (C059, URW Gothic):
+  `AGPL-3.0.txt` in this directory.
 - GPL-2.0-only WITH Font-exception-2.0 (Liberation Sans Narrow): `GPL-2.0.txt` in
   this directory.
 - LicenseRef-GUST-Font-License-1.0 (TeX Gyre Bonum): `GUST-Font-License-1.0.txt`
   in this directory.
 
 SuperDoc does not relicense these fonts. They remain under their own OFL-1.1 /
-Apache-2.0 / AGPL-3.0 / GPL-2.0 terms regardless of the license under which
-SuperDoc itself is offered (AGPLv3 community build or commercial).
+Apache-2.0 / AGPL-3.0 / GPL-2.0 / GUST terms regardless of the license under
+which SuperDoc itself is offered (AGPLv3 community build or commercial).

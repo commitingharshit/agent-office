@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "spdxExpression": "OFL-1.1 AND Apache-2.0 AND (AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817) AND (GPL-2.0-only WITH Font-exception-2.0) AND LicenseRef-GUST-Font-License-1.0",
-  "generatedFrom": "Bundled font legal review, 2026-06-03; Caprasimo added from DocFonts Google Fonts OFL provenance, 2026-06-08; OFL fallback batch added from DocFonts Google Fonts provenance, 2026-06-09; Bacasime Antique, Oregano Italic, and Noto Sans Mono added from DocFonts Google Fonts provenance, 2026-06-09; C059 and Liberation Sans Narrow added from legal-reviewed asset package, 2026-06-09; Arial Black and PT Sans Narrow added from DocFonts Google Fonts provenance, 2026-06-10; TeX Gyre Bonum added from CTAN TeX Gyre provenance, 2026-06-10; Inconsolata SemiExpanded added from DocFonts Google Fonts provenance, 2026-06-10",
+  "generatedFrom": "Bundled font legal review, 2026-06-03; Caprasimo added from DocFonts Google Fonts OFL provenance, 2026-06-08; OFL fallback batch added from DocFonts Google Fonts provenance, 2026-06-09; Bacasime Antique, Oregano Italic, and Noto Sans Mono added from DocFonts Google Fonts provenance, 2026-06-09; C059 and Liberation Sans Narrow added from legal-reviewed asset package, 2026-06-09; Arial Black and PT Sans Narrow added from DocFonts Google Fonts provenance, 2026-06-10; TeX Gyre Bonum added from CTAN TeX Gyre provenance, 2026-06-10; Inconsolata SemiExpanded added from DocFonts Google Fonts provenance, 2026-06-10; URW Gothic and Selawik added from DocFonts corpus provenance, 2026-06-10",
   "families": [
     {
       "family": "Carlito",
@@ -310,6 +310,61 @@
       ]
     },
     {
+      "family": "URW Gothic",
+      "replaces": ["Century Gothic"],
+      "license": "AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817",
+      "licenseFiles": ["AGPL-3.0.txt"],
+      "version": "Version 1.00",
+      "upstreamSource": "github.com/ArtifexSoftware/urw-base35-fonts (URW Gothic, unmodified); Corresponding Source per AGPL-3.0 sec. 6(d)",
+      "reservedFontName": null,
+      "copyrightNotice": "(URW)++,Copyright 2014 by (URW)++ Design & Development",
+      "trademarkNotice": null,
+      "sourceFiles": [
+        {
+          "file": "URWGothic-Book.otf",
+          "sha256": "04318316cee29950805110c9c8949eea189ef5575132881f4d4d7e03e5299903"
+        },
+        {
+          "file": "URWGothic-Demi.otf",
+          "sha256": "5b009410cf5231dcb1e45b155c1afedcfc63d82042fd8c414d0dd7705c9fbbae"
+        },
+        {
+          "file": "URWGothic-BookOblique.otf",
+          "sha256": "ec4e947734950fd344918e560bc8ad0c5d8b17d0ab4853988824f13b9f77e53f"
+        },
+        {
+          "file": "URWGothic-DemiOblique.otf",
+          "sha256": "d57abaa6d40718cfbf735ad50080d0b095e7194e451992e02786a7c0113db35c"
+        }
+      ],
+      "faces": [
+        {
+          "file": "URWGothic-Book.woff2",
+          "weight": "normal",
+          "style": "normal",
+          "sha256": "27afe1c2d046a74797ff436c7162c9c64d7ed888af550b20ce6d36bc8cd69258"
+        },
+        {
+          "file": "URWGothic-Demi.woff2",
+          "weight": "bold",
+          "style": "normal",
+          "sha256": "9258ca6eae59d3df23a4f34af9abd806b15b962ac11b546a9bafac733c3e492a"
+        },
+        {
+          "file": "URWGothic-BookOblique.woff2",
+          "weight": "normal",
+          "style": "italic",
+          "sha256": "c843b8fe2b56948c366335b8bff1c3180b0c9bf2ffa7e21903458432d39ff806"
+        },
+        {
+          "file": "URWGothic-DemiOblique.woff2",
+          "weight": "bold",
+          "style": "italic",
+          "sha256": "fb292fed0e0d8005c99826be1967c278f7ad2bea0d31735e16f3ccb2b2ed51e8"
+        }
+      ]
+    },
+    {
       "family": "Bacasime Antique",
       "replaces": ["Baskerville Old Face"],
       "license": "OFL-1.1",
@@ -532,6 +587,41 @@
           "weight": "bold",
           "style": "italic",
           "sha256": "081e841bfe1ebfcf3687499ecda39f0a10ea40e0a5d131d74e1f375d1d18a9f1"
+        }
+      ]
+    },
+    {
+      "family": "Selawik",
+      "replaces": ["Segoe UI"],
+      "license": "OFL-1.1",
+      "licenseFiles": ["OFL.txt"],
+      "version": "1.01",
+      "upstreamSource": "github.com/microsoft/Selawik release 1.01",
+      "reservedFontName": "Selawik",
+      "copyrightNotice": "© 2015 Microsoft Corporation (www.microsoft.com), with Reserved Font Name \"Selawik\". Selawik is a trademark of Microsoft Corporation in the United States and/or other countries.",
+      "trademarkNotice": "Selawik is a trademark of the Microsoft group of companies.",
+      "sourceFiles": [
+        {
+          "file": "selawk.ttf",
+          "sha256": "e9d98518d8ac2817782a9a382430463a2e0793ea68350b695bb727d9a830ee1c"
+        },
+        {
+          "file": "selawkb.ttf",
+          "sha256": "f0db5e174a90e0956ad7d2844bdca1d5e6da92ec65b2c04e57ba9b180668c904"
+        }
+      ],
+      "faces": [
+        {
+          "file": "Selawik-Regular.woff2",
+          "weight": "normal",
+          "style": "normal",
+          "sha256": "12fe84efc16ae0d3196ccf0f6a84bcc916a05c6fc1a9d5ff9d710a384c525a93"
+        },
+        {
+          "file": "Selawik-Bold.woff2",
+          "weight": "bold",
+          "style": "normal",
+          "sha256": "946fc97e8d2fec1d4b183b5e8653e506bd4d045b529d797a7e3d56cd6a7ee744"
         }
       ]
     },

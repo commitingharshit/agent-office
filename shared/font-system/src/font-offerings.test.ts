@@ -19,6 +19,7 @@ const EXPECTED_BUILT_IN_TOOLBAR = [
   'Brush Script MT',
   'Calibri',
   'Century',
+  'Century Gothic',
   'Comic Sans MS',
   'Cooper Black',
   'Courier New',
@@ -27,6 +28,7 @@ const EXPECTED_BUILT_IN_TOOLBAR = [
   'Gill Sans MT Condensed',
   'Helvetica',
   'Lucida Console',
+  'Segoe UI',
   'Tahoma',
   'Times New Roman',
   'Trebuchet MS',
@@ -35,13 +37,15 @@ const EXPECTED_BUILT_IN_TOOLBAR = [
 
 /**
  * Must NOT appear as DEFAULT options yet. Aptos has no clone, Cambria/Georgia/Cooper Black/
- * Baskerville Old Face/Arial Black/Arial Narrow/Century/Century Schoolbook/ITC Bookman are qualified, and
- * Calibri Light/Tahoma/Trebuchet MS/Garamond/Comic Sans MS/Brush Script MT/Gill Sans MT Condensed/
- * Lucida Console/Consolas/Verdana are category fallbacks.
- * Some may be explicit built-in picker choices, but none should become silent strict defaults.
+ * Baskerville Old Face/Arial Black/Arial Narrow/Century/Century Gothic/Century Schoolbook/ITC
+ * Bookman are qualified/category rows, Arial MT/Courier/Times are supported aliases, and Calibri
+ * Light/Tahoma/Trebuchet MS/Garamond/Comic Sans MS/Brush Script MT/Gill Sans MT Condensed/Lucida
+ * Console/Consolas/Verdana/Segoe UI are category fallbacks. Some may be explicit built-in picker
+ * choices, but none should become silent strict defaults.
  */
 const NOT_DEFAULT_YET = [
   'Aptos',
+  'Arial MT',
   'Georgia',
   'Cambria',
   'Cooper Black',
@@ -50,9 +54,12 @@ const NOT_DEFAULT_YET = [
   'Baskerville Old Face',
   'Bookman Old Style',
   'Arial Narrow',
+  'Century Gothic',
   'Century',
   'Century Schoolbook',
+  'Courier',
   'Tahoma',
+  'Times',
   'Trebuchet MS',
   'Garamond',
   'Comic Sans MS',
@@ -62,6 +69,7 @@ const NOT_DEFAULT_YET = [
   'Consolas',
   'ITC Bookman',
   'Verdana',
+  'Segoe UI',
 ];
 
 describe('font offerings', () => {
@@ -127,6 +135,12 @@ describe('font offerings', () => {
       bundled: true,
       physicalFamily: 'C059',
     });
+    expect(byName('Century Gothic')).toMatchObject({
+      offering: 'category_fallback',
+      verdict: 'visual_only',
+      bundled: true,
+      physicalFamily: 'URW Gothic',
+    });
     expect(byName('Century Schoolbook')).toMatchObject({
       offering: 'qualified',
       verdict: 'visual_only',
@@ -175,6 +189,26 @@ describe('font offerings', () => {
       bundled: true,
       physicalFamily: 'Noto Sans',
     });
+    expect(byName('Segoe UI')).toMatchObject({
+      offering: 'category_fallback',
+      bundled: true,
+      physicalFamily: 'Selawik',
+    });
+    expect(byName('Arial MT')).toMatchObject({
+      offering: 'supported_alias',
+      bundled: true,
+      physicalFamily: 'Liberation Sans',
+    });
+    expect(byName('Times')).toMatchObject({
+      offering: 'supported_alias',
+      bundled: true,
+      physicalFamily: 'Liberation Serif',
+    });
+    expect(byName('Courier')).toMatchObject({
+      offering: 'supported_alias',
+      bundled: true,
+      physicalFamily: 'Liberation Mono',
+    });
   });
 
   it('getDefaultFontFamilyOptions returns logical label + logical stack', () => {
@@ -187,6 +221,7 @@ describe('font offerings', () => {
       { label: 'Brush Script MT', value: 'Brush Script MT, serif' },
       { label: 'Calibri', value: 'Calibri, sans-serif' },
       { label: 'Century', value: 'Century, serif' },
+      { label: 'Century Gothic', value: 'Century Gothic, sans-serif' },
       { label: 'Comic Sans MS', value: 'Comic Sans MS, sans-serif' },
       { label: 'Cooper Black', value: 'Cooper Black, serif' },
       { label: 'Courier New', value: 'Courier New, monospace' },
@@ -195,6 +230,7 @@ describe('font offerings', () => {
       { label: 'Gill Sans MT Condensed', value: 'Gill Sans MT Condensed, sans-serif' },
       { label: 'Helvetica', value: 'Helvetica, sans-serif' },
       { label: 'Lucida Console', value: 'Lucida Console, monospace' },
+      { label: 'Segoe UI', value: 'Segoe UI, sans-serif' },
       { label: 'Tahoma', value: 'Tahoma, sans-serif' },
       { label: 'Times New Roman', value: 'Times New Roman, serif' },
       { label: 'Trebuchet MS', value: 'Trebuchet MS, sans-serif' },

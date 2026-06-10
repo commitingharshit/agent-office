@@ -12,6 +12,7 @@ describe('DEFAULT_FONT_FAMILY_OPTIONS (headless default font options, derived fr
       { label: 'Brush Script MT', value: 'Brush Script MT, serif' },
       { label: 'Calibri', value: 'Calibri, sans-serif' },
       { label: 'Century', value: 'Century, serif' },
+      { label: 'Century Gothic', value: 'Century Gothic, sans-serif' },
       { label: 'Comic Sans MS', value: 'Comic Sans MS, sans-serif' },
       { label: 'Cooper Black', value: 'Cooper Black, serif' },
       { label: 'Courier New', value: 'Courier New, monospace' },
@@ -20,6 +21,7 @@ describe('DEFAULT_FONT_FAMILY_OPTIONS (headless default font options, derived fr
       { label: 'Gill Sans MT Condensed', value: 'Gill Sans MT Condensed, sans-serif' },
       { label: 'Helvetica', value: 'Helvetica, sans-serif' },
       { label: 'Lucida Console', value: 'Lucida Console, monospace' },
+      { label: 'Segoe UI', value: 'Segoe UI, sans-serif' },
       { label: 'Tahoma', value: 'Tahoma, sans-serif' },
       { label: 'Times New Roman', value: 'Times New Roman, serif' },
       { label: 'Trebuchet MS', value: 'Trebuchet MS, sans-serif' },
@@ -33,5 +35,8 @@ describe('DEFAULT_FONT_FAMILY_OPTIONS (headless default font options, derived fr
     expect(labels.has('Cambria')).toBe(false);
     expect(labels.has('Calibri Light')).toBe(false);
     expect(labels.has('Century Schoolbook')).toBe(false);
+    expect(labels.has('Arial MT')).toBe(false);
+    expect(labels.has('Courier')).toBe(false);
+    expect(labels.has('Times')).toBe(false);
   });
 });

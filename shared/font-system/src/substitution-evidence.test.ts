@@ -12,8 +12,10 @@ const EXPECTED_SUBSTITUTES: ReadonlyArray<readonly [logical: string, physical: s
   ['Calibri', 'Carlito'],
   ['Cambria', 'Caladea'],
   ['Arial', 'Liberation Sans'],
+  ['Arial MT', 'Liberation Sans'],
   ['Arial Black', 'Archivo Black'],
   ['Arial Narrow', 'Liberation Sans Narrow'],
+  ['Times', 'Liberation Serif'],
   ['Times New Roman', 'Liberation Serif'],
   ['Courier New', 'Liberation Mono'],
   ['Helvetica', 'Liberation Sans'],
@@ -222,11 +224,50 @@ describe('substitution evidence -> resolver derivation', () => {
       verdict: 'visual_only',
       faces: { regular: true, bold: true, italic: true, boldItalic: true },
     });
+    expect(SUBSTITUTION_EVIDENCE.find((r) => r.evidenceId === 'century-gothic')).toMatchObject({
+      logicalFamily: 'Century Gothic',
+      physicalFamily: 'URW Gothic',
+      policyAction: 'category_fallback',
+      verdict: 'visual_only',
+      faces: { regular: true, bold: true, italic: true, boldItalic: true },
+      advance: { basis: 'latin_text', meanDelta: 0.0013, maxDelta: 0.1662 },
+    });
+    expect(SUBSTITUTION_EVIDENCE.find((r) => r.evidenceId === 'segoe-ui')).toMatchObject({
+      logicalFamily: 'Segoe UI',
+      physicalFamily: 'Selawik',
+      policyAction: 'category_fallback',
+      faces: { regular: true, bold: true, italic: false, boldItalic: false },
+      faceSources: {
+        italic: { kind: 'synthetic', from: 'regular' },
+        boldItalic: { kind: 'synthetic', from: 'bold' },
+      },
+    });
+    expect(SUBSTITUTION_EVIDENCE.find((r) => r.evidenceId === 'arial-mt')).toMatchObject({
+      logicalFamily: 'Arial MT',
+      physicalFamily: 'Liberation Sans',
+      policyAction: 'substitute',
+      verdict: 'metric_safe',
+      advance: { basis: 'latin_text', meanDelta: 0, maxDelta: 0 },
+    });
+    expect(SUBSTITUTION_EVIDENCE.find((r) => r.evidenceId === 'times')).toMatchObject({
+      logicalFamily: 'Times',
+      physicalFamily: 'Liberation Serif',
+      policyAction: 'substitute',
+      verdict: 'visual_only',
+      faceVerdicts: {
+        regular: 'metric_safe',
+        bold: 'metric_safe',
+        italic: 'metric_safe',
+        boldItalic: 'visual_only',
+      },
+    });
     expect(resolveFontFamily('Baskerville Old Face').reason).toBe('bundled_substitute');
     expect(resolveFontFamily('Brush Script MT').reason).toBe('category_fallback');
     expect(resolveFontFamily('Lucida Console').reason).toBe('category_fallback');
     expect(resolveFontFamily('Consolas').reason).toBe('category_fallback');
     expect(resolveFontFamily('Gill Sans MT Condensed').reason).toBe('category_fallback');
     expect(resolveFontFamily('Verdana').reason).toBe('category_fallback');
+    expect(resolveFontFamily('Century Gothic').reason).toBe('category_fallback');
+    expect(resolveFontFamily('Segoe UI').reason).toBe('category_fallback');
   });
 });

@@ -83,6 +83,7 @@ describe('buildFontReport', () => {
       'Liberation Mono',
       'Caprasimo',
       'Archivo Black',
+      'URW Gothic',
       'Bacasime Antique',
       'TeX Gyre Bonum',
       'Oregano Italic',
@@ -90,6 +91,7 @@ describe('buildFontReport', () => {
       'Inconsolata SemiExpanded',
       'Noto Sans',
       'Noto Sans Mono',
+      'Selawik',
       'PT Sans Narrow',
     ]) {
       reg.statuses.set(family, 'loaded');
@@ -100,6 +102,7 @@ describe('buildFontReport', () => {
         'Cambria',
         'Arial',
         'Arial Black',
+        'Century Gothic',
         'Times New Roman',
         'Courier New',
         'Cooper Black',
@@ -108,6 +111,7 @@ describe('buildFontReport', () => {
         'ITC Bookman',
         'Brush Script MT',
         'Georgia',
+        'Segoe UI',
         'Consolas',
         'Lucida Console',
         'Tahoma',
@@ -122,6 +126,7 @@ describe('buildFontReport', () => {
       'Caladea',
       'Liberation Sans',
       'Archivo Black',
+      'URW Gothic',
       'Liberation Serif',
       'Liberation Mono',
       'Caprasimo',
@@ -130,6 +135,7 @@ describe('buildFontReport', () => {
       'TeX Gyre Bonum',
       'Oregano Italic',
       'Gelasio',
+      'Selawik',
       'Inconsolata SemiExpanded',
       'Noto Sans Mono',
       'Noto Sans',
@@ -155,6 +161,14 @@ describe('buildFontReport', () => {
     expect(report.find((r) => r.logicalFamily === 'Arial Black')).toMatchObject({
       reason: 'bundled_substitute',
       missing: false,
+    });
+    expect(report.find((r) => r.logicalFamily === 'Century Gothic')).toMatchObject({
+      reason: 'category_fallback',
+      missing: true,
+    });
+    expect(report.find((r) => r.logicalFamily === 'Segoe UI')).toMatchObject({
+      reason: 'category_fallback',
+      missing: true,
     });
     expect(report.find((r) => r.logicalFamily === 'Brush Script MT')).toMatchObject({
       reason: 'category_fallback',

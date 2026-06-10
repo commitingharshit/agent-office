@@ -77,6 +77,12 @@ export const BUNDLED_MANIFEST: readonly BundledFamilyManifest[] = Object.freeze(
     { weight: 'normal', style: 'italic', file: 'C059-Italic.woff2' },
     { weight: 'bold', style: 'italic', file: 'C059-BdIta.woff2' },
   ]),
+  familyWithFaces('URW Gothic', 'AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817', [
+    { weight: 'normal', style: 'normal', file: 'URWGothic-Book.woff2' },
+    { weight: 'bold', style: 'normal', file: 'URWGothic-Demi.woff2' },
+    { weight: 'normal', style: 'italic', file: 'URWGothic-BookOblique.woff2' },
+    { weight: 'bold', style: 'italic', file: 'URWGothic-DemiOblique.woff2' },
+  ]),
   familyWithFaces('Bacasime Antique', 'OFL-1.1', [
     { weight: 'normal', style: 'normal', file: 'BacasimeAntique-Regular.woff2' },
   ]),
@@ -94,6 +100,10 @@ export const BUNDLED_MANIFEST: readonly BundledFamilyManifest[] = Object.freeze(
     { weight: 'bold', style: 'normal', file: 'ComicRelief-Bold.woff2' },
   ]),
   family('Noto Sans', 'NotoSans', 'OFL-1.1'),
+  familyWithFaces('Selawik', 'OFL-1.1', [
+    { weight: 'normal', style: 'normal', file: 'Selawik-Regular.woff2' },
+    { weight: 'bold', style: 'normal', file: 'Selawik-Bold.woff2' },
+  ]),
   familyWithFaces('Noto Sans Mono', 'OFL-1.1', [
     { weight: 'normal', style: 'normal', file: 'NotoSansMono-Regular.woff2' },
     { weight: 'bold', style: 'normal', file: 'NotoSansMono-Bold.woff2' },

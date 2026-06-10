@@ -12,6 +12,7 @@ describe('TOOLBAR_FONTS (built-in font dropdown, derived from the font-offering 
       'Brush Script MT',
       'Calibri',
       'Century',
+      'Century Gothic',
       'Comic Sans MS',
       'Cooper Black',
       'Courier New',
@@ -20,6 +21,7 @@ describe('TOOLBAR_FONTS (built-in font dropdown, derived from the font-offering 
       'Gill Sans MT Condensed',
       'Helvetica',
       'Lucida Console',
+      'Segoe UI',
       'Tahoma',
       'Times New Roman',
       'Trebuchet MS',
@@ -29,7 +31,7 @@ describe('TOOLBAR_FONTS (built-in font dropdown, derived from the font-offering 
 
   it('does not leak non-advertised fonts into the default dropdown', () => {
     const labels = new Set(TOOLBAR_FONTS.map((f) => f.label));
-    for (const name of ['Aptos', 'Cambria', 'Calibri Light', 'Century Schoolbook']) {
+    for (const name of ['Aptos', 'Cambria', 'Calibri Light', 'Century Schoolbook', 'Arial MT', 'Courier', 'Times']) {
       expect(labels.has(name)).toBe(false);
     }
   });
@@ -87,6 +89,7 @@ describe('composeToolbarFontOptions (document fonts unioned with the bundled def
       'Brush Script MT',
       'Calibri',
       'Century',
+      'Century Gothic',
       'Comic Sans MS',
       'Cooper Black',
       'Courier New',
@@ -95,6 +98,7 @@ describe('composeToolbarFontOptions (document fonts unioned with the bundled def
       'Gill Sans MT Condensed',
       'Helvetica',
       'Lucida Console',
+      'Segoe UI',
       'Tahoma',
       'Times New Roman',
       'Trebuchet MS',
