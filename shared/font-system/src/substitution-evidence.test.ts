@@ -11,10 +11,13 @@ const EXPECTED_SUBSTITUTES: ReadonlyArray<readonly [logical: string, physical: s
   ['Calibri', 'Carlito'],
   ['Cambria', 'Caladea'],
   ['Arial', 'Liberation Sans'],
+  ['Arial Narrow', 'Liberation Sans Narrow'],
   ['Times New Roman', 'Liberation Serif'],
   ['Courier New', 'Liberation Mono'],
   ['Helvetica', 'Liberation Sans'],
   ['Cooper Black', 'Caprasimo'],
+  ['Century', 'C059'],
+  ['Century Schoolbook', 'C059'],
   ['Georgia', 'Gelasio'],
   ['Baskerville Old Face', 'Bacasime Antique'],
 ];
@@ -64,7 +67,7 @@ describe('substitution evidence -> resolver derivation', () => {
   });
 
   it('keeps an un-bundled substitute inert until its asset ships (the asset gate, not just the policy)', () => {
-    // The registry recommends substitutes SuperDoc has not shipped a clone for (e.g. Arial Narrow).
+    // The registry recommends substitutes SuperDoc has not shipped a clone for.
     // canRenderFamily must keep every such row OUT of the resolver: it resolves as_requested, not mapped.
     const bundled = new Set(BUNDLED_MANIFEST.map((f) => f.family));
     const unbundled = SUBSTITUTION_EVIDENCE.filter(

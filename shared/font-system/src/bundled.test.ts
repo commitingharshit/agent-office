@@ -33,6 +33,8 @@ describe('installBundledSubstitutes URL resolution', () => {
     expect(reg.registered).toHaveLength(FACE_COUNT);
     expect(reg.sourcesFor('Carlito')).toContain('url(/fonts/Carlito-Regular.woff2)');
     expect(reg.sourcesFor('Liberation Sans')).toContain('url(/fonts/LiberationSans-Bold.woff2)');
+    expect(reg.sourcesFor('Liberation Sans Narrow')).toContain('url(/fonts/LiberationSansNarrow-BoldItalic.woff2)');
+    expect(reg.sourcesFor('C059')).toContain('url(/fonts/C059-BdIta.woff2)');
     expect(reg.sourcesFor('Caprasimo')).toEqual(['url(/fonts/Caprasimo-Regular.woff2)']);
     expect(reg.sourcesFor('Bacasime Antique')).toEqual(['url(/fonts/BacasimeAntique-Regular.woff2)']);
     expect(reg.sourcesFor('Oregano Italic')).toEqual(['url(/fonts/OreganoItalic-Regular.woff2)']);

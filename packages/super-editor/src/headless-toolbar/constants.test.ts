@@ -5,9 +5,11 @@ describe('DEFAULT_FONT_FAMILY_OPTIONS (headless default font options, derived fr
   it('advertises bundled defaults and selected bundled fallback choices (logical name + logical stack)', () => {
     expect(DEFAULT_FONT_FAMILY_OPTIONS).toEqual([
       { label: 'Arial', value: 'Arial, sans-serif' },
+      { label: 'Arial Narrow', value: 'Arial Narrow, sans-serif' },
       { label: 'Baskerville Old Face', value: 'Baskerville Old Face, serif' },
       { label: 'Brush Script MT', value: 'Brush Script MT, serif' },
       { label: 'Calibri', value: 'Calibri, sans-serif' },
+      { label: 'Century', value: 'Century, serif' },
       { label: 'Comic Sans MS', value: 'Comic Sans MS, sans-serif' },
       { label: 'Cooper Black', value: 'Cooper Black, serif' },
       { label: 'Courier New', value: 'Courier New, monospace' },
@@ -26,6 +28,6 @@ describe('DEFAULT_FONT_FAMILY_OPTIONS (headless default font options, derived fr
     expect(labels.has('Aptos')).toBe(false);
     expect(labels.has('Cambria')).toBe(false);
     expect(labels.has('Calibri Light')).toBe(false);
-    expect(labels.has('Arial Narrow')).toBe(false);
+    expect(labels.has('Century Schoolbook')).toBe(false);
   });
 });

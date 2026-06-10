@@ -15,6 +15,9 @@ describe('font resolver', () => {
     expect(resolvePhysicalFamily('Times New Roman')).toBe('Liberation Serif');
     expect(resolvePhysicalFamily('Courier New')).toBe('Liberation Mono');
     expect(resolvePhysicalFamily('Helvetica')).toBe('Liberation Sans');
+    expect(resolvePhysicalFamily('Arial Narrow')).toBe('Liberation Sans Narrow');
+    expect(resolvePhysicalFamily('Century')).toBe('C059');
+    expect(resolvePhysicalFamily('Century Schoolbook')).toBe('C059');
     expect(resolvePhysicalFamily('Cooper Black')).toBe('Caprasimo');
     expect(resolvePhysicalFamily('Baskerville Old Face')).toBe('Bacasime Antique');
     expect(resolvePhysicalFamily('Brush Script MT')).toBe('Oregano Italic');
@@ -45,9 +48,8 @@ describe('font resolver', () => {
       physicalFamily: 'Verdana',
       reason: 'as_requested',
     });
-    // Aptos has no open clone; Arial Narrow has an evidence row, but no bundled asset yet.
+    // Aptos has no open clone, so it passes through unchanged.
     expect(resolvePhysicalFamily('Aptos')).toBe('Aptos');
-    expect(resolvePhysicalFamily('Arial Narrow')).toBe('Arial Narrow');
   });
 
   it('reports the substitution reason + preserves the logical family', () => {
@@ -64,6 +66,21 @@ describe('font resolver', () => {
     expect(resolveFontFamily('Baskerville Old Face')).toEqual({
       logicalFamily: 'Baskerville Old Face',
       physicalFamily: 'Bacasime Antique',
+      reason: 'bundled_substitute',
+    });
+    expect(resolveFontFamily('Arial Narrow')).toEqual({
+      logicalFamily: 'Arial Narrow',
+      physicalFamily: 'Liberation Sans Narrow',
+      reason: 'bundled_substitute',
+    });
+    expect(resolveFontFamily('Century')).toEqual({
+      logicalFamily: 'Century',
+      physicalFamily: 'C059',
+      reason: 'bundled_substitute',
+    });
+    expect(resolveFontFamily('Century Schoolbook')).toEqual({
+      logicalFamily: 'Century Schoolbook',
+      physicalFamily: 'C059',
       reason: 'bundled_substitute',
     });
     expect(resolveFontFamily('Tahoma')).toEqual({

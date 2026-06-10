@@ -23,9 +23,16 @@ Web-font delivery is distribution under the SIL Open Font License, so these term
 are written to the broadest redistribution case and cover lighter delivery
 models too. The authoritative per-family record and the full license texts ship
 alongside the fonts at `shared/font-system/assets/` (`LICENSES.md`, `OFL.txt`,
-`Apache-2.0.txt`). Distribute that notice set together with the font files.
+`Apache-2.0.txt`, `AGPL-3.0.txt`, `GPL-2.0.txt`). Distribute that notice set
+together with the font files.
 
-SPDX license expression for this bundled font set: `OFL-1.1 AND Apache-2.0`.
+SPDX license expression for this bundled font set: `OFL-1.1 AND Apache-2.0 AND (AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817) AND (GPL-2.0-only WITH Font-exception-2.0)`.
+
+C059 and Liberation Sans Narrow are copyleft fonts with document-embedding
+exceptions. The exceptions mean embedding the fonts into a rendered document does
+not impose AGPL/GPL terms on that document. Distributing the font binaries
+themselves carries the corresponding-source obligation, satisfied by the
+unmodified upstream release pointers recorded in `shared/font-system/assets/LICENSES.md`.
 
 ### Components
 
@@ -34,9 +41,11 @@ SPDX license expression for this bundled font set: `OFL-1.1 AND Apache-2.0`.
 | Carlito | Calibri | OFL-1.1 | "Carlito" | 1.103 |
 | Caladea | Cambria | Apache-2.0 | none | 1.002 |
 | Liberation Sans | Arial | OFL-1.1 | none declared | 2.1.5 |
+| Liberation Sans Narrow | Arial Narrow | GPL-2.0-only WITH Font-exception-2.0 | none | 1.07.4 |
 | Liberation Serif | Times New Roman | OFL-1.1 | none declared | 2.1.5 |
 | Liberation Mono | Courier New | OFL-1.1 | none declared | 2.1.5 |
 | Caprasimo | Cooper Black | OFL-1.1 | none | 1.001 |
+| C059 | Century, Century Schoolbook | AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817 | none | 1.00 |
 | Bacasime Antique | Baskerville Old Face | OFL-1.1 | "Playfair" | 2.000 |
 | Oregano Italic | Brush Script MT | OFL-1.1 | "Oregano Italic" | 1.000 |
 | Gelasio | Georgia | OFL-1.1 | none | 1.008 |
@@ -51,7 +60,9 @@ SPDX license expression for this bundled font set: `OFL-1.1 AND Apache-2.0`.
 - **Carlito** (OFL-1.1): `Copyright (c) 2010-2013 by tyPoland Lukasz Dziedzic with Reserved Font Name "Carlito". Licensed under the SIL Open Font License, Version 1.1.` Carlito is a trademark of tyPoland Lukasz Dziedzic.
 - **Caladea** (Apache-2.0): `Copyright (c) 2012 Huerta Tipografia`. Caladea is a trademark of Huerta Tipografia. No Reserved Font Name. No upstream `NOTICE` file.
 - **Liberation Sans / Serif / Mono** (OFL-1.1): `Digitized data copyright (c) 2010 Google Corporation.` / `Copyright (c) 2012 Red Hat, Inc.` Liberation is a trademark of Red Hat, Inc. registered in U.S. Patent and Trademark Office and certain other jurisdictions. The v2.1.5 files declare no OFL Reserved Font Name. SuperDoc names the unmodified fonts.
+- **Liberation Sans Narrow** (GPL-2.0-only WITH Font-exception-2.0): `Copyright 2010 Oracle and/or its affiliates`. Liberation is a trademark of Red Hat, Inc. registered in the U.S. and other countries.
 - **Caprasimo** (OFL-1.1): `Copyright 2023 The Caprasimo Project Authors (https://github.com/docrepair-fonts/caprasimo-fonts).` The v1.001 file declares no OFL Reserved Font Name.
+- **C059** (AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817): `(URW)++,Copyright 2014 by (URW)++ Design & Development`. These files declare no trademark string and no Reserved Font Name.
 - **Bacasime Antique** (OFL-1.1): `Copyright 2023 The Bacasime Antique Project Authors (https://github.com/docrepair-fonts/bacasime-antique-fonts), with Reserved Font Name "Playfair".` Playfair is a trademark of Claus Eggers Sørensen.
 - **Oregano Italic** (OFL-1.1): `Copyright (c) 2012 by Brian J. Bonislawsky DBA Astigmatic (AOETI) (astigma@astigmatic.com), with Reserved Font Name "Oregano Italic".` Oregano Italic is a trademark of Astigmatic.
 - **Gelasio** (OFL-1.1): `Copyright 2022 The Gelasio Project Authors (https://github.com/SorkinType/Gelasio).` The v1.008 files declare no OFL Reserved Font Name.
@@ -70,8 +81,8 @@ and Noto Sans Mono ship as static WOFF2 instances generated from upstream
 variable TrueType sources at the regular and bold weights; Noto Sans and Noto
 Sans Mono are also instanced at normal width.
 
-Verified for this ship set: 32 / 42 faces are static-source conversions with a
-WOFF2 `name` table byte-identical to their source TTF, and 10 / 42 faces are
+Verified for this ship set: 40 / 50 faces are static-source conversions with a
+WOFF2 `name` table byte-identical to their source TTF, and 10 / 50 faces are
 static variable-font instances with no subsetting. All metrics are preserved.
 Under OFL FAQ 2.2.1 the static-source conversions are not Modified Versions and
 retain the original font names. For Caladea, this also serves as the Apache-2.0
@@ -81,9 +92,12 @@ section 4(b) notice.
 
 - OFL-1.1: `shared/font-system/assets/OFL.txt`, with per-font copyright notices stacked at top.
 - Apache-2.0: `shared/font-system/assets/Apache-2.0.txt`.
+- AGPL-3.0-only WITH PS-or-PDF-font-exception-20170817: `shared/font-system/assets/AGPL-3.0.txt`.
+- GPL-2.0-only WITH Font-exception-2.0: `shared/font-system/assets/GPL-2.0.txt`.
 
-The fonts remain under their own OFL-1.1 / Apache-2.0 terms and are not
-relicensed under SuperDoc's terms (AGPLv3 community build or commercial).
+The fonts remain under their own OFL-1.1 / Apache-2.0 / AGPL-3.0 / GPL-2.0
+terms and are not relicensed under SuperDoc's terms (AGPLv3 community build or
+commercial).
 
 ---
 
