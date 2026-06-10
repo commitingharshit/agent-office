@@ -966,7 +966,7 @@ export type ImageBlock = {
   sourceAnchor?: SourceAnchor;
 };
 
-export type DrawingKind = 'image' | 'vectorShape' | 'shapeGroup' | 'chart';
+export type DrawingKind = 'image' | 'vectorShape' | 'textboxShape' | 'shapeGroup' | 'chart';
 
 export type DrawingContentSnapshot = {
   name: string;
@@ -1210,6 +1210,30 @@ export type VectorShapeDrawing = DrawingBlockBase & {
   };
 };
 
+export type TextboxDrawing = DrawingBlockBase & {
+  drawingKind: 'textboxShape';
+  geometry: DrawingGeometry;
+  shapeKind?: string;
+  customGeometry?: CustomGeometryData;
+  fillColor?: FillColor;
+  strokeColor?: StrokeColor;
+  strokeWidth?: number;
+  lineEnds?: LineEnds;
+  effectExtent?: EffectExtent;
+  textContent?: ShapeTextContent;
+  textAlign?: string;
+  textVerticalAlign?: 'top' | 'center' | 'bottom';
+  textInsets?: {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+  };
+  contentBlocks: ParagraphBlock[];
+  /** Paragraph layout results for table-cell textboxes; populated by the layout bridge, read by the painter. */
+  contentMeasures?: ParagraphMeasure[];
+};
+
 export type ShapeGroupDrawing = DrawingBlockBase & {
   drawingKind: 'shapeGroup';
   geometry: DrawingGeometry;
@@ -1282,7 +1306,7 @@ export type ChartDrawing = DrawingBlockBase & {
   chartPartPath?: string;
 };
 
-export type DrawingBlock = VectorShapeDrawing | ShapeGroupDrawing | ImageDrawing | ChartDrawing;
+export type DrawingBlock = VectorShapeDrawing | TextboxDrawing | ShapeGroupDrawing | ImageDrawing | ChartDrawing;
 
 /**
  * Vertical alignment of content within a section/page.
@@ -2348,6 +2372,7 @@ export type DrawingFragment = {
   geometry: DrawingGeometry;
   scale: number;
   drawingContentId?: string;
+  contentMeasures?: ParagraphMeasure[];
   pmStart?: number;
   pmEnd?: number;
   sourceAnchor?: SourceAnchor;
