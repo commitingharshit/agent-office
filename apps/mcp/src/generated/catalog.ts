@@ -5260,6 +5260,14 @@ export const MCP_TOOL_CATALOG = {
             "type": "number",
             "description": "Only for action 'set_layout'. Omit for other actions."
           },
+          "preferredWidthType": {
+            "enum": [
+              "dxa",
+              "auto",
+              "pct"
+            ],
+            "description": "Only for actions 'set_layout', 'set_cell'. Omit for other actions."
+          },
           "alignment": {
             "enum": [
               "left",
