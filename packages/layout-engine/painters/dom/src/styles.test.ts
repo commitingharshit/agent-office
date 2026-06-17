@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { ensureSdtContainerStyles, ensureTrackChangeStyles, lineStyles } from './styles.js';
+import {
+  ensureDocumentSurfaceStyles,
+  ensureLinkStyles,
+  ensureSdtContainerStyles,
+  ensureTrackChangeStyles,
+  lineStyles,
+  pageStyles,
+} from './styles.js';
+
+describe('pageStyles', () => {
+  it('establishes a document foreground on the page root', () => {
+    const styles = pageStyles(612, 792);
+    expect(styles.color).toBe('var(--sd-layout-page-color, #000000)');
+  });
+
+  it('allows callers to override the document foreground token', () => {
+    const styles = pageStyles(612, 792, { color: '#123456' });
+    expect(styles.color).toBe('#123456');
+  });
+});
 
 describe('lineStyles', () => {
   it('sets height and lineHeight from the argument', () => {
@@ -11,6 +30,34 @@ describe('lineStyles', () => {
   it('sets fontSize to 0 to eliminate the CSS strut', () => {
     const styles = lineStyles(20);
     expect(styles.fontSize).toBe('0');
+  });
+});
+
+describe('ensureDocumentSurfaceStyles', () => {
+  it('injects scoped foreground isolation without using important overrides', () => {
+    ensureDocumentSurfaceStyles(document);
+
+    const styleEl = document.querySelector('[data-superdoc-document-surface-styles="true"]');
+    const cssText = styleEl?.textContent ?? '';
+
+    expect(cssText).toContain('color: var(--sd-layout-page-color, #000000);');
+    expect(cssText).toContain('.superdoc-layout .superdoc-page .superdoc-text-run');
+    expect(cssText).toContain(':not([data-bookmark-marker])');
+    expect(cssText).not.toContain('!important');
+  });
+});
+
+describe('style injection', () => {
+  it('deduplicates by document instead of module-global state', () => {
+    const firstDoc = document.implementation.createHTMLDocument('first');
+    const secondDoc = document.implementation.createHTMLDocument('second');
+
+    ensureLinkStyles(firstDoc);
+    ensureLinkStyles(firstDoc);
+    ensureLinkStyles(secondDoc);
+
+    expect(firstDoc.head.querySelectorAll('[data-superdoc-link-styles="true"]')).toHaveLength(1);
+    expect(secondDoc.head.querySelectorAll('[data-superdoc-link-styles="true"]')).toHaveLength(1);
   });
 });
 

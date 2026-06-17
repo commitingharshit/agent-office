@@ -64,6 +64,7 @@ import {
   CLASS_NAMES,
   containerStyles,
   containerStylesHorizontal,
+  ensureDocumentSurfaceStyles,
   ensureFieldAnnotationStyles,
   ensureFormattingMarksStyles,
   ensureImageSelectionStyles,
@@ -1294,6 +1295,7 @@ export class DomPainter {
     }
 
     ensurePrintStyles(doc);
+    ensureDocumentSurfaceStyles(doc);
     ensureLinkStyles(doc);
     ensureTrackChangeStyles(doc);
     ensureFormattingMarksStyles(doc);
@@ -1505,6 +1507,28 @@ export class DomPainter {
       };
       win.addEventListener('resize', this.onResizeHandler);
     }
+  }
+
+  private releaseVirtualizationHandlers(): void {
+    if (this.mount && this.onScrollHandler) {
+      try {
+        this.mount.removeEventListener('scroll', this.onScrollHandler);
+      } catch {}
+    }
+    const win = this.doc?.defaultView;
+    if (win && this.onWindowScrollHandler) {
+      try {
+        win.removeEventListener('scroll', this.onWindowScrollHandler);
+      } catch {}
+    }
+    if (win && this.onResizeHandler) {
+      try {
+        win.removeEventListener('resize', this.onResizeHandler);
+      } catch {}
+    }
+    this.onScrollHandler = null;
+    this.onWindowScrollHandler = null;
+    this.onResizeHandler = null;
   }
 
   private computeVirtualMetrics(): void {
@@ -2107,6 +2131,22 @@ export class DomPainter {
     const container = (existing as HTMLElement) ?? this.doc.createElement('div');
     container.className = className;
     container.innerHTML = '';
+    // Stamp a stable header/footer STORY REF ID
+    // (and resolved variant) on the decoration container so host-visible DOM
+    // readback can associate the painted region with its header/footer story.
+    // The payload already carries `headerFooterRefId` — no upstream import is
+    // introduced and the painter boundary is preserved.
+    if (typeof data.headerFooterRefId === 'string' && data.headerFooterRefId.length > 0) {
+      container.setAttribute('data-sd-headerfooter-ref-id', data.headerFooterRefId);
+    } else {
+      container.removeAttribute('data-sd-headerfooter-ref-id');
+    }
+    if (typeof data.sectionType === 'string' && data.sectionType.length > 0) {
+      container.setAttribute('data-sd-headerfooter-variant', data.sectionType);
+    } else {
+      container.removeAttribute('data-sd-headerfooter-variant');
+    }
+    container.setAttribute('data-sd-headerfooter-kind', kind);
     const baseOffset = data.offset;
     const marginLeft = data.marginLeft ?? 0;
     const pageMargins = page.margins;
@@ -2291,21 +2331,7 @@ export class DomPainter {
 
   private resetState(): void {
     if (this.mount) {
-      if (this.onScrollHandler) {
-        try {
-          this.mount.removeEventListener('scroll', this.onScrollHandler);
-        } catch {}
-      }
-      if (this.onWindowScrollHandler && this.doc?.defaultView) {
-        try {
-          this.doc.defaultView.removeEventListener('scroll', this.onWindowScrollHandler);
-        } catch {}
-      }
-      if (this.onResizeHandler && this.doc?.defaultView) {
-        try {
-          this.doc.defaultView.removeEventListener('resize', this.onResizeHandler);
-        } catch {}
-      }
+      this.releaseVirtualizationHandlers();
       this.mount.innerHTML = '';
     }
     this.pageStates = [];
@@ -2314,15 +2340,48 @@ export class DomPainter {
     this.topSpacerEl = null;
     this.bottomSpacerEl = null;
     this.virtualPagesEl = null;
-    this.onScrollHandler = null;
-    this.onWindowScrollHandler = null;
-    this.onResizeHandler = null;
     this.scrollContainerMountOffset = null;
     this.layoutVersion = 0;
     this.processedLayoutVersion = -1;
     this.paintSnapshotBuilder = null;
     this.lastPaintSnapshot = null;
     this.mountedPageIndices = [];
+  }
+
+  public dispose(): void {
+    this.releaseVirtualizationHandlers();
+    if (this.mount) {
+      this.mount.innerHTML = '';
+    }
+    this.pageStates = [];
+    this.currentLayout = null;
+    this.changedBlocks.clear();
+    this.sectionPageCounts.clear();
+    this.sdtLabelsRendered.clear();
+    this.clearGapSpacers();
+    this.topSpacerEl = null;
+    this.bottomSpacerEl = null;
+    this.virtualPagesEl = null;
+    this.virtualPinnedPages = [];
+    this.virtualMountedKey = '';
+    this.pageIndexToState.clear();
+    this.virtualHeights = [];
+    this.virtualOffsets = [];
+    this.virtualStart = 0;
+    this.virtualEnd = -1;
+    this.scrollContainer = null;
+    this.scrollContainerMountOffset = null;
+    this.layoutVersion = 0;
+    this.layoutEpoch = 0;
+    this.processedLayoutVersion = -1;
+    this.currentMapping = null;
+    this.paintSnapshotBuilder = null;
+    this.lastPaintSnapshot = null;
+    this.mountedPageIndices = [];
+    this.resolvedLayout = null;
+    this.totalPages = 0;
+    this.mount = null;
+    this.doc = null;
   }
 
   private getSectionPageCount(page: ResolvedPage): number {
@@ -4121,7 +4180,11 @@ export class DomPainter {
     el: HTMLElement,
     fragment: Fragment,
     section?: 'body' | 'header' | 'footer',
-    resolvedItem?: ResolvedFragmentItem | ResolvedTableItem | ResolvedImageItem | ResolvedDrawingItem,
+    resolvedItem?:
+      | ResolvedFragmentItem
+      | ResolvedTableItem
+      | ResolvedImageItem
+      | ResolvedDrawingItem,
   ): void {
     // Footnote content is read-only: prevent cursor placement and typing
     if (typeof fragment.blockId === 'string' && fragment.blockId.startsWith('footnote-')) {
@@ -4260,7 +4323,11 @@ export class DomPainter {
       return resolvedItem.height;
     }
     // Atomic fragment kinds carry their own height on the fragment.
-    if (fragment.kind === 'table' || fragment.kind === 'image' || fragment.kind === 'drawing') {
+    if (
+      fragment.kind === 'table' ||
+      fragment.kind === 'image' ||
+      fragment.kind === 'drawing'
+    ) {
       return fragment.height;
     }
     return 0;

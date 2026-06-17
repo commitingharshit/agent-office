@@ -15,6 +15,7 @@ export const CLASS_NAMES = {
   spread: 'superdoc-spread',
   pageHeader: 'superdoc-page-header',
   pageFooter: 'superdoc-page-footer',
+  textRun: 'superdoc-text-run',
 };
 
 export type PageStyles = {
@@ -22,6 +23,7 @@ export type PageStyles = {
   boxShadow?: string;
   border?: string;
   margin?: string;
+  color?: string;
 };
 
 export const DEFAULT_PAGE_STYLES: Required<PageStyles> = {
@@ -29,6 +31,7 @@ export const DEFAULT_PAGE_STYLES: Required<PageStyles> = {
   boxShadow: 'var(--sd-layout-page-shadow, 0 4px 20px rgba(15, 23, 42, 0.08))',
   border: '1px solid rgba(15, 23, 42, 0.08)',
   margin: '0 auto',
+  color: 'var(--sd-layout-page-color, #000000)',
 };
 
 export const containerStyles: Partial<CSSStyleDeclaration> = {
@@ -78,6 +81,7 @@ export const pageStyles = (width: number, height: number, overrides?: PageStyles
     boxShadow: merged.boxShadow,
     border: merged.border,
     margin: merged.margin,
+    color: merged.color,
     overflow: 'hidden',
   };
 };
@@ -87,6 +91,7 @@ export const fragmentStyles: Partial<CSSStyleDeclaration> = {
   whiteSpace: 'pre',
   overflow: 'visible',
   boxSizing: 'border-box',
+  color: 'inherit',
 };
 
 /**
@@ -106,6 +111,7 @@ export const lineStyles = (lineHeight: number): Partial<CSSStyleDeclaration> => 
   // elements that don't (empty-run, math wrapper, field annotation wrapper)
   // are patched individually in renderer.ts.
   fontSize: '0',
+  color: 'inherit',
   position: 'relative',
   display: 'block',
   whiteSpace: 'pre',
@@ -129,6 +135,34 @@ const PRINT_STYLES = `
     box-shadow: none;
     page-break-after: always;
   }
+}
+`;
+
+const DOCUMENT_SURFACE_STYLES = `
+/* Document paint isolation.
+ *
+ * The rendered page is document content, not host chrome. Establish a page
+ * foreground and force painter-owned wrappers/text runs to inherit from that
+ * page so common host CSS such as :root/body/span/body * color rules cannot
+ * recolor unresolved/auto document text. This deliberately avoids priority flags:
+ * real run colors applied as inline styles and painter feature states still win.
+ */
+.${CLASS_NAMES.container} {
+  color: var(--sd-layout-page-color, #000000);
+}
+
+.${CLASS_NAMES.container} .${CLASS_NAMES.page},
+.${CLASS_NAMES.container} .${CLASS_NAMES.pageHeader},
+.${CLASS_NAMES.container} .${CLASS_NAMES.pageFooter},
+.${CLASS_NAMES.container} .${CLASS_NAMES.fragment},
+.${CLASS_NAMES.container} .${CLASS_NAMES.line},
+.${CLASS_NAMES.container} .superdoc-list-content,
+.${CLASS_NAMES.container} .${DOM_CLASS_NAMES.LIST_MARKER} {
+  color: inherit;
+}
+
+.${CLASS_NAMES.container} .${CLASS_NAMES.page} .${CLASS_NAMES.textRun}:not([data-bookmark-marker]) {
+  color: inherit;
 }
 `;
 
@@ -203,8 +237,8 @@ const LINK_AND_TOC_STYLES = `
  * visual treatment: subtle gray, non-selectable so users can't accidentally
  * include the brackets in copied text. The bookmark name is surfaced via
  * the native title tooltip on the opening bracket. */
-[data-bookmark-marker="start"],
-[data-bookmark-marker="end"] {
+.${CLASS_NAMES.container} [data-bookmark-marker="start"],
+.${CLASS_NAMES.container} [data-bookmark-marker="end"] {
   color: #8b8b8b;
   user-select: none;
   cursor: default;
@@ -1154,67 +1188,41 @@ menclose::after {
 }
 `;
 
-let printStylesInjected = false;
-let linkStylesInjected = false;
-let trackChangeStylesInjected = false;
-let formattingMarksStylesInjected = false;
-let sdtContainerStylesInjected = false;
-let fieldAnnotationStylesInjected = false;
-let imageSelectionStylesInjected = false;
-let mathMencloseStylesInjected = false;
+const ensureStyleElement = (doc: Document | null | undefined, markerAttribute: string, cssText: string) => {
+  if (!doc?.head) return;
+  if (doc.head.querySelector(`[${markerAttribute}="true"]`)) return;
+  const styleEl = doc.createElement('style');
+  styleEl.setAttribute(markerAttribute, 'true');
+  styleEl.textContent = cssText;
+  doc.head.appendChild(styleEl);
+};
 
 export const ensurePrintStyles = (doc: Document | null | undefined) => {
-  if (printStylesInjected || !doc) return;
-  const styleEl = doc.createElement('style');
-  styleEl.setAttribute('data-superdoc-print-styles', 'true');
-  styleEl.textContent = PRINT_STYLES;
-  doc.head?.appendChild(styleEl);
-  printStylesInjected = true;
+  ensureStyleElement(doc, 'data-superdoc-print-styles', PRINT_STYLES);
+};
+
+export const ensureDocumentSurfaceStyles = (doc: Document | null | undefined) => {
+  ensureStyleElement(doc, 'data-superdoc-document-surface-styles', DOCUMENT_SURFACE_STYLES);
 };
 
 export const ensureLinkStyles = (doc: Document | null | undefined) => {
-  if (linkStylesInjected || !doc) return;
-  const styleEl = doc.createElement('style');
-  styleEl.setAttribute('data-superdoc-link-styles', 'true');
-  styleEl.textContent = LINK_AND_TOC_STYLES;
-  doc.head?.appendChild(styleEl);
-  linkStylesInjected = true;
+  ensureStyleElement(doc, 'data-superdoc-link-styles', LINK_AND_TOC_STYLES);
 };
 
 export const ensureTrackChangeStyles = (doc: Document | null | undefined) => {
-  if (trackChangeStylesInjected || !doc) return;
-  const styleEl = doc.createElement('style');
-  styleEl.setAttribute('data-superdoc-track-change-styles', 'true');
-  styleEl.textContent = TRACK_CHANGE_STYLES;
-  doc.head?.appendChild(styleEl);
-  trackChangeStylesInjected = true;
+  ensureStyleElement(doc, 'data-superdoc-track-change-styles', TRACK_CHANGE_STYLES);
 };
 
 export const ensureFormattingMarksStyles = (doc: Document | null | undefined) => {
-  if (formattingMarksStylesInjected || !doc) return;
-  const styleEl = doc.createElement('style');
-  styleEl.setAttribute('data-superdoc-formatting-marks-styles', 'true');
-  styleEl.textContent = FORMATTING_MARKS_STYLES;
-  doc.head?.appendChild(styleEl);
-  formattingMarksStylesInjected = true;
+  ensureStyleElement(doc, 'data-superdoc-formatting-marks-styles', FORMATTING_MARKS_STYLES);
 };
 
 export const ensureSdtContainerStyles = (doc: Document | null | undefined) => {
-  if (sdtContainerStylesInjected || !doc) return;
-  const styleEl = doc.createElement('style');
-  styleEl.setAttribute('data-superdoc-sdt-container-styles', 'true');
-  styleEl.textContent = SDT_CONTAINER_STYLES;
-  doc.head?.appendChild(styleEl);
-  sdtContainerStylesInjected = true;
+  ensureStyleElement(doc, 'data-superdoc-sdt-container-styles', SDT_CONTAINER_STYLES);
 };
 
 export const ensureFieldAnnotationStyles = (doc: Document | null | undefined) => {
-  if (fieldAnnotationStylesInjected || !doc) return;
-  const styleEl = doc.createElement('style');
-  styleEl.setAttribute('data-superdoc-field-annotation-styles', 'true');
-  styleEl.textContent = FIELD_ANNOTATION_STYLES;
-  doc.head?.appendChild(styleEl);
-  fieldAnnotationStylesInjected = true;
+  ensureStyleElement(doc, 'data-superdoc-field-annotation-styles', FIELD_ANNOTATION_STYLES);
 };
 
 /**
@@ -1224,12 +1232,7 @@ export const ensureFieldAnnotationStyles = (doc: Document | null | undefined) =>
  * @returns {void}
  */
 export const ensureImageSelectionStyles = (doc: Document | null | undefined) => {
-  if (imageSelectionStylesInjected || !doc) return;
-  const styleEl = doc.createElement('style');
-  styleEl.setAttribute('data-superdoc-image-selection-styles', 'true');
-  styleEl.textContent = IMAGE_SELECTION_STYLES;
-  doc.head?.appendChild(styleEl);
-  imageSelectionStylesInjected = true;
+  ensureStyleElement(doc, 'data-superdoc-image-selection-styles', IMAGE_SELECTION_STYLES);
 };
 
 /**
@@ -1238,10 +1241,5 @@ export const ensureImageSelectionStyles = (doc: Document | null | undefined) => 
  * MATH_MENCLOSE_STYLES for the full rationale.
  */
 export const ensureMathMencloseStyles = (doc: Document | null | undefined) => {
-  if (mathMencloseStylesInjected || !doc) return;
-  const styleEl = doc.createElement('style');
-  styleEl.setAttribute('data-superdoc-math-menclose-styles', 'true');
-  styleEl.textContent = MATH_MENCLOSE_STYLES;
-  doc.head?.appendChild(styleEl);
-  mathMencloseStylesInjected = true;
+  ensureStyleElement(doc, 'data-superdoc-math-menclose-styles', MATH_MENCLOSE_STYLES);
 };

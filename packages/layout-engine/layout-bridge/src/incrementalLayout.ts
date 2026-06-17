@@ -98,7 +98,35 @@ const perfLog = (...args: unknown[]): void => {
   console.log(...args);
 };
 
-type FootnoteReference = { id: string; pos: number };
+type FootnoteReference = {
+  id: string;
+  /**
+   * Legacy v1 PM-position anchor. Resolved via fragment `pmStart` / `pmEnd`
+   * range matching. Required for v1 producers; v2 producers may set this
+   * to a synthetic value (e.g. block ordinal) and supply a `blockId`
+   * anchor for resolution.
+   */
+  pos: number;
+  /**
+   * v2 source anchor identifying the rendered body
+   * reference marker. When set, `assignFootnotesToColumns` resolves
+   * the reference's page/column by matching against
+   * `layout.pages[].fragments[].blockId` instead of falling back to
+   * positional fragment lookup. Editor-neutral by design.
+   */
+  blockId?: string;
+  /**
+   * Optional paragraph-run anchor used by v2 refs.
+   *
+   * A long paragraph can span multiple page fragments. When `blockId` alone
+   * is used, the bridge can only resolve the FIRST fragment carrying that
+   * block, which places later-line footnotes too early and cascades reserve
+   * drift across the document. When `runOrdinal` is present and a paragraph
+   * measure is available, the bridge resolves the fragment whose line range
+   * actually contains the referenced run.
+   */
+  runOrdinal?: number | null;
+};
 type FootnotesLayoutInput = {
   refs: FootnoteReference[];
   blocksById: Map<string, FlowBlock[]>;
@@ -114,6 +142,51 @@ const isFootnotesLayoutInput = (value: unknown): value is FootnotesLayoutInput =
   if (!Array.isArray(v.refs)) return false;
   if (!(v.blocksById instanceof Map)) return false;
   return true;
+};
+
+const findPageIndexForBlockId = (layout: Layout, blockId: string): number | null => {
+  for (let pageIndex = 0; pageIndex < layout.pages.length; pageIndex += 1) {
+    const page = layout.pages[pageIndex];
+    if (!page) continue;
+    for (const fragment of page.fragments) {
+      const fragmentBlockId = (fragment as { blockId?: string }).blockId;
+      if (fragmentBlockId === blockId) return pageIndex;
+    }
+  }
+  return null;
+};
+
+const findFragmentForBlockId = (
+  page: Layout['pages'][number],
+  blockId: string,
+): Layout['pages'][number]['fragments'][number] | null => {
+  for (const fragment of page.fragments) {
+    const fragmentBlockId = (fragment as { blockId?: string }).blockId;
+    if (fragmentBlockId === blockId) return fragment;
+  }
+  return null;
+};
+
+const findLineIndexForRunOrdinal = (measure: ParagraphMeasure | undefined, runOrdinal: number): number | null => {
+  if (!measure || !Array.isArray(measure.lines)) return null;
+  for (let lineIndex = 0; lineIndex < measure.lines.length; lineIndex += 1) {
+    const line = measure.lines[lineIndex];
+    if (runOrdinal >= line.fromRun && runOrdinal <= line.toRun) return lineIndex;
+  }
+  return null;
+};
+
+const findFragmentForBlockRunOrdinal = (
+  page: Layout['pages'][number],
+  blockId: string,
+  lineIndex: number,
+): Layout['pages'][number]['fragments'][number] | null => {
+  for (const fragment of page.fragments) {
+    if (fragment.kind !== 'para' && fragment.kind !== 'list-item') continue;
+    if (fragment.blockId !== blockId) continue;
+    if (lineIndex >= fragment.fromLine && lineIndex < fragment.toLine) return fragment;
+  }
+  return null;
 };
 
 const findPageIndexForPos = (layout: Layout, pos: number): number | null => {
@@ -238,19 +311,50 @@ const assignFootnotesToColumns = (
   layout: Layout,
   refs: FootnoteReference[],
   pageColumns: Map<number, PageColumns>,
+  paragraphMeasuresByBlockId: Map<string, ParagraphMeasure>,
 ): Map<number, Map<number, string[]>> => {
   const result = new Map<number, Map<number, string[]>>();
   const seenByColumn = new Map<string, Set<string>>();
 
   for (const ref of refs) {
-    const pageIndex = findPageIndexForPos(layout, ref.pos);
+    let pageIndex: number | null = null;
+    let fragment: Layout['pages'][number]['fragments'][number] | null = null;
+    // Prefer blockId-anchored resolution when v2 supplied it;
+    // fall back to legacy pos-based resolution for v1 producers.
+    if (ref.blockId) {
+      if (typeof ref.runOrdinal === 'number' && Number.isFinite(ref.runOrdinal) && ref.runOrdinal >= 0) {
+        const paragraphMeasure = paragraphMeasuresByBlockId.get(ref.blockId);
+        const lineIndex = findLineIndexForRunOrdinal(paragraphMeasure, ref.runOrdinal);
+        if (lineIndex != null) {
+          for (let candidatePageIndex = 0; candidatePageIndex < layout.pages.length; candidatePageIndex += 1) {
+            const candidatePage = layout.pages[candidatePageIndex];
+            const candidateFragment = findFragmentForBlockRunOrdinal(candidatePage, ref.blockId, lineIndex);
+            if (!candidateFragment) continue;
+            pageIndex = candidatePageIndex;
+            fragment = candidateFragment;
+            break;
+          }
+        }
+      }
+      if (pageIndex == null) {
+        pageIndex = findPageIndexForBlockId(layout, ref.blockId);
+        if (pageIndex != null) {
+          fragment = findFragmentForBlockId(layout.pages[pageIndex], ref.blockId);
+        }
+      }
+    }
+    if (pageIndex == null) {
+      pageIndex = findPageIndexForPos(layout, ref.pos);
+      if (pageIndex != null) {
+        fragment = findFragmentForPos(layout.pages[pageIndex], ref.pos);
+      }
+    }
     if (pageIndex == null) continue;
     const columns = pageColumns.get(pageIndex);
     const page = layout.pages[pageIndex];
     let columnIndex = 0;
 
     if (columns && columns.count > 1 && page) {
-      const fragment = findFragmentForPos(page, ref.pos);
       if (fragment?.kind === 'table' && typeof fragment.columnIndex === 'number') {
         columnIndex = Math.max(0, Math.min(columns.count - 1, fragment.columnIndex));
       } else if (fragment && typeof fragment.x === 'number') {
@@ -2241,7 +2345,20 @@ export async function incrementalLayout(
 
       const resolveFootnoteAssignments = (layoutForPages: Layout) => {
         const columns = resolvePageColumns(layoutForPages, options, currentBlocks);
-        const idsByColumn = assignFootnotesToColumns(layoutForPages, footnotesInput.refs, columns);
+        const paragraphMeasuresByBlockId = new Map<string, ParagraphMeasure>();
+        const pairedLength = Math.min(currentBlocks.length, currentMeasures.length);
+        for (let index = 0; index < pairedLength; index += 1) {
+          const block = currentBlocks[index];
+          const measure = currentMeasures[index];
+          if (block?.kind !== 'paragraph' || measure?.kind !== 'paragraph') continue;
+          paragraphMeasuresByBlockId.set(block.id, measure);
+        }
+        const idsByColumn = assignFootnotesToColumns(
+          layoutForPages,
+          footnotesInput.refs,
+          columns,
+          paragraphMeasuresByBlockId,
+        );
         return { columns, idsByColumn };
       };
 
@@ -2303,6 +2420,37 @@ export async function incrementalLayout(
         firstLineHeightById = firstLineMap;
       };
 
+      const summarizeReserveTail = (values: number[]): string[] =>
+        values
+          .flatMap((value, index) => {
+            const normalized = Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+            return normalized > 0 ? [`${index + 1}:${normalized}`] : [];
+          })
+          .slice(-8);
+
+      const logFootnoteLayoutPhase = (
+        label: string,
+        layoutForPages: Layout,
+        appliedReserves: number[],
+        plannedReserves?: number[],
+        extra?: Record<string, unknown>,
+      ): void => {
+        if (!layoutDebugEnabled) return;
+        console.log('[incrementalLayout] Footnote layout phase', {
+          label,
+          pageCount: layoutForPages.pages.length,
+          appliedReservePages: appliedReserves.filter((value) => (value ?? 0) > 0).length,
+          appliedReserveTail: summarizeReserveTail(appliedReserves),
+          ...(plannedReserves
+            ? {
+                plannedReservePages: plannedReserves.filter((value) => (value ?? 0) > 0).length,
+                plannedReserveTail: summarizeReserveTail(plannedReserves),
+              }
+            : {}),
+          ...(extra ?? {}),
+        });
+      };
+
       // SD-2656: thread the planner's data-driven band overhead values
       // (topPadding, dividerHeight, gap, separatorSpacingBefore) through
       // `footnotes` so the layout-engine's body slicer computes the SAME
@@ -2345,6 +2493,9 @@ export async function incrementalLayout(
       refreshBodyHeights(measuresById);
       let plan = computeFootnoteLayoutPlan(layout, idsByColumn, measuresById, [], pageColumns);
       let reserves = plan.reserves;
+      logFootnoteLayoutPhase('initial-plan', layout, reserves, plan.reserves, {
+        assignedFootnoteCount: collectFootnoteIdsByColumn(idsByColumn).size,
+      });
 
       // Relayout with footnote reserves and iterate until reserves and page count stabilize,
       // so each page gets the correct reserve (avoids "too much" on one page and "not enough" on another).
@@ -2361,6 +2512,9 @@ export async function incrementalLayout(
           refreshBodyHeights(measuresById);
           plan = computeFootnoteLayoutPlan(layout, idsByColumn, measuresById, reserves, pageColumns);
           const nextReserves = plan.reserves;
+          logFootnoteLayoutPhase(`reserve-loop-pass-${pass + 1}`, layout, reserves, nextReserves, {
+            assignedFootnoteCount: collectFootnoteIdsByColumn(idsByColumn).size,
+          });
           const reservesStable =
             nextReserves.length === reserves.length &&
             nextReserves.every((h, i) => (reserves[i] ?? 0) === h) &&
@@ -2403,6 +2557,9 @@ export async function incrementalLayout(
           finalPageColumns,
         );
         let reservesAppliedToLayout = reserves;
+        logFootnoteLayoutPhase('post-reserve-loop', layout, reservesAppliedToLayout, finalPlan.reserves, {
+          assignedFootnoteCount: collectFootnoteIdsByColumn(finalIdsByColumn).size,
+        });
 
         const vectorsEqual = (a: number[], b: number[]): boolean => {
           for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
@@ -2410,7 +2567,7 @@ export async function incrementalLayout(
           }
           return true;
         };
-        const applyReserves = async (target: number[]) => {
+        const applyReserves = async (target: number[], label = 'apply-reserves') => {
           // Planner sized the band with the measured separator spacing; the
           // body slicer must match or it packs too much and the band overflows.
           layout = relayout(target, finalPlan.separatorSpacingBefore);
@@ -2425,6 +2582,9 @@ export async function incrementalLayout(
             reservesAppliedToLayout,
             finalPageColumns,
           );
+          logFootnoteLayoutPhase(label, layout, reservesAppliedToLayout, finalPlan.reserves, {
+            assignedFootnoteCount: collectFootnoteIdsByColumn(finalIdsByColumn).size,
+          });
         };
         const buildFootnoteLedgers = (plan: FootnoteLayoutPlan, appliedReserves: number[], pageCount: number) => {
           const ledgers: FootnotePageLedger[] = [];
@@ -2497,7 +2657,7 @@ export async function incrementalLayout(
               next = target.map((v, i) => Math.max(v, last[i] ?? 0));
               if (vectorsEqual(next, reservesAppliedToLayout)) return true;
             }
-            await applyReserves(next);
+            await applyReserves(next, `grow-pass-${pass + 1}`);
             seen.push(next);
           }
           return false;
@@ -2549,7 +2709,10 @@ export async function incrementalLayout(
                 cappedPreferredReserve,
               );
 
-              await applyReserves(trialReserves);
+              await applyReserves(
+                trialReserves,
+                `preferred-trial-page-${candidate.pageIndex + 1}-target-${Math.round(cappedPreferredReserve)}`,
+              );
               const trialConverged = await growReserves(GROW_MAX_PASSES);
               const afterLedgers = buildFootnoteLedgers(finalPlan, reservesAppliedToLayout, layout.pages.length);
               const score = scoreFootnoteWindow({
@@ -2584,7 +2747,7 @@ export async function incrementalLayout(
                 });
               }
 
-              await applyReserves(beforeReserves);
+              await applyReserves(beforeReserves, `preferred-revert-page-${candidate.pageIndex + 1}`);
             }
 
             if (acceptedCandidate) {
@@ -2664,9 +2827,9 @@ export async function incrementalLayout(
             const safePageCount = layout.pages.length;
             const tightened = reservesAppliedToLayout.slice();
             for (const { i, target } of pagesToTighten) tightened[i] = target;
-            await applyReserves(tightened);
+            await applyReserves(tightened, `tighten-pass-${iteration + 1}`);
             if (!(await growReserves(GROW_MAX_PASSES)) || layout.pages.length > safePageCount) {
-              await applyReserves(safeApplied);
+              await applyReserves(safeApplied, `tighten-revert-${iteration + 1}`);
               break;
             }
           }
@@ -2697,9 +2860,10 @@ export async function incrementalLayout(
           }
           if (bumped === 0) return;
           const safeApplied = reservesAppliedToLayout.slice();
-          await applyReserves(target);
-          if (!(await growReserves(GROW_MAX_PASSES))) {
-            await applyReserves(safeApplied);
+          const safePageCount = layout.pages.length;
+          await applyReserves(target, 'widow-orphan-absorb');
+          if (!(await growReserves(GROW_MAX_PASSES)) || layout.pages.length > safePageCount) {
+            await applyReserves(safeApplied, 'widow-orphan-revert');
           }
         };
         await runWidowOrphanAbsorb();

@@ -2805,6 +2805,9 @@ importers:
       '@superdoc/font-utils':
         specifier: workspace:*
         version: link:../../../shared/font-utils
+      xml-js:
+        specifier: 'catalog:'
+        version: 1.6.11
     devDependencies:
       typescript:
         specifier: 'catalog:'
@@ -3211,6 +3214,27 @@ importers:
       '@superdoc/contracts':
         specifier: workspace:*
         version: link:../layout-engine/contracts
+      '@superdoc/document-api':
+        specifier: workspace:*
+        version: link:../document-api
+      '@superdoc/layout-bridge':
+        specifier: workspace:*
+        version: link:../layout-engine/layout-bridge
+      '@superdoc/layout-engine':
+        specifier: workspace:*
+        version: link:../layout-engine/layout-engine
+      '@superdoc/layout-resolved':
+        specifier: workspace:*
+        version: link:../layout-engine/layout-resolved
+      '@superdoc/measuring-dom':
+        specifier: workspace:*
+        version: link:../layout-engine/measuring/dom
+      '@superdoc/painter-dom':
+        specifier: workspace:*
+        version: link:../layout-engine/painters/dom
+      '@superdoc/style-engine':
+        specifier: workspace:*
+        version: link:../layout-engine/style-engine
       '@superdoc/super-editor':
         specifier: workspace:*
         version: link:../super-editor
@@ -3250,6 +3274,9 @@ importers:
       sirv:
         specifier: 'catalog:'
         version: 3.0.2
+      tsx:
+        specifier: 'catalog:'
+        version: 4.21.0
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
@@ -3365,6 +3392,10 @@ importers:
         version: rolldown-vite@7.3.1(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)(@types/node@25.6.0)(esbuild@0.27.7)(jiti@2.6.1)(less@4.4.2)(sass@1.97.3)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
 
   packages/word-layout:
+    dependencies:
+      '@superdoc/common':
+        specifier: workspace:*
+        version: link:../../shared/common
     devDependencies:
       vitest:
         specifier: 'catalog:'
