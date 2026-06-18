@@ -3591,6 +3591,16 @@ const operationSchemas: Record<OperationId, OperationSchemaSet> = {
               color: { type: 'string', description: "Text color when explicitly set (e.g. '#000000')." },
               alignment: { type: 'string', description: 'Paragraph alignment.' },
               headingLevel: { type: 'number', description: 'Heading level (1-6).' },
+              paragraphNumbering: {
+                type: 'object',
+                description:
+                  'Numbering reference (numId + level) for numbered blocks, including numbered headings. Absent for non-numbered blocks.',
+                properties: {
+                  numId: { type: 'number' },
+                  level: { type: 'number' },
+                },
+                additionalProperties: false,
+              },
               ref: {
                 type: 'string',
                 description:
@@ -4075,6 +4085,19 @@ const operationSchemas: Record<OperationId, OperationSchemaSet> = {
     output: paragraphMutationResultSchemaFor('format.paragraph.clearDirection'),
     success: paragraphMutationSuccessSchema,
     failure: paragraphMutationFailureSchemaFor('format.paragraph.clearDirection'),
+  },
+  'format.paragraph.setNumbering': {
+    input: objectSchema(
+      {
+        target: paragraphTargetSchema,
+        numId: { type: 'integer', minimum: 1 },
+        level: { type: 'integer', minimum: 0, maximum: 8 },
+      },
+      ['target', 'numId'],
+    ),
+    output: paragraphMutationResultSchemaFor('format.paragraph.setNumbering'),
+    success: paragraphMutationSuccessSchema,
+    failure: paragraphMutationFailureSchemaFor('format.paragraph.setNumbering'),
   },
   'styles.apply': (() => {
     // Derived from PROPERTY_REGISTRY: no hardcoded property lists

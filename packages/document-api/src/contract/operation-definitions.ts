@@ -1873,6 +1873,23 @@ export const OPERATION_DEFINITIONS = {
     referenceDocPath: 'format/paragraph/clear-direction.mdx',
     referenceGroup: 'format.paragraph',
   },
+  'format.paragraph.setNumbering': {
+    memberPath: 'format.paragraph.setNumbering',
+    description:
+      'Attach numbering (numId + level) to an existing paragraph or heading so it joins a numbered sequence. Numbering is a paragraph property; the node and its style are otherwise unchanged, though any direct paragraph indent is cleared so the numbering level controls indentation. Direct edits only; tracked mode is unsupported.',
+    expectedResult:
+      'Returns a ParagraphMutationResult; reports NO_OP if the block already carries this numbering. On a successful apply, resolution.target reflects the post-mutation address (a numbered plain paragraph re-resolves to listItem; a heading stays a heading); a dryRun returns the input target.',
+    requiresDocumentContext: true,
+    metadata: mutationOperation({
+      idempotency: 'conditional',
+      supportsDryRun: true,
+      supportsTrackedMode: false,
+      possibleFailureCodes: ['NO_OP'],
+      throws: T_PARAGRAPH_MUTATION,
+    }),
+    referenceDocPath: 'format/paragraph/set-numbering.mdx',
+    referenceGroup: 'format.paragraph',
+  },
   'lists.list': {
     memberPath: 'lists.list',
     description: 'List all list nodes in the document, optionally filtered by scope.',
