@@ -124,4 +124,5 @@ export class NoteSessionCoordinator {
     if (fullyVisible) return;
     fragment.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
+
 }

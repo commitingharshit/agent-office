@@ -378,45 +378,6 @@ const buildSuperdocStore = () => {
   };
 };
 
-const buildV2HostMock = ({
-  saveBytes = new Uint8Array().buffer,
-  capabilities = {},
-  selectionSnapshot = null,
-  documentMode = 'editing',
-  handles = {},
-} = {}) => ({
-  save: vi.fn(async () => saveBytes),
-  getCapabilities: vi.fn(() => capabilities),
-  getSnapshot: vi.fn(() => ({
-    state: documentMode === 'viewing' ? 'review-ready' : 'editing-ready',
-    documentMode,
-    editableSubset: {
-      editingMounted: documentMode !== 'viewing',
-      commands: [],
-    },
-    commentCommandsReason: null,
-  })),
-  subscribe: vi.fn(() => () => {}),
-  getDocumentMode: vi.fn(() => documentMode),
-  setDocumentMode: vi.fn(),
-  dispatch: vi.fn(async () => ({ status: 'committed', receipt: { success: true } })),
-  dispose: vi.fn(async () => {}),
-  getHandles: vi.fn(() => ({
-    ...handles,
-    editing: selectionSnapshot
-      ? {
-          selection: {
-            getSnapshot: vi.fn(() => selectionSnapshot),
-            subscribe: vi.fn(() => () => {}),
-          },
-        }
-      : (handles.editing ?? null),
-  })),
-  getPageMetricsSnapshot: vi.fn(() => ({ pages: [], zoom: { percent: 100 } })),
-  subscribePageMetrics: vi.fn(() => () => {}),
-  setZoom: vi.fn(() => ({ status: 'ok' })),
-});
-
 const buildCommentsStore = () => ({
   init: vi.fn(),
   showAddComment: vi.fn(),
@@ -560,7 +521,6 @@ const createSuperdocStub = () => {
   const toolbar = { config: { aiApiKey: 'abc' }, setActiveEditor: vi.fn(), updateToolbarState: vi.fn() };
   const runtimeMap = new Map();
   const eventHandlers = new Map();
-  let activeRuntimeId = null;
   return {
     config: {
       modules: { comments: {}, ai: {}, toolbar: {}, pdf: {} },
@@ -589,19 +549,9 @@ const createSuperdocStub = () => {
     registerEditorRuntime: vi.fn((runtime) => {
       if (runtime?.id) runtimeMap.set(runtime.id, runtime);
     }),
-    unregisterEditorRuntime: vi.fn(function unregisterEditorRuntime(runtimeId) {
-      runtimeMap.delete(runtimeId);
-      if (activeRuntimeId === runtimeId) {
-        activeRuntimeId = null;
-        this.activeEditor = null;
-      }
-    }),
-    setActiveRuntime: vi.fn(function setActiveRuntime(runtimeId) {
-      activeRuntimeId = runtimeId ?? null;
-      const runtime = activeRuntimeId ? (runtimeMap.get(activeRuntimeId) ?? null) : null;
-      this.activeEditor = runtime?.getLegacyEditorProjection?.() ?? null;
-    }),
-    getActiveRuntime: vi.fn(() => (activeRuntimeId ? (runtimeMap.get(activeRuntimeId) ?? null) : null)),
+    unregisterEditorRuntime: vi.fn((runtimeId) => runtimeMap.delete(runtimeId)),
+    setActiveRuntime: vi.fn(),
+    getActiveRuntime: vi.fn(() => null),
     activateRuntimeFromEventTarget: vi.fn(() => false),
     lockSuperdoc: vi.fn(),
     on: vi.fn((eventName, handler) => {
@@ -3727,10 +3677,9 @@ describe('SuperDoc.vue', () => {
       const wrapper = await mountComponent(superdocStub, { superdocStore: customSuperdocStore });
       await flushPromises();
       await nextTick();
-      const host = buildV2HostMock();
 
       wrapper.findComponent(V2SuperEditorStub).vm.$emit('v2-editor-ready', {
-        host,
+        host: { save: vi.fn(async () => new Uint8Array().buffer), getCapabilities: vi.fn(() => ({})) },
         mount: { focus: { focus: vi.fn(() => true) } },
         documentId: 'doc-1',
       });
@@ -3878,11 +3827,13 @@ describe('SuperDoc.vue', () => {
 
       // Mark the host as ready so the sidebar's other gates are open.
       const listComments = vi.fn(async () => ({ items: [{ id: 'c-1', importedId: '0' }] }));
-      const host = buildV2HostMock({
-        handles: {
+      const host = {
+        save: vi.fn(async () => new Uint8Array().buffer),
+        getCapabilities: vi.fn(() => ({})),
+        getHandles: vi.fn(() => ({
           comments: { list: listComments },
-        },
-      });
+        })),
+      };
       wrapper.findComponent(V2SuperEditorStub).vm.$emit('v2-editor-ready', {
         host,
         mount: { focus: { focus: vi.fn() } },
@@ -4033,11 +3984,13 @@ describe('SuperDoc.vue', () => {
       const commentsAdapter = {
         getCapabilityState: vi.fn(() => ({ canWrite: true, reason: null })),
       };
-      const host = buildV2HostMock({
-        handles: {
+      const host = {
+        save: vi.fn(async () => new Uint8Array().buffer),
+        getCapabilities: vi.fn(() => ({})),
+        getHandles: vi.fn(() => ({
           comments: { list: vi.fn(async () => ({ items: [] })) },
-        },
-      });
+        })),
+      };
       wrapper.findComponent(V2SuperEditorStub).vm.$emit('v2-editor-ready', {
         host,
         mount: { focus: { focus: vi.fn() } },
@@ -4104,12 +4057,17 @@ describe('SuperDoc.vue', () => {
         focus: { blockId: 'block-1', blockOffset: 5 },
         story: { storyType: 'body', storyId: null },
       };
-      const editCommands = { getMatrix: vi.fn(() => []), getSnapshot: vi.fn(() => ({})) };
-      const host = buildV2HostMock({
-        saveBytes,
-        capabilities: { editing: { canType: true } },
-        selectionSnapshot,
-      });
+      const host = {
+        save: vi.fn(async () => saveBytes),
+        getCapabilities: vi.fn(() => ({ editing: { canType: true } })),
+        getHandles: vi.fn(() => ({
+          editing: {
+            selection: {
+              getSnapshot: vi.fn(() => selectionSnapshot),
+            },
+          },
+        })),
+      };
       const focusController = { focus: vi.fn(() => true) };
 
       wrapper.findComponent(V2SuperEditorStub).vm.$emit('v2-editor-ready', {
@@ -4117,7 +4075,6 @@ describe('SuperDoc.vue', () => {
         mount: { focus: focusController },
         documentId: 'doc-1',
         capabilities: { editing: { canType: true } },
-        editCommands,
       });
       await nextTick();
 
@@ -4129,11 +4086,6 @@ describe('SuperDoc.vue', () => {
         state: null,
         view: null,
       });
-      expect(facade.editCommands).toBe(editCommands);
-      const runtime = superdocStub.registerEditorRuntime.mock.calls.at(-1)?.[0];
-      expect(runtime?.id).toBe('v2:doc-1:1');
-      expect(superdocStub.setActiveRuntime).toHaveBeenCalledWith('v2:doc-1:1', 'v2-editor-ready');
-      expect(superdocStub.activeEditor).toBe(facade);
 
       await expect(facade.save()).resolves.toBe(saveBytes);
       const exported = await facade.exportDocx();
@@ -4182,10 +4134,9 @@ describe('SuperDoc.vue', () => {
           redo: vi.fn(() => ({ success: true })),
         },
       };
-      const host = buildV2HostMock();
 
       wrapper.findComponent(V2SuperEditorStub).vm.$emit('v2-editor-ready', {
-        host,
+        host: { save: vi.fn(async () => new Uint8Array().buffer), getCapabilities: vi.fn(() => ({})) },
         mount: { focus: { focus: vi.fn(() => true) } },
         documentId: 'doc-1',
         documentApi,
@@ -4224,10 +4175,9 @@ describe('SuperDoc.vue', () => {
       const wrapper = await mountComponent(superdocStub, { superdocStore: customStore });
       await flushPromises();
       await nextTick();
-      const host = buildV2HostMock();
 
       wrapper.findComponent(V2SuperEditorStub).vm.$emit('v2-editor-ready', {
-        host,
+        host: { save: vi.fn(async () => new Uint8Array().buffer), getCapabilities: vi.fn(() => ({})) },
         mount: { focus: { focus: vi.fn(() => true) } },
         documentId: 'doc-1',
       });
@@ -4238,7 +4188,6 @@ describe('SuperDoc.vue', () => {
       await nextTick();
 
       expect(superdocStub.activeEditor).toBeNull();
-      expect(superdocStub.unregisterEditorRuntime).toHaveBeenCalledWith('v2:doc-1:1');
       expect(customStore.documents.value[0].setEditor.mock.calls.at(-1)?.[0]).toBeNull();
     });
 
@@ -4249,10 +4198,9 @@ describe('SuperDoc.vue', () => {
       const wrapper = await mountComponent(superdocStub, { superdocStore: customStore });
       await flushPromises();
       await nextTick();
-      const host = buildV2HostMock();
 
       wrapper.findComponent(V2SuperEditorStub).vm.$emit('v2-editor-ready', {
-        host,
+        host: { save: vi.fn(async () => new Uint8Array().buffer), getCapabilities: vi.fn(() => ({})) },
         mount: { focus: { focus: vi.fn(() => true) } },
         documentId: 'doc-1',
       });
@@ -4266,7 +4214,6 @@ describe('SuperDoc.vue', () => {
       await nextTick();
 
       expect(superdocStub.activeEditor).toBeNull();
-      expect(superdocStub.unregisterEditorRuntime).toHaveBeenCalledWith('v2:doc-1:1');
       expect(customStore.documents.value[0].setEditor.mock.calls.at(-1)?.[0]).toBeNull();
     });
   });

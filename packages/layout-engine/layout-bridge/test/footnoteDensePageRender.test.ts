@@ -43,10 +43,7 @@ const makeMeasure = (lineHeight: number, lineCount: number): Measure => ({
   totalHeight: lineCount * lineHeight,
 });
 
-const countFootnoteFragments = (
-  layout: { pages: Array<{ fragments: Array<{ blockId?: string }> }> },
-  idPrefix: string,
-) => {
+const countFootnoteFragments = (layout: { pages: Array<{ fragments: Array<{ blockId?: string }> }> }, idPrefix: string) => {
   let count = 0;
   for (const page of layout.pages) {
     for (const f of page.fragments) {

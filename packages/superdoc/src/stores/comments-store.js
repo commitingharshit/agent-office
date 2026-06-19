@@ -2058,15 +2058,14 @@ export const useCommentsStore = defineStore('comments', () => {
   };
 
   /**
-   * Drop imported threads and cached positions for one document id.
-   *
-   * Replace-file swaps call this before hydrating the replacement so stale
-   * comments never survive long enough to render beside the new content.
+   * Replace-file swaps reuse the same document id. Drop the previous document's
+   * imported threads before hydrating the replacement so stale comments never
+   * survive long enough to render beside the new content.
    *
    * @param {string | null | undefined} documentId
    * @returns {void}
    */
-  function removeCommentsForDocument(documentId) {
+  function resetCommentsForReplacedDocument(documentId) {
     const activeDocumentId = documentId != null ? String(documentId) : null;
     if (!activeDocumentId) return;
 
@@ -2094,10 +2093,6 @@ export const useCommentsStore = defineStore('comments', () => {
     if (activeCommentId && removedAliasIds.has(activeCommentId)) {
       clearActiveCommentSelection();
     }
-  }
-
-  function resetCommentsForReplacedDocument(documentId) {
-    removeCommentsForDocument(documentId);
   }
 
   /**
@@ -3509,7 +3504,6 @@ export const useCommentsStore = defineStore('comments', () => {
     cancelComment,
     deleteComment,
     removePendingComment,
-    removeCommentsForDocument,
     processLoadedDocxComments,
     translateCommentsForExport,
     handleEditorLocationsUpdate,
