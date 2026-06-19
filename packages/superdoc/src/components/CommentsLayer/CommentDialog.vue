@@ -260,16 +260,31 @@ const currentFloatingInstanceId = computed(() => {
   return props.floatingInstanceId ?? props.comment.commentId ?? null;
 });
 
+const activeCommentBelongsToDialog = computed(() => {
+  const activeId = activeComment.value;
+  if (activeId == null) return false;
+  if (activeId === props.comment.commentId) return true;
+  if (!props.comment.trackedChange) return false;
+
+  return collectTrackedChangeThread(props.comment, commentsStore.commentsList).some(
+    (comment) => comment.commentId === activeId || comment.importedId === activeId,
+  );
+});
+
 const isDialogActive = computed(() => {
   if (typeof props.isFloatingInstanceActive === 'boolean') {
     return props.isFloatingInstanceActive;
   }
 
-  if (activeComment.value !== props.comment.commentId) {
+  if (!activeCommentBelongsToDialog.value) {
     return false;
   }
 
   if (props.floatingInstanceId == null) {
+    return true;
+  }
+
+  if (props.comment.trackedChange && activeFloatingCommentInstanceId.value == null) {
     return true;
   }
 
@@ -371,7 +386,9 @@ const threadExpanded = ref(false);
 const childComments = computed(() => comments.value.slice(1));
 
 const shouldCollapseThread = computed(() => {
+  if (props.comment.trackedChange) return false;
   if (threadExpanded.value) return false;
+  if (isDialogActive.value || activeCommentBelongsToDialog.value) return false;
   return childComments.value.length >= 2;
 });
 
@@ -521,7 +538,10 @@ const setFocus = async () => {
           };
 
       if (presentation?.navigateTo) {
-        void presentation.navigateTo(trackedTarget);
+        const didNavigate = await presentation.navigateTo(trackedTarget);
+        if (didNavigate && !props.comment.resolvedTime) {
+          commentsStore.setActiveComment(proxy.$superdoc, props.comment.commentId);
+        }
       } else if (props.comment.resolvedTime) {
         editor.commands?.setCursorById(cursorId);
       } else {

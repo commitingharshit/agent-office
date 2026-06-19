@@ -1967,6 +1967,49 @@ describe('SuperDoc core', () => {
     expect(legacyDocMode).toHaveBeenCalledWith('viewing');
   });
 
+  it('syncs a stale presentation host class after runtime document-mode propagation', async () => {
+    const { superdocStore } = createAppHarness();
+    const presentationElement = document.createElement('div');
+    presentationElement.className = 'presentation-editor';
+    const presentationEditor = {
+      element: presentationElement,
+      setDocumentMode: vi.fn((mode) => {
+        presentationElement.classList.toggle('presentation-editor--viewing', mode === 'viewing');
+      }),
+    };
+    superdocStore.documents = [
+      {
+        id: 'doc-1',
+        removeComments: vi.fn(),
+        restoreComments: vi.fn(),
+        getEditor: vi.fn(() => null),
+        getPresentationEditor: vi.fn(() => presentationEditor),
+      },
+    ];
+
+    const instance = new SuperDoc({
+      selector: '#host',
+      document: 'https://example.com/doc.docx',
+      documents: [],
+      modules: { comments: {}, toolbar: {} },
+      colors: ['red'],
+      role: 'editor',
+      user: { name: 'Jane', email: 'jane@example.com' },
+      onException: vi.fn(),
+    });
+    await flushMicrotasks();
+
+    const runtime = createFakeV1Runtime({ id: 'v1-a', documentId: 'doc-1' });
+    const setMode = vi.spyOn(runtime, 'setDocumentMode');
+    instance.registerEditorRuntime(runtime);
+
+    instance.setDocumentMode('viewing');
+
+    expect(setMode).toHaveBeenCalledWith('viewing');
+    expect(presentationEditor.setDocumentMode).toHaveBeenCalledWith('viewing');
+    expect(presentationElement.classList.contains('presentation-editor--viewing')).toBe(true);
+  });
+
   it('updates viewing comment options for presentation editors', async () => {
     const { superdocStore } = createAppHarness();
     const setViewingCommentOptions = vi.fn();

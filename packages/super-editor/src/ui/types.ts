@@ -784,6 +784,13 @@ export interface TrackChangesItem {
   authorColor?: string;
 }
 
+export interface TrackChangePointHit {
+  /** Public tracked-change id from ui.trackChanges.getSnapshot().items. */
+  id: string;
+  /** Matching item from the current track-changes slice. */
+  item: TrackChangesItem;
+}
+
 /**
  * One unique tracked-change author exposed on `state.trackChanges.authors`.
  * Authors appear in the order their first change is seen in `items`.
@@ -2014,6 +2021,14 @@ export interface TrackChangesHandle {
    * this exists alongside `subscribe`.
    */
   observe(listener: (snapshot: TrackChangesSlice) => void): () => void;
+  /**
+   * Resolve the tracked change under viewport coordinates into the matching
+   * public track-changes item. Coordinates are MouseEvent clientX/clientY
+   * space. Returns null for invalid input, no editor, outside host, no
+   * tracked change, or a hit that no longer exists in the current
+   * track-changes slice.
+   */
+  getAt(input: ViewportEntityAtInput): TrackChangePointHit | null;
   /** Accept a single tracked change via `trackChanges.decide`. */
   accept(changeId: string): import('@superdoc/document-api').Receipt;
   /** Reject a single tracked change via `trackChanges.decide`. */
@@ -2022,6 +2037,11 @@ export interface TrackChangesHandle {
   acceptAll(): import('@superdoc/document-api').Receipt;
   /** Reject every tracked change via `trackChanges.decide({ scope: 'all' })`. */
   rejectAll(): import('@superdoc/document-api').Receipt;
+  /**
+   * Set or clear the UI-active tracked change without scrolling, moving
+   * selection, accepting/rejecting, or mutating document content.
+   */
+  setActive(id: string | null): boolean;
   /**
    * Move `activeId` to the next tracked change in document order.
    * Wraps to the first item past the last. Returns the new active
@@ -2034,6 +2054,18 @@ export interface TrackChangesHandle {
    * or `null` when there are no changes.
    */
   previous(): string | null;
+  /**
+   * Atomically move to the next tracked change and await viewport navigation.
+   * Preserves the synchronous {@link next} contract for existing callers while
+   * giving review UIs a single latest-wins navigation operation. Uses instant
+   * scroll behavior.
+   */
+  navigateNext(): Promise<import('@superdoc/document-api').ScrollIntoViewOutput>;
+  /**
+   * Atomically move to the previous tracked change and await viewport
+   * navigation. Uses instant scroll behavior.
+   */
+  navigatePrevious(): Promise<import('@superdoc/document-api').ScrollIntoViewOutput>;
   /**
    * Scroll the viewport to the given tracked change and set it as
    * `activeId`. Routes through

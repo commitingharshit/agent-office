@@ -85,6 +85,16 @@ function serializePerIdNumbering(
   return parts.join(';');
 }
 
+type PresentationNavigationOptions = {
+  behavior?: ScrollBehavior;
+  block?: 'start' | 'center' | 'end' | 'nearest';
+  shouldContinue?: () => boolean;
+};
+
+function shouldContinueNavigation(options: PresentationNavigationOptions): boolean {
+  return options.shouldContinue?.() !== false;
+}
+
 import { safeCleanup } from './utils/SafeCleanup.js';
 import { createHiddenHost } from './dom/HiddenHost.js';
 import {
@@ -108,7 +118,11 @@ import {
 import { computeSelectionVirtualizationPins } from './selection/SelectionVirtualizationPins.js';
 import { debugLog, updateSelectionDebugHud, type SelectionDebugHudState } from './selection/SelectionDebug.js';
 import { renderCellSelectionOverlay } from './selection/CellSelectionOverlay.js';
-import { renderCaretOverlay, renderSelectionRects } from './selection/LocalSelectionOverlayRendering.js';
+import {
+  createCaretElement,
+  renderCaretOverlay,
+  renderSelectionRects,
+} from './selection/LocalSelectionOverlayRendering.js';
 import { computeCaretLayoutRectGeometry as computeCaretLayoutRectGeometryFromHelper } from './selection/CaretGeometry.js';
 import { shouldUseNativeCaretFallback } from './selection/native-caret-fallback.js';
 import {
@@ -310,6 +324,7 @@ import {
 import {
   resolveTrackedChange,
   resolveTrackedChangeInStory,
+  resolveTrackedChangeNavigationSelection,
 } from '../../document-api-adapters/helpers/tracked-change-resolver.js';
 import { makeTrackedChangeAnchorKey } from '../../document-api-adapters/helpers/tracked-change-runtime-ref.js';
 import { getTrackedChangeIndex } from '../../document-api-adapters/tracked-changes/tracked-change-index.js';
@@ -403,6 +418,16 @@ const DEFAULT_HORIZONTAL_PAGE_GAP = 20;
 const MULTI_CLICK_TIME_THRESHOLD_MS = 400;
 /** Maximum distance between clicks to register as multi-click (pixels) */
 const MULTI_CLICK_DISTANCE_THRESHOLD_PX = 5;
+/**
+ * AIDEV-NOTE: Navigated caret repair uses three complementary paths: immediate selection render,
+ * scroll-linked settle render, and fixed viewport-coordinate retries. Smooth scrolling plus
+ * virtualization can skip any one signal, so keep the tuned values named and co-located.
+ */
+const NAVIGATED_CARET_REPAIR_DELAYS_MS = [120, 360, 900, 1300] as const;
+const NAVIGATED_CARET_DRIFT_TOLERANCE_PX = 3;
+const NAVIGATED_CARET_MAX_REPAIR_ATTEMPTS = 3;
+const SELECTION_SCROLL_SETTLE_RENDER_DELAY_MS = 120;
+const SELECTION_SCROLL_SETTLE_FINALIZE_DELAY_MS = 900;
 
 /** Debug flag for performance logging - enable with SD_DEBUG_LAYOUT env variable */
 const layoutDebugEnabled =
@@ -533,6 +558,14 @@ export class PresentationEditor extends EventEmitter {
   #renderScheduled = false;
   #pendingDocChange = false;
   #focusScrollRafId: number | null = null;
+  #selectionScrollSettleCleanup: (() => void) | null = null;
+  #selectionNavigationToken = 0;
+  #activeSelectionNavigation: {
+    token: number;
+    targetPos: number;
+    scrollSettled: boolean;
+    repairAttempts: number;
+  } | null = null;
   #pendingMapping: Mapping | null = null;
   #isRerendering = false;
   #selectionSync = new SelectionSyncCoordinator();
@@ -4189,6 +4222,7 @@ export class PresentationEditor extends EventEmitter {
             options.ifNeeded && targetEl && this.#isElementFullyVisibleInScrollContainer(targetEl)
               ? 'nearest'
               : requestedBlock;
+          this.#startSelectionNavigation(clampedPos);
           elToScroll.scrollIntoView({ block, inline: 'nearest', behavior });
           // AIDEV-NOTE: SD-3045. Search nav (and any other caller of
           // scrollToPosition) places the viewport intentionally — usually
@@ -4224,6 +4258,7 @@ export class PresentationEditor extends EventEmitter {
               elToScroll.scrollIntoView({ block, inline: 'nearest', behavior });
               this.#shouldScrollSelectionIntoView = false;
               this.#suppressSelectionScrollUntilRaf = false;
+              this.#scheduleSelectionUpdateAfterScrollSettles();
             });
           }
           return true;
@@ -4354,6 +4389,187 @@ export class PresentationEditor extends EventEmitter {
     };
   }
 
+  #startSelectionNavigation(targetPos: number): number {
+    const token = ++this.#selectionNavigationToken;
+    this.#activeSelectionNavigation = { token, targetPos, scrollSettled: false, repairAttempts: 0 };
+    return token;
+  }
+
+  #markSelectionNavigationScrollSettled(): void {
+    if (this.#activeSelectionNavigation) {
+      this.#activeSelectionNavigation.scrollSettled = true;
+    }
+  }
+
+  #finishSelectionNavigation(token?: number): void {
+    if (token != null && this.#activeSelectionNavigation?.token !== token) return;
+    this.#activeSelectionNavigation = null;
+  }
+
+  /**
+   * Programmatic navigation currently scrolls browser-owned document content
+   * while the caret/selection overlay is painted in a separate presentation
+   * layer. That means scroll position and overlay geometry can briefly disagree,
+   * especially while smooth scroll, page mounting, or layout refresh settles.
+   *
+   * This repair path keeps the navigated caret visually aligned with the
+   * scrolled content. The cleaner long-term architecture is to paint the caret
+   * in the same browser-scrolled layer as the document content, so scrolling
+   * moves both together without post-scroll synchronization.
+   */
+  #scheduleNavigatedSelectionRender(targetPos: number): void {
+    this.#startSelectionNavigation(targetPos);
+    this.#scheduleSelectionUpdateAfterScrollSettles();
+    this.#scheduleSelectionUpdate({ immediate: true });
+    this.#scheduleNavigatedCaretViewportRepairs(targetPos);
+  }
+
+  #scheduleNavigatedCaretViewportRepairs(targetPos: number): void {
+    const win = this.#visibleHost.ownerDocument?.defaultView;
+    if (!win) return;
+
+    for (const delay of NAVIGATED_CARET_REPAIR_DELAYS_MS) {
+      win.setTimeout(() => {
+        if (!this.#localSelectionLayer?.isConnected) return;
+        const selection = this.getActiveEditor()?.state?.selection;
+        if (!selection || selection.from !== targetPos || selection.to !== targetPos) return;
+        this.#rebuildDomPositionIndex();
+        this.#renderNavigatedCaretFromViewportCoords(targetPos);
+      }, delay);
+    }
+  }
+
+  #queueSelectionNavigationCaretRepair(
+    caretPos: number,
+    navigation: { token: number; repairAttempts: number },
+  ): boolean {
+    if (this.#activeSelectionNavigation?.token !== navigation.token) return false;
+
+    const caretEl = this.#localSelectionLayer.querySelector('.presentation-editor__selection-caret');
+    if (!(caretEl instanceof HTMLElement)) return false;
+
+    const expected = this.coordsAtPos(caretPos);
+    if (!expected) return false;
+
+    const actual = caretEl.getBoundingClientRect();
+    if (Math.abs(actual.top - expected.top) <= NAVIGATED_CARET_DRIFT_TOLERANCE_PX) return false;
+    if (navigation.repairAttempts >= NAVIGATED_CARET_MAX_REPAIR_ATTEMPTS) return false;
+
+    navigation.repairAttempts += 1;
+    const win = this.#visibleHost.ownerDocument?.defaultView;
+    const repair = () => {
+      if (this.#activeSelectionNavigation?.token !== navigation.token) return;
+      this.#rebuildDomPositionIndex();
+      this.#scheduleSelectionUpdate({ immediate: true });
+    };
+    if (win) {
+      win.requestAnimationFrame(repair);
+    } else {
+      repair();
+    }
+    return true;
+  }
+
+  #renderNavigatedCaretFromViewportCoords(caretPos: number): boolean {
+    const coords = this.coordsAtPos(caretPos);
+    if (!coords) return false;
+
+    const zoom =
+      Number.isFinite(this.#layoutOptions.zoom) && this.#layoutOptions.zoom > 0 ? this.#layoutOptions.zoom : 1;
+    const layerRect = this.#localSelectionLayer.getBoundingClientRect();
+    const caretEl = createCaretElement(this.#localSelectionLayer.ownerDocument, {
+      left: (coords.left - layerRect.left) / zoom,
+      top: (coords.top - layerRect.top) / zoom,
+      height: coords.height / zoom,
+    });
+    if (!caretEl) return false;
+
+    this.#localSelectionLayer.innerHTML = '';
+    this.#localSelectionLayer.appendChild(caretEl);
+    return true;
+  }
+
+  #scheduleSelectionUpdateAfterScrollSettles(): void {
+    const win = this.#visibleHost.ownerDocument?.defaultView;
+    if (!win) {
+      this.#scheduleSelectionUpdate();
+      return;
+    }
+
+    this.#selectionScrollSettleCleanup?.();
+
+    const scrollTarget =
+      this.#scrollContainer instanceof Window || this.#scrollContainer instanceof Element ? this.#scrollContainer : win;
+    let timeoutId: number | null = null;
+    let finalTimeoutId: number | null = null;
+    let scrollRenderRafId: number | null = null;
+    let cleanedUp = false;
+
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      scrollTarget.removeEventListener('scroll', onScroll);
+      scrollTarget.removeEventListener('scrollend', finalizeRender);
+      if (timeoutId != null) {
+        win.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      if (finalTimeoutId != null) {
+        win.clearTimeout(finalTimeoutId);
+        finalTimeoutId = null;
+      }
+      if (scrollRenderRafId != null) {
+        win.cancelAnimationFrame(scrollRenderRafId);
+        scrollRenderRafId = null;
+      }
+      if (this.#selectionScrollSettleCleanup === cleanup) {
+        this.#selectionScrollSettleCleanup = null;
+      }
+    };
+
+    const renderAfterPause = () => {
+      timeoutId = null;
+      this.#scheduleSelectionUpdate({ immediate: true });
+    };
+
+    const finalizeRender = () => {
+      if (cleanedUp) return;
+      this.#markSelectionNavigationScrollSettled();
+      cleanup();
+      this.#scheduleSelectionUpdate({ immediate: true });
+    };
+
+    const queueRender = () => {
+      if (timeoutId != null) win.clearTimeout(timeoutId);
+      timeoutId = win.setTimeout(renderAfterPause, SELECTION_SCROLL_SETTLE_RENDER_DELAY_MS);
+    };
+
+    const queueFinalize = () => {
+      if (finalTimeoutId != null) win.clearTimeout(finalTimeoutId);
+      finalTimeoutId = win.setTimeout(finalizeRender, SELECTION_SCROLL_SETTLE_FINALIZE_DELAY_MS);
+    };
+
+    const requestScrollRender = () => {
+      if (scrollRenderRafId != null) return;
+      scrollRenderRafId = win.requestAnimationFrame(() => {
+        scrollRenderRafId = null;
+        this.#scheduleSelectionUpdate({ immediate: true });
+      });
+    };
+
+    const onScroll = () => {
+      requestScrollRender();
+      queueRender();
+      queueFinalize();
+    };
+
+    scrollTarget.addEventListener('scroll', onScroll, { passive: true });
+    scrollTarget.addEventListener('scrollend', finalizeRender, { passive: true });
+    this.#selectionScrollSettleCleanup = cleanup;
+    queueRender();
+    queueFinalize();
+  }
+
   /**
    * Find the DOM element containing a specific document position.
    * Returns the most specific (smallest range) matching element.
@@ -4411,8 +4627,11 @@ export class PresentationEditor extends EventEmitter {
       behavior?: ScrollBehavior;
       ifNeeded?: boolean;
       suppressSelectionSyncScroll?: boolean;
+      shouldContinue?: () => boolean;
     } = {},
   ): Promise<boolean> {
+    if (!shouldContinueNavigation(options)) return false;
+
     // Fast path: try sync scroll first (works if page already mounted)
     if (this.scrollToPosition(pos, options)) {
       return true;
@@ -4442,6 +4661,8 @@ export class PresentationEditor extends EventEmitter {
     }
     if (pageIndex == null) return false;
 
+    if (!shouldContinueNavigation(options)) return false;
+
     // Trigger virtualization to render the page
     this.#scrollPageIntoView(pageIndex);
 
@@ -4453,6 +4674,8 @@ export class PresentationEditor extends EventEmitter {
       console.warn(`[PresentationEditor] scrollToPositionAsync: Page ${pageIndex} failed to mount within timeout`);
       return false;
     }
+
+    if (!shouldContinueNavigation(options)) return false;
 
     // Retry now that page is mounted. Reaching this path means the target was on an unmounted
     // (off-screen) page at call time, and #scrollPageIntoView above only scrolled the page into
@@ -4796,6 +5019,13 @@ export class PresentationEditor extends EventEmitter {
       }, 'Focus scroll RAF');
     }
 
+    if (this.#selectionScrollSettleCleanup) {
+      safeCleanup(() => {
+        this.#selectionScrollSettleCleanup?.();
+      }, 'Selection scroll settle');
+    }
+    this.#finishSelectionNavigation();
+
     // Cancel pending decoration sync RAF
     if (this.#decorationSyncRafHandle != null) {
       safeCleanup(() => {
@@ -5079,6 +5309,14 @@ export class PresentationEditor extends EventEmitter {
    */
   #syncCommentHighlights(): void {
     this.#postPaintPipeline.applyCommentHighlights();
+  }
+
+  setActiveTrackChangeIds(ids: readonly string[]): boolean {
+    const didChange = this.#postPaintPipeline.setActiveTrackChangeIds(ids);
+    if (didChange) {
+      this.#syncInlineStyleLayers();
+    }
+    return didChange;
   }
 
   /**
@@ -8002,9 +8240,27 @@ export class PresentationEditor extends EventEmitter {
 
     if (from === to || isDragDropIndicatorActive) {
       const caretPos = this.#dragDropIndicatorPos ?? from;
+      const activeNavigation = this.#activeSelectionNavigation;
+      const isRenderingNavigatedCaret = activeNavigation?.targetPos === caretPos;
+      if (isRenderingNavigatedCaret) {
+        this.#rebuildDomPositionIndex();
+      } else if (activeNavigation) {
+        this.#finishSelectionNavigation(activeNavigation.token);
+      }
+      if (
+        isRenderingNavigatedCaret &&
+        activeNavigation?.scrollSettled &&
+        this.#renderNavigatedCaretFromViewportCoords(caretPos)
+      ) {
+        this.#finishSelectionNavigation(activeNavigation.token);
+        return;
+      }
       const caretLayout = this.#computeCaretLayoutRect(caretPos);
       if (!caretLayout) {
-        // Keep existing cursor visible rather than clearing it
+        if (isRenderingNavigatedCaret) {
+          this.#localSelectionLayer.innerHTML = '';
+        }
+        // Outside programmatic navigation, keep the existing cursor visible rather than clearing it.
         return;
       }
       // Only clear old cursor after successfully computing new position
@@ -8015,6 +8271,13 @@ export class PresentationEditor extends EventEmitter {
           caretLayout,
           convertPageLocalToOverlayCoords: (pageIndex, x, y) => this.#convertPageLocalToOverlayCoords(pageIndex, x, y),
         });
+        const queuedNavigationRepair =
+          isRenderingNavigatedCaret && activeNavigation
+            ? this.#queueSelectionNavigationCaretRepair(caretPos, activeNavigation)
+            : false;
+        if (isRenderingNavigatedCaret && activeNavigation?.scrollSettled && !queuedNavigationRepair) {
+          this.#finishSelectionNavigation(activeNavigation?.token);
+        }
       } catch (error) {
         // DOM manipulation can fail if element is detached or in invalid state
         if (process.env.NODE_ENV === 'development') {
@@ -8027,8 +8290,21 @@ export class PresentationEditor extends EventEmitter {
       return;
     }
 
+    const activeNavigation = this.#activeSelectionNavigation;
+    const selectionContainsNavigationTarget =
+      activeNavigation != null && activeNavigation.targetPos >= from && activeNavigation.targetPos <= to;
+    if (activeNavigation && !selectionContainsNavigationTarget) {
+      this.#finishSelectionNavigation(activeNavigation.token);
+    }
+    if (selectionContainsNavigationTarget) {
+      this.#rebuildDomPositionIndex();
+    }
+
     const domRects = this.#computeSelectionRectsFromDom(from, to);
     if (domRects == null) {
+      if (selectionContainsNavigationTarget) {
+        this.#localSelectionLayer.innerHTML = '';
+      }
       // DOM-derived selection failed; keep last known-good overlay instead of drifting.
       debugLog('warn', 'Local selection: DOM rect computation failed', { from, to });
       return;
@@ -8059,6 +8335,9 @@ export class PresentationEditor extends EventEmitter {
           pageGap: this.#layoutState.layout?.pageGap ?? 0,
           convertPageLocalToOverlayCoords: (pageIndex, x, y) => this.#convertPageLocalToOverlayCoords(pageIndex, x, y),
         });
+        if (selectionContainsNavigationTarget && activeNavigation?.scrollSettled) {
+          this.#finishSelectionNavigation(activeNavigation?.token);
+        }
       }
     } catch (error) {
       // DOM manipulation can fail if element is detached or in invalid state
@@ -9447,10 +9726,7 @@ export class PresentationEditor extends EventEmitter {
    *   `'smooth'` at its own boundary. `block` defaults to `'center'`.
    * @returns Promise resolving to true if navigation succeeded.
    */
-  async navigateTo(
-    target: NavigableAddress,
-    options: { behavior?: ScrollBehavior; block?: 'start' | 'center' | 'end' | 'nearest' } = {},
-  ): Promise<boolean> {
+  async navigateTo(target: NavigableAddress, options: PresentationNavigationOptions = {}): Promise<boolean> {
     if (!target) return false;
 
     try {
@@ -9485,7 +9761,7 @@ export class PresentationEditor extends EventEmitter {
 
   async #navigateToBlock(
     target: BlockNavigationAddress,
-    options: { behavior?: ScrollBehavior; block?: 'start' | 'center' | 'end' | 'nearest' } = {},
+    options: PresentationNavigationOptions = {},
   ): Promise<boolean> {
     const editor = this.#editor;
     if (!editor) return false;
@@ -9519,7 +9795,7 @@ export class PresentationEditor extends EventEmitter {
   async #scrollToBlockCandidate(
     editor: Editor,
     candidate: { pos: number },
-    options: { behavior?: ScrollBehavior; block?: 'start' | 'center' | 'end' | 'nearest' } = {},
+    options: PresentationNavigationOptions = {},
   ): Promise<boolean> {
     const blockNode = editor.state.doc.nodeAt(candidate.pos);
     let contentPos = candidate.pos + 1;
@@ -9535,18 +9811,17 @@ export class PresentationEditor extends EventEmitter {
     const scrolled = await this.scrollToPositionAsync(contentPos, {
       behavior: options.behavior ?? 'auto',
       block: options.block ?? 'center',
+      shouldContinue: options.shouldContinue,
     });
     if (!scrolled) return false;
+    if (!shouldContinueNavigation(options)) return false;
 
     editor.commands?.setTextSelection?.({ from: contentPos, to: contentPos });
     editor.view?.focus?.();
     return true;
   }
 
-  async #navigateToComment(
-    entityId: string,
-    options: { behavior?: ScrollBehavior; block?: 'start' | 'center' | 'end' | 'nearest' } = {},
-  ): Promise<boolean> {
+  async #navigateToComment(entityId: string, options: PresentationNavigationOptions = {}): Promise<boolean> {
     const editor = this.#editor;
     if (!editor) return false;
 
@@ -9562,8 +9837,9 @@ export class PresentationEditor extends EventEmitter {
     await this.scrollToPositionAsync(editor.state.selection.from, {
       behavior: options.behavior ?? 'auto',
       block: options.block ?? 'center',
+      shouldContinue: options.shouldContinue,
     });
-    return true;
+    return shouldContinueNavigation(options);
   }
 
   async #navigateToBookmark(target: BookmarkAddress): Promise<boolean> {
@@ -9601,7 +9877,7 @@ export class PresentationEditor extends EventEmitter {
     entityId: string,
     storyKey?: string,
     preferredPageIndex?: number,
-    options: { behavior?: ScrollBehavior; block?: 'start' | 'center' | 'end' | 'nearest' } = {},
+    options: PresentationNavigationOptions = {},
   ): Promise<boolean> {
     const editor = this.#editor;
     if (!editor) return false;
@@ -9609,17 +9885,21 @@ export class PresentationEditor extends EventEmitter {
     const behavior = options.behavior ?? 'auto';
     const block = options.block ?? 'center';
     const navigationIds = this.#resolveTrackedChangeNavigationIds(entityId, storyKey);
+    if (!shouldContinueNavigation(options)) return false;
 
     if (storyKey && storyKey !== BODY_STORY_KEY) {
       for (const id of navigationIds) {
+        if (!shouldContinueNavigation(options)) return false;
         if (this.#navigateToActiveStoryTrackedChange(id, storyKey)) {
           return true;
         }
       }
 
       for (const id of navigationIds) {
-        if (await this.#activateTrackedChangeStorySurface(id, storyKey, preferredPageIndex)) {
+        if (await this.#activateTrackedChangeStorySurface(id, storyKey, preferredPageIndex, options)) {
+          if (!shouldContinueNavigation(options)) return false;
           for (const activeId of navigationIds) {
+            if (!shouldContinueNavigation(options)) return false;
             if (this.#navigateToActiveStoryTrackedChange(activeId, storyKey)) {
               return true;
             }
@@ -9628,20 +9908,54 @@ export class PresentationEditor extends EventEmitter {
       }
 
       for (const id of navigationIds) {
-        if (await this.#scrollToRenderedTrackedChange(id, storyKey, preferredPageIndex, { behavior, block })) {
+        if (!shouldContinueNavigation(options)) return false;
+        if (
+          await this.#scrollToRenderedTrackedChange(id, storyKey, preferredPageIndex, {
+            behavior,
+            block,
+            shouldContinue: options.shouldContinue,
+          })
+        ) {
           return true;
         }
       }
       return false;
     }
 
+    this.exitActiveStorySurface();
+
     const setCursorById = editor.commands?.setCursorById;
+
+    for (const id of navigationIds) {
+      if (!shouldContinueNavigation(options)) return false;
+      const selection = resolveTrackedChangeNavigationSelection(editor, id);
+      if (!selection) continue;
+      const setTextSelection = editor.commands?.setTextSelection;
+      const scrolled = await this.scrollToPositionAsync(selection.from, {
+        behavior,
+        block,
+        shouldContinue: options.shouldContinue,
+      });
+      if (!scrolled || !shouldContinueNavigation(options)) return false;
+      if (typeof setTextSelection !== 'function' || setTextSelection(selection) !== true) continue;
+      editor.view?.focus?.();
+      this.#scheduleNavigatedSelectionRender(selection.from);
+      return true;
+    }
 
     // Try direct cursor placement, then scroll to the new selection.
     if (typeof setCursorById === 'function') {
       for (const id of navigationIds) {
+        if (!shouldContinueNavigation(options)) return false;
         if (setCursorById(id, { preferredActiveThreadId: id })) {
-          await this.scrollToPositionAsync(editor.state.selection.from, { behavior, block });
+          const scrolled = await this.scrollToPositionAsync(editor.state.selection.from, {
+            behavior,
+            block,
+            shouldContinue: options.shouldContinue,
+          });
+          if (!scrolled || !shouldContinueNavigation(options)) return false;
+          editor.view?.focus?.();
+          this.#scheduleNavigatedSelectionRender(editor.state.selection.from);
           return true;
         }
       }
@@ -9651,7 +9965,13 @@ export class PresentationEditor extends EventEmitter {
     const resolved = navigationIds.map((id) => resolveTrackedChange(editor, id)).find(Boolean);
     if (!resolved) {
       for (const id of navigationIds) {
-        if (await this.#scrollToRenderedTrackedChange(id, undefined, preferredPageIndex, { behavior, block })) {
+        if (
+          await this.#scrollToRenderedTrackedChange(id, undefined, preferredPageIndex, {
+            behavior,
+            block,
+            shouldContinue: options.shouldContinue,
+          })
+        ) {
           return true;
         }
       }
@@ -9660,8 +9980,16 @@ export class PresentationEditor extends EventEmitter {
 
     // Try with the raw ID (tracked changes may use a different internal ID).
     if (typeof setCursorById === 'function' && resolved.rawId !== entityId) {
+      if (!shouldContinueNavigation(options)) return false;
       if (setCursorById(resolved.rawId, { preferredActiveThreadId: resolved.rawId })) {
-        await this.scrollToPositionAsync(editor.state.selection.from, { behavior, block });
+        const scrolled = await this.scrollToPositionAsync(editor.state.selection.from, {
+          behavior,
+          block,
+          shouldContinue: options.shouldContinue,
+        });
+        if (!scrolled || !shouldContinueNavigation(options)) return false;
+        editor.view?.focus?.();
+        this.#scheduleNavigatedSelectionRender(editor.state.selection.from);
         return true;
       }
     }
@@ -9670,11 +9998,13 @@ export class PresentationEditor extends EventEmitter {
     const scrolled = await this.scrollToPositionAsync(resolved.from, {
       behavior,
       block,
+      shouldContinue: options.shouldContinue,
     });
-    if (!scrolled) return false;
+    if (!scrolled || !shouldContinueNavigation(options)) return false;
 
     editor.commands?.setTextSelection?.({ from: resolved.from, to: resolved.from });
     editor.view?.focus?.();
+    this.#scheduleNavigatedSelectionRender(resolved.from);
     return true;
   }
 
@@ -9721,6 +10051,7 @@ export class PresentationEditor extends EventEmitter {
     entityId: string,
     storyKey: string,
     preferredPageIndex?: number,
+    options: PresentationNavigationOptions = {},
   ): Promise<boolean> {
     let locator: StoryLocator | null = null;
     try {
@@ -9732,19 +10063,23 @@ export class PresentationEditor extends EventEmitter {
     if (!locator || locator.storyType === 'body') {
       return false;
     }
+    if (!shouldContinueNavigation(options)) return false;
 
     const candidate = this.#findRenderedTrackedChangeElement(entityId, storyKey, preferredPageIndex);
     if (!candidate) {
       return false;
     }
+    if (!shouldContinueNavigation(options)) return false;
 
     const rect = candidate.getBoundingClientRect();
     const clientX = rect.left + Math.max(rect.width / 2, 1);
     const clientY = rect.top + Math.max(rect.height / 2, 1);
     const pageIndex = this.#resolveRenderedPageIndexForElement(candidate);
+    if (!shouldContinueNavigation(options)) return false;
 
     if (locator.storyType === 'footnote' || locator.storyType === 'endnote') {
       try {
+        if (!shouldContinueNavigation(options)) return false;
         if (
           !this.#activateRenderedNoteSession(
             {
@@ -9760,7 +10095,7 @@ export class PresentationEditor extends EventEmitter {
         return false;
       }
 
-      return this.#waitForTrackedChangeStorySurface(storyKey);
+      return this.#waitForTrackedChangeStorySurface(storyKey, undefined, options);
     }
 
     if (locator.storyType !== 'headerFooterPart') {
@@ -9774,6 +10109,7 @@ export class PresentationEditor extends EventEmitter {
     if (!region) {
       return false;
     }
+    if (!shouldContinueNavigation(options)) return false;
 
     this.#activateHeaderFooterRegion(region, {
       clientX,
@@ -9781,19 +10117,29 @@ export class PresentationEditor extends EventEmitter {
       pageIndex,
       source: 'programmatic',
     });
-    return this.#waitForTrackedChangeStorySurface(storyKey);
+    return this.#waitForTrackedChangeStorySurface(storyKey, undefined, options);
   }
 
-  async #waitForTrackedChangeStorySurface(storyKey: string, timeoutMs = 500): Promise<boolean> {
+  async #waitForTrackedChangeStorySurface(
+    storyKey: string,
+    timeoutMs = 500,
+    options: PresentationNavigationOptions = {},
+  ): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
 
     while (Date.now() < deadline) {
+      if (!shouldContinueNavigation(options)) {
+        return false;
+      }
       if (this.#getActiveTrackedChangeStorySurface()?.storyKey === storyKey) {
         return true;
       }
       await new Promise((resolve) => setTimeout(resolve, 16));
     }
 
+    if (!shouldContinueNavigation(options)) {
+      return false;
+    }
     return this.#getActiveTrackedChangeStorySurface()?.storyKey === storyKey;
   }
 
@@ -10008,6 +10354,17 @@ export class PresentationEditor extends EventEmitter {
 
     const sessionEditor = activeSurface.editor;
     const setCursorById = sessionEditor.commands?.setCursorById;
+    const navigationSelection = resolveTrackedChangeNavigationSelection(sessionEditor, entityId);
+    const setTextSelection = sessionEditor.commands?.setTextSelection;
+
+    if (
+      navigationSelection &&
+      typeof setTextSelection === 'function' &&
+      setTextSelection(navigationSelection) === true
+    ) {
+      this.#focusAndRevealActiveStorySelection(sessionEditor);
+      return true;
+    }
 
     if (typeof setCursorById === 'function' && setCursorById(entityId, { preferredActiveThreadId: entityId })) {
       this.#focusAndRevealActiveStorySelection(sessionEditor);
@@ -10062,10 +10419,13 @@ export class PresentationEditor extends EventEmitter {
     entityId: string,
     storyKey?: string,
     preferredPageIndex?: number,
-    options: { behavior?: ScrollBehavior; block?: 'start' | 'center' | 'end' | 'nearest' } = {},
+    options: PresentationNavigationOptions = {},
   ): Promise<boolean> {
     const candidate = this.#findRenderedTrackedChangeElement(entityId, storyKey, preferredPageIndex);
     if (!candidate) {
+      return false;
+    }
+    if (!shouldContinueNavigation(options)) {
       return false;
     }
 

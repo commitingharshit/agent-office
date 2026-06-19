@@ -1591,6 +1591,71 @@ describe('CommentDialog.vue', () => {
     expect(headers[2].props('comment').commentId).toBe('range-reply');
   });
 
+  it('does not collapse tracked-change dialog reply threads', async () => {
+    const rangeBasedRoot = reactive({
+      uid: 'uid-range-root',
+      commentId: 'range-root',
+      parentCommentId: null,
+      trackedChangeParentId: 'tc-parent',
+      email: 'root@example.com',
+      commentText: '<p>Root comment</p>',
+      createdTime: 1000,
+      fileId: 'doc-1',
+      fileType: 'DOCX',
+      setActive: vi.fn(),
+      setText: vi.fn(),
+      setIsInternal: vi.fn(),
+      resolveComment: vi.fn(),
+      trackedChange: false,
+      selection: {
+        getValues: () => ({ selectionBounds: { top: 120, bottom: 150, left: 20, right: 40 } }),
+        selectionBounds: { top: 120, bottom: 150, left: 20, right: 40 },
+      },
+    });
+
+    const replyToRoot = reactive({
+      uid: 'uid-range-reply',
+      commentId: 'range-reply',
+      parentCommentId: 'range-root',
+      trackedChangeParentId: 'tc-parent',
+      email: 'reply@example.com',
+      commentText: '<p>Reply comment</p>',
+      createdTime: 1500,
+      fileId: 'doc-1',
+      fileType: 'DOCX',
+      setActive: vi.fn(),
+      setText: vi.fn(),
+      setIsInternal: vi.fn(),
+      resolveComment: vi.fn(),
+      trackedChange: false,
+      selection: {
+        getValues: () => ({ selectionBounds: { top: 120, bottom: 150, left: 20, right: 40 } }),
+        selectionBounds: { top: 120, bottom: 150, left: 20, right: 40 },
+      },
+    });
+
+    const { wrapper } = await mountDialog({
+      props: {
+        autoFocus: false,
+        floatingInstanceId: 'tc::body::tc-parent',
+        isFloatingInstanceActive: false,
+      },
+      baseCommentOverrides: {
+        commentId: 'tc-parent',
+        trackedChange: true,
+        trackedChangeType: 'trackInsert',
+        trackedChangeText: 'Added',
+        createdTime: 500,
+      },
+      extraComments: [replyToRoot, rangeBasedRoot],
+    });
+
+    expect(wrapper.classes()).not.toContain('is-active');
+    expect(wrapper.find('.collapsed-replies').exists()).toBe(false);
+    expect(wrapper.text()).toContain('Root comment');
+    expect(wrapper.text()).toContain('Reply comment');
+  });
+
   it('calls cancelComment with superdoc instance when cancel button is clicked', async () => {
     const { wrapper, baseComment, superdocStub } = await mountDialog();
 

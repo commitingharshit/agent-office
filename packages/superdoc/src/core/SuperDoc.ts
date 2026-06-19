@@ -2390,17 +2390,20 @@ export class SuperDoc extends EventEmitter<SuperDocEventMap> {
    */
   #applyDocumentMode(doc: RuntimeDocument, mode: DocumentMode) {
     const documentId = typeof doc.id === 'string' && doc.id.length > 0 ? doc.id : null;
+    const presentationEditor = typeof doc.getPresentationEditor === 'function' ? doc.getPresentationEditor() : null;
     if (documentId) {
       const runtimes = this.#editorRuntimeRegistry.getAllByDocumentId(documentId);
       if (runtimes.length > 0) {
         for (const runtime of runtimes) {
           runtime.setDocumentMode(mode);
         }
+        if (presentationEditor && this.#isPresentationModeClassStale(presentationEditor, mode)) {
+          presentationEditor.setDocumentMode(mode);
+        }
         return;
       }
     }
 
-    const presentationEditor = typeof doc.getPresentationEditor === 'function' ? doc.getPresentationEditor() : null;
     if (presentationEditor) {
       presentationEditor.setDocumentMode(mode);
       return;
@@ -2409,6 +2412,12 @@ export class SuperDoc extends EventEmitter<SuperDocEventMap> {
     if (editor) {
       editor.setDocumentMode(mode);
     }
+  }
+
+  #isPresentationModeClassStale(presentationEditor: PresentationEditor, mode: DocumentMode): boolean {
+    const classList = presentationEditor.element?.classList;
+    if (!classList || typeof classList.contains !== 'function') return false;
+    return classList.contains('presentation-editor--viewing') !== (mode === 'viewing');
   }
 
   /**

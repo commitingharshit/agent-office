@@ -231,6 +231,12 @@ const bookmarkResolverMocks = vi.hoisted(() => ({
   resolveBookmarkTarget: vi.fn(),
 }));
 
+const trackedChangeResolverMocks = vi.hoisted(() => ({
+  resolveTrackedChange: vi.fn(() => null),
+  resolveTrackedChangeInStory: vi.fn(() => null),
+  resolveTrackedChangeNavigationSelection: vi.fn(() => null),
+}));
+
 // Mock PositionHitResolver
 vi.mock('../input/PositionHitResolver.js', () => ({
   resolvePointerPositionHit: (...args: unknown[]) => mockResolvePointerPositionHit(...args),
@@ -407,6 +413,17 @@ vi.mock('../../../document-api-adapters/helpers/bookmark-resolver.js', async (im
   };
 });
 
+vi.mock('../../../document-api-adapters/helpers/tracked-change-resolver.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../../document-api-adapters/helpers/tracked-change-resolver.js')>();
+  return {
+    ...actual,
+    resolveTrackedChange: trackedChangeResolverMocks.resolveTrackedChange,
+    resolveTrackedChangeInStory: trackedChangeResolverMocks.resolveTrackedChangeInStory,
+    resolveTrackedChangeNavigationSelection: trackedChangeResolverMocks.resolveTrackedChangeNavigationSelection,
+  };
+});
+
 vi.mock('../../header-footer/EditorOverlayManager', () => ({
   EditorOverlayManager: mockEditorOverlayManager,
 }));
@@ -473,6 +490,12 @@ describe('PresentationEditor', () => {
     bookmarkResolverMocks.findAllBookmarksInDocument.mockReset();
     bookmarkResolverMocks.findAllBookmarksInDocument.mockImplementation(() => []);
     bookmarkResolverMocks.resolveBookmarkTarget.mockReset();
+    trackedChangeResolverMocks.resolveTrackedChange.mockReset();
+    trackedChangeResolverMocks.resolveTrackedChange.mockImplementation(() => null);
+    trackedChangeResolverMocks.resolveTrackedChangeInStory.mockReset();
+    trackedChangeResolverMocks.resolveTrackedChangeInStory.mockImplementation(() => null);
+    trackedChangeResolverMocks.resolveTrackedChangeNavigationSelection.mockReset();
+    trackedChangeResolverMocks.resolveTrackedChangeNavigationSelection.mockImplementation(() => null);
 
     // Reset static instances
     (PresentationEditor as typeof PresentationEditor & { instances: Map<string, unknown> }).instances = new Map();
@@ -2930,6 +2953,81 @@ describe('PresentationEditor', () => {
       boundingSpy.mockRestore();
     });
 
+    it('does not activate a header story for stale tracked-change navigation', async () => {
+      mockIncrementalLayout.mockResolvedValueOnce(buildLayoutResult());
+
+      editor = new PresentationEditor({
+        element: container,
+        documentId: 'test-doc',
+      });
+
+      await vi.waitFor(() => expect(mockIncrementalLayout).toHaveBeenCalled());
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const viewport = container.querySelector('.presentation-editor__viewport') as HTMLElement;
+      vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({
+        left: 0,
+        top: 0,
+        width: 800,
+        height: 1000,
+        right: 800,
+        bottom: 1000,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect);
+
+      const page = document.createElement('div');
+      page.className = 'superdoc-page';
+      page.dataset.pageIndex = '0';
+      vi.spyOn(page, 'getBoundingClientRect').mockReturnValue({
+        left: 0,
+        top: 0,
+        width: 612,
+        height: 792,
+        right: 612,
+        bottom: 792,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect);
+
+      const renderedChange = document.createElement('span');
+      renderedChange.dataset.trackChangeId = 'tc-header-1';
+      renderedChange.dataset.storyKey = 'hf:part:rId-header-default';
+      vi.spyOn(renderedChange, 'getBoundingClientRect').mockReturnValue({
+        left: 120,
+        top: 50,
+        width: 20,
+        height: 12,
+        right: 140,
+        bottom: 62,
+        x: 120,
+        y: 50,
+        toJSON: () => ({}),
+      } as DOMRect);
+      page.appendChild(renderedChange);
+      viewport.appendChild(page);
+
+      // Let navigation reach the header story path, then go stale before activation.
+      let guardCallsRemaining = 4;
+      const shouldContinue = vi.fn(() => guardCallsRemaining-- > 0);
+
+      const didNavigate = await editor.navigateTo(
+        {
+          kind: 'entity',
+          entityType: 'trackedChange',
+          entityId: 'tc-header-1',
+          story: { kind: 'story', storyType: 'headerFooterPart', refId: 'rId-header-default' },
+        },
+        { shouldContinue },
+      );
+
+      expect(didNavigate).toBe(false);
+      expect(mockCreateHeaderFooterEditor).not.toHaveBeenCalled();
+      expect(createdSectionEditors.length).toBe(0);
+    });
+
     it('re-emits live header/footer child editor updates and transactions', async () => {
       mockIncrementalLayout.mockResolvedValueOnce(buildLayoutResult());
 
@@ -3238,6 +3336,101 @@ describe('PresentationEditor', () => {
       expect(bookmarkResolverMocks.findAllBookmarksInDocument).toHaveBeenCalled();
       expect(bookmarkResolverMocks.resolveBookmarkTarget).not.toHaveBeenCalled();
       expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    it('scrolls before placing a body tracked-change caret so the selection overlay uses mounted page geometry', async () => {
+      mockIncrementalLayout.mockResolvedValueOnce(buildLayoutResult());
+      trackedChangeResolverMocks.resolveTrackedChangeNavigationSelection.mockReturnValueOnce({ from: 42, to: 42 });
+      const order: string[] = [];
+
+      editor = new PresentationEditor({
+        element: container,
+        documentId: 'test-doc',
+      });
+
+      await vi.waitFor(() => expect(mockIncrementalLayout).toHaveBeenCalled());
+
+      const editorInstance = getLastEditorInstance();
+      editorInstance.commands = {
+        ...(editorInstance.commands ?? {}),
+        setTextSelection: vi.fn(() => {
+          order.push('setTextSelection');
+          return true;
+        }),
+      };
+      vi.spyOn(editor, 'scrollToPositionAsync').mockImplementation(async () => {
+        order.push('scroll');
+        return true;
+      });
+
+      const didNavigate = await editor.navigateTo({
+        kind: 'entity',
+        entityType: 'trackedChange',
+        entityId: 'word:trackInsert:132',
+      });
+
+      expect(didNavigate).toBe(true);
+      expect(editor.scrollToPositionAsync).toHaveBeenCalledWith(
+        42,
+        expect.objectContaining({ behavior: 'auto', block: 'center' }),
+      );
+      expect(editorInstance.commands.setTextSelection).toHaveBeenCalledWith({ from: 42, to: 42 });
+      expect(editorInstance.view.focus).toHaveBeenCalled();
+      expect(order).toEqual(['scroll', 'setTextSelection']);
+    });
+
+    it('exits active header mode before navigating to a body tracked change', async () => {
+      mockIncrementalLayout.mockResolvedValue(buildLayoutResult());
+      trackedChangeResolverMocks.resolveTrackedChangeNavigationSelection.mockReturnValueOnce({ from: 42, to: 42 });
+
+      editor = new PresentationEditor({
+        element: container,
+        documentId: 'test-doc',
+      });
+
+      await vi.waitFor(() => expect(mockIncrementalLayout).toHaveBeenCalled());
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const pagesHost = container.querySelector('.presentation-editor__pages') as HTMLElement;
+      const mockPage = document.createElement('div');
+      mockPage.setAttribute('data-page-index', '0');
+      pagesHost.appendChild(mockPage);
+
+      const viewport = container.querySelector('.presentation-editor__viewport') as HTMLElement;
+      vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue({
+        left: 0,
+        top: 0,
+        width: 800,
+        height: 1000,
+        right: 800,
+        bottom: 1000,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect);
+
+      viewport.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 120, clientY: 50, button: 0 }));
+      await vi.waitFor(() => expect(createdSectionEditors.length).toBeGreaterThan(0));
+
+      const headerEditor = editor.getActiveEditor();
+      const bodyEditor = (Editor as unknown as MockedEditor).mock.results[0].value;
+      bodyEditor.commands = {
+        ...(bodyEditor.commands ?? {}),
+        setTextSelection: vi.fn(() => true),
+      };
+      vi.spyOn(editor, 'scrollToPositionAsync').mockResolvedValue(true);
+      expect(headerEditor).not.toBe(bodyEditor);
+
+      const didNavigate = await editor.navigateTo({
+        kind: 'entity',
+        entityType: 'trackedChange',
+        entityId: 'word:trackInsert:132',
+      });
+
+      expect(didNavigate).toBe(true);
+      expect(editor.getActiveEditor()).toBe(bodyEditor);
+      expect(headerEditor.commands.setTextSelection).not.toHaveBeenCalledWith({ from: 42, to: 42 });
+      expect(bodyEditor.commands.setTextSelection).toHaveBeenCalledWith({ from: 42, to: 42 });
     });
 
     it('exits active header mode before navigating to a body bookmark', async () => {
