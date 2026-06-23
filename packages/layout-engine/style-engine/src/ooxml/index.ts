@@ -64,6 +64,47 @@ export const DEFAULT_TBL_LOOK: TableLookProperties = {
   noVBand: true,
 };
 
+const BUILT_IN_HEADING_NAME_RE = /^heading\s+([1-9])$/i;
+
+function getBuiltInHeadingLevel(styleDef: StyleDefinition | undefined): number | undefined {
+  if (styleDef?.type !== 'paragraph' || typeof styleDef.name !== 'string') {
+    return undefined;
+  }
+
+  const match = BUILT_IN_HEADING_NAME_RE.exec(styleDef.name.trim());
+  if (!match?.[1]) {
+    return undefined;
+  }
+
+  return Number(match[1]);
+}
+
+function resolveStyleDefinition(
+  params: OoxmlResolverParams,
+  styleId: string,
+): { styleId: string; styleDef: StyleDefinition } | undefined {
+  const styles = params.translatedLinkedStyles?.styles;
+  const styleDef = styles?.[styleId];
+  if (!styles || !styleDef) {
+    return undefined;
+  }
+
+  const headingLevel = getBuiltInHeadingLevel(styleDef);
+  const canonicalHeadingStyleId = headingLevel ? `Heading${headingLevel}` : null;
+  const canonicalHeadingStyleDef = canonicalHeadingStyleId ? styles[canonicalHeadingStyleId] : undefined;
+
+  if (
+    canonicalHeadingStyleId &&
+    canonicalHeadingStyleId !== styleId &&
+    canonicalHeadingStyleDef &&
+    getBuiltInHeadingLevel(canonicalHeadingStyleDef) === headingLevel
+  ) {
+    return { styleId: canonicalHeadingStyleId, styleDef: canonicalHeadingStyleDef };
+  }
+
+  return { styleId, styleDef };
+}
+
 export function resolveRunProperties(
   params: OoxmlResolverParams,
   inlineRpr: RunProperties | null | undefined,
@@ -291,21 +332,29 @@ export function resolveStyleChain<T extends PropertyObject>(
 ): T {
   if (!styleId) return {} as T;
 
-  const styleDef = params.translatedLinkedStyles?.styles?.[styleId];
-  if (!styleDef) return {} as T;
+  const resolvedStyle = resolveStyleDefinition(params, styleId);
+  if (!resolvedStyle) return {} as T;
 
+  const { styleDef } = resolvedStyle;
   const styleProps = (styleDef[propertyType as keyof typeof styleDef] ?? {}) as T;
   const basedOn = styleDef.basedOn;
 
   let styleChain: T[] = [styleProps];
-  const seenStyles = new Set<string>([styleId]);
+  const seenStyles = new Set<string>([styleId, resolvedStyle.styleId]);
   let nextBasedOn = basedOn;
   while (followBasedOnChain && nextBasedOn) {
     if (seenStyles.has(nextBasedOn as string)) {
       break;
     }
     seenStyles.add(nextBasedOn as string);
-    const basedOnStyleDef = params.translatedLinkedStyles?.styles?.[nextBasedOn];
+    // Resolve each parent through the canonical heading mapping so derived styles
+    // based on a localized heading (e.g. `MyHeading` basedOn `Kop1`) inherit the
+    // canonical `Heading1` formatting rather than the literal localized definition.
+    const resolvedBasedOn = resolveStyleDefinition(params, nextBasedOn as string);
+    const basedOnStyleDef = resolvedBasedOn?.styleDef;
+    if (resolvedBasedOn) {
+      seenStyles.add(resolvedBasedOn.styleId);
+    }
     const basedOnProps = basedOnStyleDef?.[propertyType as keyof typeof basedOnStyleDef] as T;
 
     if (basedOnProps && Object.keys(basedOnProps).length) {

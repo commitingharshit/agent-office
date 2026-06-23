@@ -60,6 +60,79 @@ describe('ooxml - resolveStyleChain', () => {
     const result = resolveStyleChain('runProperties', params, 'MissingStyle');
     expect(result).toEqual({});
   });
+
+  it('uses canonical built-in heading properties for localized heading style conflicts', () => {
+    const params = buildParams({
+      translatedLinkedStyles: {
+        ...emptyStyles,
+        styles: {
+          Kop1: {
+            type: 'paragraph',
+            styleId: 'Kop1',
+            name: 'heading 1',
+            runProperties: { fontSize: 20, bold: true, color: { val: '000000' } },
+            paragraphProperties: { spacing: { after: 120 } },
+          },
+          Heading1: {
+            type: 'paragraph',
+            styleId: 'Heading1',
+            name: 'heading 1',
+            runProperties: { fontSize: 32, bold: true, color: { val: '1F4E79' } },
+            paragraphProperties: { spacing: { after: 240 }, keepNext: true },
+          },
+        },
+      },
+    });
+
+    expect(resolveStyleChain('runProperties', params, 'Kop1')).toEqual({
+      fontSize: 32,
+      bold: true,
+      color: { val: '1F4E79' },
+    });
+    expect(resolveParagraphProperties(params, { styleId: 'Kop1' }, null)).toEqual({
+      styleId: 'Kop1',
+      spacing: { after: 240 },
+      keepNext: true,
+      indent: undefined,
+    });
+  });
+
+  it('resolves basedOn references through the canonical heading mapping for derived styles', () => {
+    const params = buildParams({
+      translatedLinkedStyles: {
+        ...emptyStyles,
+        styles: {
+          MyHeading: {
+            type: 'paragraph',
+            styleId: 'MyHeading',
+            name: 'My Heading',
+            basedOn: 'Kop1',
+            runProperties: { italic: true },
+          },
+          Kop1: {
+            type: 'paragraph',
+            styleId: 'Kop1',
+            name: 'heading 1',
+            runProperties: { fontSize: 20, bold: true, color: { val: '000000' } },
+          },
+          Heading1: {
+            type: 'paragraph',
+            styleId: 'Heading1',
+            name: 'heading 1',
+            runProperties: { fontSize: 32, color: { val: '1F4E79' } },
+          },
+        },
+      },
+    });
+
+    // A custom style based on the localized `Kop1` must inherit the canonical
+    // `Heading1` formatting, not the literal small/black `Kop1` definition.
+    expect(resolveStyleChain('runProperties', params, 'MyHeading')).toEqual({
+      fontSize: 32,
+      color: { val: '1F4E79' },
+      italic: true,
+    });
+  });
 });
 
 describe('ooxml - getNumberingProperties', () => {
