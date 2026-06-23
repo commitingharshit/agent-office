@@ -1738,6 +1738,73 @@ describe('measureBlock', () => {
       const totalChars = measure.lines.reduce((sum, line) => sum + (line.toChar - line.fromChar), 0);
       expect(totalChars).toBe(3);
     });
+
+    it('matches merged-run wrapping when a numeric run is followed by unspaced CJK text', async () => {
+      const prefix = '2023';
+      const suffix = '年度基层工会职工小家文体活动服务商入围项目';
+      const splitBlock: FlowBlock = {
+        kind: 'paragraph',
+        id: 'cjk-numeric-split-runs',
+        runs: [
+          {
+            text: prefix,
+            fontFamily: 'Arial',
+            fontSize: 26,
+          },
+          {
+            text: suffix,
+            fontFamily: 'Arial',
+            fontSize: 26,
+          },
+        ],
+        attrs: {},
+      };
+      const mergedBlock: FlowBlock = {
+        kind: 'paragraph',
+        id: 'cjk-numeric-merged-run',
+        runs: [
+          {
+            text: `${prefix}${suffix}`,
+            fontFamily: 'Arial',
+            fontSize: 26,
+          },
+        ],
+        attrs: {},
+      };
+
+      const fullWidthMeasure = expectParagraphMeasure(await measureBlock(mergedBlock, 2000));
+      const fullWidth = Math.ceil(fullWidthMeasure.lines[0].width);
+      let matchingWidth: number | undefined;
+      let splitMeasureAtMatch: ParagraphMeasure | undefined;
+      let mergedMeasureAtMatch: ParagraphMeasure | undefined;
+
+      for (let width = fullWidth - 1; width >= Math.max(80, Math.floor(fullWidth * 0.4)); width -= 1) {
+        const mergedCandidate = expectParagraphMeasure(await measureBlock(mergedBlock, width));
+        if (mergedCandidate.lines.length !== 2) continue;
+        if (mergedCandidate.lines[0].toRun !== 0 || mergedCandidate.lines[0].toChar <= prefix.length) continue;
+
+        const splitCandidate = expectParagraphMeasure(await measureBlock(splitBlock, width));
+        const splitLineTexts = splitCandidate.lines.map((line) => extractLineText(splitBlock, line));
+        const mergedLineTexts = mergedCandidate.lines.map((line) => extractLineText(mergedBlock, line));
+
+        if (splitCandidate.lines[0].toRun !== 1 || splitCandidate.lines[0].toChar <= 0) continue;
+        if (splitLineTexts.join('|') !== mergedLineTexts.join('|')) continue;
+
+        matchingWidth = width;
+        splitMeasureAtMatch = splitCandidate;
+        mergedMeasureAtMatch = mergedCandidate;
+        break;
+      }
+
+      expect(matchingWidth).toBeDefined();
+
+      const splitLineTexts = splitMeasureAtMatch!.lines.map((line) => extractLineText(splitBlock, line));
+      const mergedLineTexts = mergedMeasureAtMatch!.lines.map((line) => extractLineText(mergedBlock, line));
+
+      expect(splitMeasureAtMatch!.lines[0].toRun).toBe(1);
+      expect(splitMeasureAtMatch!.lines[0].toChar).toBeGreaterThan(0);
+      expect(splitLineTexts).toEqual(mergedLineTexts);
+    });
   });
 
   describe('deterministic behavior', () => {

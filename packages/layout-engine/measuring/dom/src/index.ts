@@ -2457,11 +2457,38 @@ async function measureParagraphBlock(
         // - We only want to break mid-word when the word truly exceeds available width
         // - Breaking words that exactly fit would cause unnecessary fragmentation
         if (wordOnlyWidth > effectiveMaxWidth + WIDTH_FUDGE_PX && word.length > 1) {
+          // Track the remaining portion of the oversized word. If the current line
+          // already has content, we may be able to place an initial chunk into the
+          // remaining width before finalizing the line.
+          let wordToBreak = word;
+          let wordToBreakStart = wordStartChar;
+
           // First, finish any existing currentLine before processing the long word
           // Only push the line if it has actual text content (segments), not just tab positioning.
           // If the line only has width from tab advances but no text, we should keep it so the
           // long word can use the pending tab alignment.
           if (currentLine && currentLine.width > 0 && currentLine.segments && currentLine.segments.length > 0) {
+            const remainingWidth = currentLine.maxWidth - currentLine.width;
+            if (remainingWidth > WIDTH_FUDGE_PX) {
+              const firstChunks = breakWordIntoChunks(wordToBreak, remainingWidth, font, ctx, run, wordToBreakStart);
+              const firstChunk = firstChunks[0];
+              if (firstChunk && firstChunk.text.length > 0 && firstChunk.text.length < wordToBreak.length) {
+                const firstChunkEnd = wordToBreakStart + firstChunk.text.length;
+                currentLine.toRun = runIndex;
+                currentLine.toChar = firstChunkEnd;
+                currentLine.width = roundValue(currentLine.width + firstChunk.width);
+                currentLine.maxFontSize = Math.max(currentLine.maxFontSize, lineHeightFontSize(run));
+                currentLine.maxFontInfo = getFontInfoFromRun(run, fontContext);
+                currentLine.segments.push({
+                  runIndex,
+                  fromChar: wordToBreakStart,
+                  toChar: firstChunkEnd,
+                  width: firstChunk.width,
+                });
+                wordToBreakStart = firstChunkEnd;
+                wordToBreak = wordToBreak.slice(firstChunk.text.length);
+              }
+            }
             trimTrailingWrapSpaces(currentLine);
             const metrics = finalizeLineMetrics(currentLine, spacing);
             const lineBase = currentLine;
@@ -2489,10 +2516,10 @@ async function measureParagraphBlock(
 
           // Use remaining width for chunking if we have a tab-only line, otherwise use full line width
           const chunkWidth = hasTabOnlyLine ? Math.max(remainingWidthAfterTab, lineMaxWidth * 0.25) : lineMaxWidth;
-          const chunks = breakWordIntoChunks(word, chunkWidth, font, ctx, run, wordStartChar);
+          const chunks = breakWordIntoChunks(wordToBreak, chunkWidth, font, ctx, run, wordToBreakStart);
 
           // Process all chunks except the last one as complete lines
-          let chunkCharOffset = wordStartChar;
+          let chunkCharOffset = wordToBreakStart;
           for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
             const chunk = chunks[chunkIndex];
             const chunkStartChar = chunkCharOffset;
