@@ -1,9 +1,15 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { initTestEditor } from '@tests/helpers/helpers.js';
+import { Editor } from '../../core/Editor.js';
 import { TrackDeleteMarkName, TrackInsertMarkName } from '../../extensions/track-changes/constants.js';
 import { compilePlan } from './compiler.ts';
 import { executeTextRewrite } from './executor.ts';
 import { previewPlan } from './preview.ts';
+import { getWordChanges } from './word-diff.ts';
 
 function makeEditor(paragraphs: string[] = ['hello world']) {
   return initTestEditor({
@@ -62,6 +68,11 @@ function paragraph(nodeId: string, text: string, listIndex?: number) {
   };
 }
 
+const SD3478_EXECUTOR_SOURCE =
+  'I appoint Pat Example of 20 Oak Avenue, Sampletown and Example Trust Company of [address] as my executors and trustees. If either of my executors is unable or unwilling to act, then I appoint Example Trust Company as executor and trustee in their place.';
+const SD3478_GIFT_SOURCE =
+  'I give my freehold property known as 42 Example Cottage, Sample Bay to my partner and my children in equal shares absolutely. If any of my children dies before me, their share shall pass to their own children in equal shares.';
+
 function makeSd3478Editor() {
   return initTestEditor({
     loadFromSchema: true,
@@ -72,19 +83,57 @@ function makeSd3478Editor() {
           'OPENING1',
           'I, Jordan Example of 10 Market Road, Sampletown revoke all earlier wills and declare this to be my will.',
         ),
-        paragraph(
-          'EXECUTOR',
-          'I appoint Pat Example of 20 Oak Avenue, Sampletown and Example Trust Company of [address] as my executors and trustees. If either of my executors is unable or unwilling to act, then I appoint Example Trust Company as executor and trustee in their place.',
-          1,
-        ),
-        paragraph(
-          'GIFTITEM',
-          'I give my freehold property known as 42 Example Cottage, Sample Bay to my partner and my children in equal shares absolutely. If any of my children dies before me, their share shall pass to their own children in equal shares.',
-          2,
-        ),
+        paragraph('EXECUTOR', SD3478_EXECUTOR_SOURCE, 1),
+        paragraph('GIFTITEM', SD3478_GIFT_SOURCE, 2),
         paragraph('RESIDUE', 'I give the residue of my estate to the same beneficiaries in the same shares.', 3),
       ],
     },
+    user: { name: 'Integration User', email: 'integration@example.com' },
+    useImmediateSetTimeout: false,
+  }).editor;
+}
+
+const SD3478_EXECUTOR_REPLACEMENT =
+  'I appoint my wife Rachel Louise Whitfield of 14 Beech Grove, Godalming, Surrey and [name of professional executor — e.g. Executor Services Limited] of [address] as my executors and trustees. I further appoint my son Thomas Andrew Whitfield to act as an additional executor and trustee upon his attaining the age of 25 years. If either of my executors or trustees is unable or unwilling to act or dies before proving my will, then I appoint [name of professional executor / substitute] of [city], [occupation] as executor and trustee in their place.';
+const SD3478_GIFT_REPLACEMENT =
+  'I give my freehold property known as 7 Sea View Cottage, Whitstable, Kent (which I own solely and which is free of mortgage) to my wife Rachel Louise Whitfield and my children Emily Grace Whitfield, Thomas Andrew Whitfield and Jessica Ann Whitfield in equal shares absolutely. If any of my children dies before me, their share shall pass to their own children in equal shares, or if none, to the survivors of the named beneficiaries in equal shares.';
+const SD3478_CORPUS_RELATIVE_PATH = 'behavior/document-api/sd-3478-will-life-interest.docx';
+const PRIVATE_SUPERDOC_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../../../..');
+
+function resolveCorpusFixturePath(relativePath: string): string | null {
+  const corpusRoots = [
+    process.env.SUPERDOC_LAYOUT_CORPUS_ROOT,
+    process.env.SUPERDOC_CORPUS_ROOT,
+    resolve(PRIVATE_SUPERDOC_ROOT, 'tests/corpus'),
+  ].filter(Boolean) as string[];
+
+  for (const corpusRoot of corpusRoots) {
+    const fixturePath = resolve(corpusRoot, relativePath);
+    if (existsSync(fixturePath)) return fixturePath;
+  }
+
+  return null;
+}
+
+const sd3478CorpusFixturePath = resolveCorpusFixturePath(SD3478_CORPUS_RELATIVE_PATH);
+const itWithSd3478CorpusFixture = sd3478CorpusFixturePath ? it : it.skip;
+
+async function makeSd3478FixtureEditor() {
+  if (!sd3478CorpusFixturePath) {
+    throw new Error(
+      `Missing SD-3478 corpus fixture. Pull ${SD3478_CORPUS_RELATIVE_PATH} with pnpm --dir superdoc run corpus:pull.`,
+    );
+  }
+
+  const fileSource = await readFile(sd3478CorpusFixturePath);
+  const [docx, media, mediaFiles, fonts] = await Editor.loadXmlData(fileSource, true);
+
+  return initTestEditor({
+    content: docx,
+    media,
+    mediaFiles,
+    fonts,
+    isHeadless: true,
     user: { name: 'Integration User', email: 'integration@example.com' },
     useImmediateSetTimeout: false,
   }).editor;
@@ -145,6 +194,25 @@ function markedTextByAuthor(editor: any, markName: string, authorEmail: string):
       parts.push(node.text);
     }
   });
+  return parts.join('');
+}
+
+function markedTextForBlockByAuthor(editor: any, nodeId: string, markName: string, authorEmail: string): string {
+  const parts: string[] = [];
+
+  editor.state.doc.descendants((node: any) => {
+    const attrs = node.attrs ?? {};
+    if (attrs.paraId !== nodeId && attrs.sdBlockId !== nodeId) return true;
+
+    node.descendants((child: any) => {
+      if (!child.isText || !child.text) return;
+      if (child.marks.some((mark: any) => mark.type.name === markName && mark.attrs.authorEmail === authorEmail)) {
+        parts.push(child.text);
+      }
+    });
+    return false;
+  });
+
   return parts.join('');
 }
 
@@ -642,6 +710,71 @@ describe('doc.replace multi-paragraph integration', () => {
     expect(markedTextByAuthor(editor, TrackInsertMarkName, 'integration@example.com')).toBe('qux zap');
   });
 
+  it('keeps unchanged anchors live for large single tracked rewrites', () => {
+    const source = 'A x1 B x2 C x3 D x4 E x5 F x6 G x7 H x8 I x9 J';
+    const target = 'A y1 B y2 C y3 D y4 E y5 F y6 G y7 H y8 I y9 J';
+    expect(getWordChanges(source, target)).toHaveLength(9);
+    editor = makeEditor([source]);
+    const receipt = editor.doc.replace(
+      {
+        ref: getFirstMatchRef(editor, source),
+        text: target,
+      },
+      { changeMode: 'tracked' },
+    );
+
+    expect(receipt.success).toBe(true);
+
+    const acceptedParts: string[] = [];
+    editor.state.doc.descendants((node: any) => {
+      if (!node.isText || !node.text) return;
+      const isDeleted = node.marks.some((mark: any) => mark.type.name === TrackDeleteMarkName);
+      if (!isDeleted) acceptedParts.push(node.text);
+    });
+
+    const deleted = markedTextByAuthor(editor, TrackDeleteMarkName, 'integration@example.com');
+    const inserted = markedTextByAuthor(editor, TrackInsertMarkName, 'integration@example.com');
+    expect(acceptedParts.join('')).toBe(target);
+    expect(deleted).toContain('x1');
+    expect(deleted).not.toContain('A');
+    expect(deleted).not.toContain('B');
+    expect(deleted).not.toContain('J');
+    expect(inserted).toContain('y1');
+    expect(inserted).not.toContain('A');
+    expect(inserted).not.toContain('B');
+    expect(inserted).not.toContain('J');
+  });
+
+  it('uses coarse fallback for single tracked rewrites above the granular threshold', () => {
+    expect(getWordChanges(SD3478_EXECUTOR_SOURCE, SD3478_EXECUTOR_REPLACEMENT).length).toBeGreaterThan(9);
+
+    editor = makeSd3478Editor();
+    const receipt = editor.doc.mutations.apply({
+      atomic: true,
+      changeMode: 'tracked',
+      steps: [
+        {
+          id: 'rewrite-executor',
+          op: 'text.rewrite',
+          where: { by: 'block', nodeType: 'listItem', nodeId: 'EXECUTOR' },
+          args: {
+            replacement: { text: SD3478_EXECUTOR_REPLACEMENT },
+            style: { inline: { mode: 'preserve' } },
+          },
+        },
+      ],
+    });
+
+    expect(receipt.success).toBe(true);
+    expect(acceptedTextForBlock(editor, 'EXECUTOR')).toBe(SD3478_EXECUTOR_REPLACEMENT);
+    expect(markedTextForBlockByAuthor(editor, 'EXECUTOR', TrackDeleteMarkName, 'integration@example.com')).toBe(
+      SD3478_EXECUTOR_SOURCE,
+    );
+    expect(markedTextForBlockByAuthor(editor, 'EXECUTOR', TrackInsertMarkName, 'integration@example.com')).toBe(
+      SD3478_EXECUTOR_REPLACEMENT,
+    );
+  });
+
   it('keeps single tracked rewrite granularity inside mixed mutation plans', () => {
     editor = makeEditor(['foo bar baz', 'tail']);
     const receipt = editor.doc.mutations.apply({
@@ -709,8 +842,8 @@ describe('doc.replace multi-paragraph integration', () => {
     });
 
     expect(receipt.success).toBe(true);
-    expect(markedTextByAuthor(editor, TrackDeleteMarkName, 'integration@example.com')).toBe('barbar baz');
-    expect(markedTextByAuthor(editor, TrackInsertMarkName, 'integration@example.com')).toBe('qux zapqux baz zap');
+    expect(markedTextByAuthor(editor, TrackDeleteMarkName, 'integration@example.com')).toBe('barfoo bar baz');
+    expect(markedTextByAuthor(editor, TrackInsertMarkName, 'integration@example.com')).toBe('qux zapfoo qux baz zap');
   });
 
   it('SD-3478: synthetic tracked batch keeps later list rewrite clean after earlier rewrites', () => {
@@ -832,4 +965,99 @@ describe('doc.replace multi-paragraph integration', () => {
     expect(acceptedTextForBlock(editor, 'EXECUTOR')).toBe(executorReplacement);
     expect(acceptedTextForBlock(editor, 'GIFTITEM')).toBe(giftReplacement);
   });
+
+  itWithSd3478CorpusFixture('SD-3478: fixture single executor rewrite projection stays clean', async () => {
+    editor = await makeSd3478FixtureEditor();
+
+    const receipt = editor.doc.mutations.apply({
+      atomic: true,
+      changeMode: 'tracked',
+      steps: [
+        {
+          id: 'rewrite-executor',
+          op: 'text.rewrite',
+          where: { by: 'block', nodeType: 'listItem', nodeId: '6489CE71' },
+          args: {
+            replacement: { text: SD3478_EXECUTOR_REPLACEMENT },
+            style: { inline: { mode: 'preserve' } },
+          },
+        },
+      ],
+    });
+
+    expect(receipt.success).toBe(true);
+
+    const executorAccepted = acceptedTextForBlock(editor, '6489CE71');
+    const executorInserted = markedTextForBlockByAuthor(
+      editor,
+      '6489CE71',
+      TrackInsertMarkName,
+      'integration@example.com',
+    );
+
+    expect(executorAccepted).toBe(SD3478_EXECUTOR_REPLACEMENT);
+    expect(executorInserted).not.toContain('oprofessional executor / substitute');
+    expect(executorInserted).not.toContain('of f [city]');
+    expect(executorInserted).not.toContain('executo and trusteer');
+  });
+
+  itWithSd3478CorpusFixture(
+    'SD-3478: fixture tracked batch keeps executor and gift rewrite projections clean',
+    async () => {
+      editor = await makeSd3478FixtureEditor();
+
+      const receipt = editor.doc.mutations.apply({
+        atomic: true,
+        changeMode: 'tracked',
+        steps: [
+          {
+            id: 'rewrite-executor',
+            op: 'text.rewrite',
+            where: { by: 'block', nodeType: 'listItem', nodeId: '6489CE71' },
+            args: {
+              replacement: { text: SD3478_EXECUTOR_REPLACEMENT },
+              style: { inline: { mode: 'preserve' } },
+            },
+          },
+          {
+            id: 'rewrite-gift',
+            op: 'text.rewrite',
+            where: { by: 'block', nodeType: 'listItem', nodeId: '35102C49' },
+            args: {
+              replacement: { text: SD3478_GIFT_REPLACEMENT },
+              style: { inline: { mode: 'preserve' } },
+            },
+          },
+        ],
+      });
+
+      expect(receipt.success).toBe(true);
+
+      const executorAccepted = acceptedTextForBlock(editor, '6489CE71');
+      const giftAccepted = acceptedTextForBlock(editor, '35102C49');
+      const executorInserted = markedTextForBlockByAuthor(
+        editor,
+        '6489CE71',
+        TrackInsertMarkName,
+        'integration@example.com',
+      );
+      const giftInserted = markedTextForBlockByAuthor(
+        editor,
+        '35102C49',
+        TrackInsertMarkName,
+        'integration@example.com',
+      );
+
+      expect.soft(executorAccepted).toBe(SD3478_EXECUTOR_REPLACEMENT);
+      expect.soft(giftAccepted).toBe(SD3478_GIFT_REPLACEMENT);
+      expect.soft(giftAccepted.startsWith('I give my')).toBe(true);
+      expect.soft(giftAccepted).not.toContain('give To');
+      expect.soft(giftAccepted.endsWith('s]')).toBe(false);
+      expect.soft(executorInserted).not.toContain('oprofessional executor / substitute');
+      expect.soft(executorInserted).not.toContain('of f [city]');
+      expect.soft(executorInserted).not.toContain('executo and trusteer');
+      expect.soft(giftInserted.startsWith('I give my')).toBe(true);
+      expect.soft(giftInserted).not.toContain('give To');
+    },
+  );
 });

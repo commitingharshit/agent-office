@@ -165,6 +165,10 @@ const DEBUG_TEXT_REWRITE =
     : false;
 const TRACKED_REWRITE_BATCH_META = 'documentApiTrackedRewriteBatch';
 const TRACKED_REWRITE_CHANGED_META = 'documentApiTrackedRewriteChanged';
+// Keep <=9-change single rewrites granular so unchanged anchors stay live. The
+// SD-3478 large-rewrite regressions cross this boundary and need coarse replace
+// to avoid remapped tracked diff steps leaving corrupted anchors in accepted text.
+const MAX_GRANULAR_TRACKED_REWRITE_CHANGES = 9;
 
 function debugTextRewrite(message: string, details?: Record<string, unknown>): void {
   if (!DEBUG_TEXT_REWRITE) return;
@@ -182,6 +186,10 @@ function isTrackedRewriteBatchTransaction(tr: Transaction): boolean {
   return (
     isTrackedMutationTransaction(tr) && tr.getMeta(TRACKED_REWRITE_BATCH_META) === true && hasTrackedRewriteChanged(tr)
   );
+}
+
+function shouldUseCoarseSingleTrackedRewrite(tr: Transaction, wordChangeCount: number): boolean {
+  return isTrackedMutationTransaction(tr) && wordChangeCount > MAX_GRANULAR_TRACKED_REWRITE_CHANGES;
 }
 
 function hasTrackedRewriteChanged(tr: Transaction): boolean {
@@ -1022,12 +1030,17 @@ export function executeTextRewrite(
   const trimmedNew = replacementText.slice(prefix, replLen - suffix);
 
   if (isTrackedRewriteBatchTransaction(tr)) {
-    replaceTextRange(trimmedFrom, trimmedTo, trimmedNew, trimmedFrom);
+    replaceTextRange(absFrom, absTo, replacementText, absFrom);
     return finish(replacementText !== target.text);
   }
 
   // 2. Word-level diff on the trimmed range for multi-word granularity.
   const wordChanges = getWordChanges(trimmedOld, trimmedNew);
+
+  if (shouldUseCoarseSingleTrackedRewrite(tr, wordChanges.length)) {
+    replaceTextRange(absFrom, absTo, replacementText, absFrom);
+    return finish(replacementText !== target.text);
+  }
 
   if (wordChanges.length > 1) {
     // Multiple word-level changes: apply each granularly.
