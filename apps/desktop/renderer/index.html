@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SuperDoc Desktop</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Top Menu Bar -->
+  <div class="menu-bar">
+    <div class="menu-group">
+      <button class="menu-button" onclick="openFolder()">
+        <span class="menu-icon">📁</span> Open Folder
+      </button>
+      <button class="menu-button" onclick="openFile()">
+        <span class="menu-icon">📄</span> Open File
+      </button>
+    </div>
+    <div class="menu-group">
+      <span class="status-text" id="workspace-path">No workspace selected</span>
+    </div>
+    <div class="menu-group">
+      <button class="menu-button" onclick="toggleAgentPanel()">
+        <span class="menu-icon">🤖</span> Agent
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Container with 3-pane layout -->
+  <div class="app-container">
+    <!-- Left Pane: Workspace Tree -->
+    <div class="left-pane" id="workspace-tree">
+      <div class="pane-header">
+        <span class="pane-title">📁 Explorer</span>
+      </div>
+      <div class="pane-content">
+        <div class="tree-item workspace-root">
+          <span class="tree-icon">📁</span>
+          <span class="tree-label">Workspace</span>
+        </div>
+        <div class="tree-item tree-placeholder">
+          <em>Open a folder to see files</em>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center Pane: Editor -->
+    <div class="center-pane" id="editor-pane">
+      <div class="pane-header">
+        <span class="pane-title">📝 Editor</span>
+        <div class="pane-actions">
+          <span class="tab-indicator" id="active-tab-indicator">
+            No document open
+          </span>
+        </div>
+      </div>
+      <div class="pane-content editor-content" id="editor-content">
+        <div class="editor-placeholder">
+          <div class="placeholder-icon">📄</div>
+          <h2>Welcome to SuperDoc Desktop</h2>
+          <p>Open a DOCX file to start editing</p>
+          <button class="placeholder-button" onclick="openFile()">
+            Open DOCX File
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Pane: Agent Sidebar -->
+    <div class="right-pane" id="agent-sidebar">
+      <div class="pane-header">
+        <span class="pane-title">🤖 Agent</span>
+        <div class="pane-actions">
+          <button class="pane-action-button" onclick="toggleAgentPanel()" 
+                  title="Toggle Agent Panel">
+            ×
+          </button>
+        </div>
+      </div>
+      <div class="pane-content">
+        <div class="agent-placeholder">
+          <h3>Agent Assistant</h3>
+          <p>Ask questions about your document or request edits.</p>
+          <div class="agent-input">
+            <input type="text" placeholder="Ask the agent..." 
+                   id="agent-input" disabled>
+            <button class="agent-send-button" disabled>→</button>
+          </div>
+          <div class="agent-message">
+            <em>Open a document to enable the agent</em>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="index.js"></script>
+</body>
+</html>

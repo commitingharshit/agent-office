@@ -1,0 +1,367 @@
+/**
+ * SuperDoc Desktop - VS Code-like Styles
+ * 
+ * This CSS provides a VS Code-like dark theme layout
+ * for the desktop application.
+ */
+
+/* Reset and Base Styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  background-color: #1e1e1e;
+  color: #cccccc;
+  overflow: hidden;
+}
+
+/* Menu Bar Styles */
+.menu-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 35px;
+  background-color: #252526;
+  border-bottom: 1px solid #1e1e1e;
+  padding: 0 10px;
+}
+
+.menu-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.menu-button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 25px;
+  padding: 0 12px;
+  background-color: transparent;
+  border: 1px solid #454545;
+  border-radius: 4px;
+  color: #cccccc;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.menu-button:hover {
+  background-color: #2d2d2d;
+  border-color: #6e6e6e;
+}
+
+.menu-button:active {
+  background-color: #252526;
+}
+
+.menu-icon {
+  font-size: 14px;
+}
+
+.status-text {
+  font-size: 12px;
+  color: #888888;
+  padding: 0 10px;
+}
+
+/* Main App Container */
+.app-container {
+  display: flex;
+  height: calc(100vh - 35px);
+  width: 100%;
+  overflow: hidden;
+}
+
+/* Left Pane - Workspace Tree */
+.left-pane {
+  width: 250px;
+  min-width: 200px;
+  max-width: 350px;
+  background-color: #252526;
+  border-right: 1px solid #1e1e1e;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 35px;
+  padding: 0 10px;
+  background-color: #2d2d2d;
+  border-bottom: 1px solid #1e1e1e;
+}
+
+.pane-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #cccccc;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.pane-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 5px;
+}
+
+/* Workspace Tree Items */
+.tree-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 3px;
+  font-size: 13px;
+  cursor: default;
+}
+
+.tree-item:hover {
+  background-color: #2d2d2d;
+}
+
+.tree-icon {
+  font-size: 14px;
+  width: 16px;
+  text-align: center;
+}
+
+.tree-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-placeholder {
+  color: #666666;
+  font-size: 12px;
+  padding: 20px 8px;
+}
+
+.workspace-root {
+  font-weight: 600;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+/* Center Pane - Editor */
+.center-pane {
+  flex: 1;
+  min-width: 300px;
+  background-color: #1e1e1e;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tab-indicator {
+  font-size: 12px;
+  color: #888888;
+}
+
+.editor-content {
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+}
+
+/* Editor Placeholder */
+.editor-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  color: #666666;
+}
+
+.placeholder-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+  opacity: 0.5;
+}
+
+.editor-placeholder h2 {
+  font-size: 18px;
+  color: #cccccc;
+  margin-bottom: 10px;
+}
+
+.editor-placeholder p {
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.placeholder-button {
+  padding: 10px 20px;
+  background-color: #0e639c;
+  color: #ffffff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.placeholder-button:hover {
+  background-color: #1177bb;
+}
+
+/* Right Pane - Agent Sidebar */
+.right-pane {
+  width: 300px;
+  min-width: 250px;
+  max-width: 400px;
+  background-color: #252526;
+  border-left: 1px solid #1e1e1e;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pane-action-button {
+  background: transparent;
+  border: none;
+  color: #888888;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+
+.pane-action-button:hover {
+  background-color: #2d2d2d;
+  color: #cccccc;
+}
+
+/* Agent Placeholder */
+.agent-placeholder {
+  padding: 15px;
+  text-align: center;
+}
+
+.agent-placeholder h3 {
+  font-size: 16px;
+  color: #cccccc;
+  margin-bottom: 10px;
+}
+
+.agent-placeholder p {
+  font-size: 13px;
+  color: #888888;
+  margin-bottom: 20px;
+}
+
+.agent-input {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 15px;
+}
+
+.agent-input input {
+  flex: 1;
+  padding: 8px 12px;
+  background-color: #3e3e42;
+  border: 1px solid #252526;
+  border-radius: 4px;
+  color: #cccccc;
+  font-size: 13px;
+}
+
+.agent-input input:focus {
+  outline: none;
+  border-color: #007acc;
+}
+
+.agent-input input::placeholder {
+  color: #666666;
+}
+
+.agent-send-button {
+  padding: 8px 15px;
+  background-color: #0e639c;
+  color: #ffffff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.agent-send-button:hover {
+  background-color: #1177bb;
+}
+
+.agent-send-button:disabled {
+  background-color: #3e3e42;
+  cursor: not-allowed;
+}
+
+.agent-message {
+  padding: 10px;
+  background-color: #2d2d2d;
+  border-radius: 4px;
+  text-align: left;
+  font-size: 12px;
+}
+
+/* Hidden state for panels */
+.right-pane.hidden {
+  display: none;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #454545;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555555;
+}
+
+/* Focus styles */
+button:focus, input:focus {
+  outline: 1px solid #007acc;
+  outline-offset: -1px;
+}
+
+/* Selection */
+::selection {
+  background-color: #264f78;
+  color: #ffffff;
+}
+
+/* Active tab indicator */
+.tab-indicator.has-document {
+  color: #007acc;
+}
