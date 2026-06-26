@@ -1,224 +1,152 @@
 /**
- * SuperDoc Desktop - Workspace State Store
- * 
- * This is a simple reactive state management for the workspace.
- * In Phase 0, this is a basic implementation.
- * In later phases, this may be replaced with a more sophisticated store
- * or moved to a separate package (desktop-core).
+ * SuperDoc Desktop workspace store.
+ *
+ * The main process owns the canonical state. The renderer receives snapshots
+ * and requests state transitions through the preload bridge.
  */
 
-// Initial state
-let state = {
+const INITIAL_STATE = {
   workspacePath: null,
+  workspaceTree: null,
   openTabs: [],
   activeTab: null,
   activeDocument: null,
-  agentPanelVisible: true
+  agentPanelVisible: true,
+  selectedPath: null,
+  selectedEntryType: null
 };
 
-// Array of subscribers (callback functions)
-const subscribers = [];
+export function createWorkspaceStore(initialState = {}) {
+  let state = createState(initialState);
+  const subscribers = new Set();
 
-/**
- * Get the current workspace state
- * @returns {Object} Current state
- */
-export function getState() {
-  return { ...state };
-}
-
-/**
- * Set the workspace path
- * @param {string} path - Absolute path to workspace folder
- */
-export function setWorkspacePath(path) {
-  state.workspacePath = path;
-  notifySubscribers();
-}
-
-/**
- * Add a new tab
- * @param {Object} tabInfo - Tab information
- * @param {string} tabInfo.path - File path
- * @param {string} tabInfo.name - Display name
- * @param {string} tabInfo.type - File type
- * @returns {string} Generated tab ID
- */
-export function addTab(tabInfo) {
-  const tabId = `tab-${Date.now()}`;
-  state.openTabs.push({
-    id: tabId,
-    ...tabInfo
-  });
-  
-  // If this is the first tab, make it active
-  if (state.openTabs.length === 1) {
-    state.activeTab = tabId;
-    state.activeDocument = tabId;
-  }
-  
-  notifySubscribers();
-  return tabId;
-}
-
-/**
- * Set the active tab
- * @param {string} tabId - Tab ID to activate
- */
-export function setActiveTab(tabId) {
-  const tabExists = state.openTabs.some(tab => tab.id === tabId);
-  if (tabExists) {
-    state.activeTab = tabId;
-    state.activeDocument = tabId;
-    notifySubscribers();
-  } else {
-    console.warn(`Tab ${tabId} does not exist`);
-  }
-}
-
-/**
- * Close a tab
- * @param {string} tabId - Tab ID to close
- */
-export function closeTab(tabId) {
-  const index = state.openTabs.findIndex(tab => tab.id === tabId);
-  
-  if (index !== -1) {
-    state.openTabs.splice(index, 1);
-    
-    // If the closed tab was active, clear active tab
-    if (state.activeTab === tabId) {
-      state.activeTab = null;
-      state.activeDocument = null;
+  function emit() {
+    const snapshot = getState();
+    for (const subscriber of subscribers) {
+      subscriber(snapshot);
     }
-    
-    // If there are still tabs, activate the first one
-    if (state.openTabs.length > 0 && !state.activeTab) {
-      state.activeTab = state.openTabs[0].id;
-      state.activeDocument = state.openTabs[0].id;
-    }
-    
-    notifySubscribers();
-    return true;
   }
-  
-  return false;
-}
 
-/**
- * Close all tabs
- */
-export function closeAllTabs() {
-  state.openTabs = [];
-  state.activeTab = null;
-  state.activeDocument = null;
-  notifySubscribers();
-}
+  function setState(nextState) {
+    state = {
+      ...state,
+      ...nextState
+    };
+    emit();
+  }
 
-/**
- * Set active document
- * @param {string} sessionId - Document session ID
- */
-export function setActiveDocument(sessionId) {
-  state.activeDocument = sessionId;
-  notifySubscribers();
-}
-
-/**
- * Toggle agent panel visibility
- * @returns {boolean} New visibility state
- */
-export function toggleAgentPanel() {
-  state.agentPanelVisible = !state.agentPanelVisible;
-  notifySubscribers();
-  return state.agentPanelVisible;
-}
-
-/**
- * Set agent panel visibility
- * @param {boolean} visible - Visibility state
- */
-export function setAgentPanelVisible(visible) {
-  state.agentPanelVisible = visible;
-  notifySubscribers();
-}
-
-/**
- * Get tab by ID
- * @param {string} tabId - Tab ID
- * @returns {Object|null} Tab object or null
- */
-export function getTab(tabId) {
-  return state.openTabs.find(tab => tab.id === tabId) || null;
-}
-
-/**
- * Get active tab
- * @returns {Object|null} Active tab or null
- */
-export function getActiveTab() {
-  return state.openTabs.find(tab => tab.id === state.activeTab) || null;
-}
-
-/**
- * Get all tabs
- * @returns {Array} Array of all tabs
- */
-export function getAllTabs() {
-  return [...state.openTabs];
-}
-
-/**
- * Get workspace path
- * @returns {string|null} Workspace path or null
- */
-export function getWorkspacePath() {
-  return state.workspacePath;
-}
-
-/**
- * Reset state to initial
- */
-export function reset() {
-  state = {
-    workspacePath: null,
-    openTabs: [],
-    activeTab: null,
-    activeDocument: null,
-    agentPanelVisible: true
+  return {
+    getState,
+    subscribe,
+    reset,
+    setWorkspace,
+    clearWorkspace,
+    setWorkspaceTree,
+    setSelectedEntry,
+    addTab,
+    setActiveTab,
+    closeTab,
+    toggleAgentPanel
   };
-  notifySubscribers();
+
+  function getState() {
+    return structuredClone(state);
+  }
+
+  function subscribe(callback) {
+    subscribers.add(callback);
+    return () => {
+      subscribers.delete(callback);
+    };
+  }
+
+  function reset() {
+    state = createState();
+    emit();
+  }
+
+  function setWorkspace(workspacePath) {
+    setState({
+      workspacePath,
+      selectedPath: workspacePath,
+      selectedEntryType: 'directory'
+    });
+  }
+
+  function clearWorkspace() {
+    setState({
+      workspacePath: null,
+      workspaceTree: null,
+      selectedPath: null,
+      selectedEntryType: null
+    });
+  }
+
+  function setWorkspaceTree(workspaceTree) {
+    setState({ workspaceTree });
+  }
+
+  function setSelectedEntry(selectedPath, selectedEntryType) {
+    setState({ selectedPath, selectedEntryType });
+  }
+
+  function addTab(tab) {
+    const existingTab = state.openTabs.find((entry) => entry.path === tab.path);
+
+    if (existingTab) {
+      setActiveTab(existingTab.id);
+      return existingTab;
+    }
+
+    const nextTab = { ...tab };
+    const openTabs = [...state.openTabs, nextTab];
+    setState({
+      openTabs,
+      activeTab: nextTab.id,
+      activeDocument: nextTab.id,
+      selectedPath: nextTab.path,
+      selectedEntryType: 'file'
+    });
+    return nextTab;
+  }
+
+  function setActiveTab(tabId) {
+    const activeTab = state.openTabs.find((entry) => entry.id === tabId);
+    if (!activeTab) return null;
+
+    setState({
+      activeTab: activeTab.id,
+      activeDocument: activeTab.id,
+      selectedPath: activeTab.path,
+      selectedEntryType: 'file'
+    });
+    return activeTab;
+  }
+
+  function closeTab(tabId) {
+    const openTabs = state.openTabs.filter((entry) => entry.id !== tabId);
+    const wasActive = state.activeTab === tabId;
+    const nextActiveTab = wasActive ? openTabs[0] ?? null : openTabs.find((entry) => entry.id === state.activeTab) ?? null;
+
+    setState({
+      openTabs,
+      activeTab: nextActiveTab?.id ?? null,
+      activeDocument: nextActiveTab?.id ?? null,
+      selectedPath: nextActiveTab?.path ?? state.workspacePath,
+      selectedEntryType: nextActiveTab ? 'file' : state.workspacePath ? 'directory' : null
+    });
+  }
+
+  function toggleAgentPanel() {
+    const agentPanelVisible = !state.agentPanelVisible;
+    setState({ agentPanelVisible });
+    return agentPanelVisible;
+  }
 }
 
-/**
- * Subscribe to state changes
- * @param {Function} callback - Callback function
- * @returns {Function} Unsubscribe function
- */
-export function subscribe(callback) {
-  subscribers.push(callback);
-  
-  // Return unsubscribe function
-  return () => {
-    const index = subscribers.indexOf(callback);
-    if (index !== -1) {
-      subscribers.splice(index, 1);
-    }
+function createState(initialState = {}) {
+  return {
+    ...INITIAL_STATE,
+    ...structuredClone(initialState)
   };
 }
-
-/**
- * Notify all subscribers of state change
- */
-function notifySubscribers() {
-  subscribers.forEach(callback => {
-    try {
-      callback({ ...state });
-    } catch (error) {
-      console.error('Error in subscriber callback:', error);
-    }
-  });
-}
-
-// Export the current state for debugging
-export { state };

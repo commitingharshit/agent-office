@@ -1,9 +1,11 @@
 {
   "name": "superdoc-desktop",
+  "private": true,
   "version": "0.0.1",
   "description": "SuperDoc Desktop IDE - VS Code-like editor for DOCX files",
   "main": "main.js",
   "type": "module",
+  "packageManager": "pnpm@10.25.0",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --remote-debugging-port=9229"
@@ -18,9 +20,11 @@
   "author": "SuperDoc Team",
   "license": "AGPL-3.0",
   "dependencies": {
+    "superdoc": "workspace:*"
+  },
+  "devDependencies": {
     "electron": "^31.0.0"
   },
-  "devDependencies": {},
   "engines": {
     "node": ">=18.0.0"
   }

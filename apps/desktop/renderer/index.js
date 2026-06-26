@@ -1,342 +1,549 @@
-/**
- * SuperDoc Desktop - Renderer Process
- * 
- * This is the frontend JavaScript that runs in the renderer process.
- * It handles UI interactions, communicates with the main process via IPC,
- * and manages the workspace state.
- */
-
-// Expose global functions for HTML onclick handlers
-window.openFolder = openFolder;
-window.openFile = openFile;
-window.toggleAgentPanel = toggleAgentPanel;
-
-// Workspace state (mirrored from main process)
 let workspaceState = {
   workspacePath: null,
+  workspaceTree: null,
   openTabs: [],
   activeTab: null,
   activeDocument: null,
-  agentPanelVisible: true
+  agentPanelVisible: true,
+  selectedPath: null,
+  selectedEntryType: null
 };
 
-// DOM element references
+// Document session state (Phase 2)
+let activeSuperDocInstance = null;
+let currentTabId = null;
+
 const workspacePathEl = document.getElementById('workspace-path');
-const activeTabIndicatorEl = document.getElementById('active-tab-indicator');
-const agentSidebarEl = document.getElementById('agent-sidebar');
+const workspaceSummaryEl = document.getElementById('workspace-summary');
 const workspaceTreeEl = document.getElementById('workspace-tree');
+const activeTabIndicatorEl = document.getElementById('active-tab-indicator');
+const tabStripEl = document.getElementById('tab-strip');
+const editorContentEl = document.getElementById('editor-content');
+const agentSidebarEl = document.getElementById('agent-sidebar');
+const selectionStatusEl = document.getElementById('selection-status');
+const documentStatusEl = document.getElementById('document-status');
+const superdocContainerEl = document.getElementById('superdoc-container');
+const documentToolbarEl = document.getElementById('document-toolbar');
 
-/**
- * Initialize the application
- */
-function init() {
-  console.log('SuperDoc Desktop Renderer: Initializing...');
-  
-  // Setup IPC listeners for messages from main process
-  setupIPCListeners();
-  
-  // Load initial state
-  loadInitialState();
-  
-  // Update UI based on state
-  updateUI();
-  
-  console.log('SuperDoc Desktop Renderer: Initialized');
-}
+// Toolbar mode buttons
+const modeViewingBtn = document.getElementById('mode-viewing');
+const modeEditingBtn = document.getElementById('mode-editing');
+const modeSuggestingBtn = document.getElementById('mode-suggesting');
+const saveButton = document.getElementById('save-button');
 
-/**
- * Setup IPC listeners for receiving messages from main process
- */
-function setupIPCListeners() {
-  // Use the exposed API from preload.js
-  if (window.electronAPI && window.electronAPI.ipcRenderer) {
-    const { ipcRenderer } = window.electronAPI;
-    
-    // Listen for folder opened event
-    ipcRenderer.on('open-folder', (event, { path }) => {
-      console.log('Folder opened:', path);
-      workspaceState.workspacePath = path;
-      updateWorkspaceTree();
-      updateUI();
-    });
-    
-    // Listen for file opened event
-    ipcRenderer.on('open-file', (event, { path, tabId }) => {
-      console.log('File opened:', path, tabId);
-      
-      // Add tab to workspace state
-      workspaceState.openTabs.push({
-        id: tabId,
-        path: path,
-        name: path.split('/').pop(),
-        type: 'docx'
-      });
-      workspaceState.activeTab = tabId;
-      workspaceState.activeDocument = tabId;
-      
-      updateWorkspaceTree();
-      updateUI();
-      
-      // TODO: Load and render the DOCX file in the editor
-      // This will be implemented in Phase 1 and 2
-      showEditorPlaceholder(`📄 ${path.split('/').pop()}`);
-    });
-  } else {
-    console.warn('electronAPI not available, using fallback API');
-    
-    // Fallback to window.api
-    if (window.api) {
-      window.api.receive('open-folder', (data) => {
-        workspaceState.workspacePath = data.path;
-        updateWorkspaceTree();
-        updateUI();
-      });
-      
-      window.api.receive('open-file', (data) => {
-        workspaceState.openTabs.push({
-          id: data.tabId,
-          path: data.path,
-          name: data.path.split('/').pop(),
-          type: 'docx'
-        });
-        workspaceState.activeTab = data.tabId;
-        workspaceState.activeDocument = data.tabId;
-        
-        updateWorkspaceTree();
-        updateUI();
-        showEditorPlaceholder(`📄 ${data.path.split('/').pop()}`);
-      });
-    }
+async function init() {
+  bindEvents();
+
+  if (!window.desktop) {
+    showFatal('Desktop preload API is unavailable.');
+    return;
   }
+
+  window.desktop.onWorkspaceStateChanged((nextState) => {
+    workspaceState = nextState;
+    render();
+  });
+
+  workspaceState = await window.desktop.getWorkspaceState();
+  render();
 }
 
-/**
- * Load initial workspace state from main process
- */
-async function loadInitialState() {
-  try {
-    if (window.electronAPI && window.electronAPI.ipcRenderer) {
-      const state = await window.electronAPI.ipcRenderer.invoke('get-workspace-state');
-      workspaceState = { ...workspaceState, ...state };
-      console.log('Loaded initial state:', state);
-    } else if (window.api) {
-      const state = await window.api.invoke('get-workspace-state');
-      workspaceState = { ...workspaceState, ...state };
-      console.log('Loaded initial state:', state);
-    }
-  } catch (error) {
-    console.error('Failed to load initial state:', error);
-  }
+function bindEvents() {
+  // Workspace events
+  document.getElementById('open-folder-button').addEventListener('click', openFolder);
+  document.getElementById('open-file-button').addEventListener('click', openFile);
+  document.getElementById('placeholder-open-file').addEventListener('click', openFile);
+  document.getElementById('toggle-agent-button').addEventListener('click', toggleAgentPanel);
+  document.getElementById('close-agent-button').addEventListener('click', toggleAgentPanel);
+
+  // Document toolbar events (Phase 2)
+  if (modeViewingBtn) modeViewingBtn.addEventListener('click', () => setDocumentMode('viewing'));
+  if (modeEditingBtn) modeEditingBtn.addEventListener('click', () => setDocumentMode('editing'));
+  if (modeSuggestingBtn) modeSuggestingBtn.addEventListener('click', () => setDocumentMode('suggesting'));
+  if (saveButton) saveButton.addEventListener('click', saveDocument);
 }
 
-/**
- * Update all UI elements based on current state
- */
-function updateUI() {
-  // Update workspace path indicator
+function render() {
+  renderTopBar();
+  renderWorkspaceTree();
+  renderTabs();
+  renderEditorSurface();
+  renderDocumentToolbar();
+  renderAgentPanel();
+  renderStatusStrip();
+}
+
+function renderTopBar() {
   if (workspaceState.workspacePath) {
-    const shortenedPath = workspaceState.workspacePath.length > 40 
-      ? '...' + workspaceState.workspacePath.slice(-37) 
-      : workspaceState.workspacePath;
-    workspacePathEl.textContent = shortenedPath;
+    workspacePathEl.textContent = workspaceState.workspacePath;
     workspacePathEl.title = workspaceState.workspacePath;
+    workspaceSummaryEl.textContent = `${countDocxFiles(workspaceState.workspaceTree)} DOCX files`;
   } else {
     workspacePathEl.textContent = 'No workspace selected';
     workspacePathEl.title = '';
+    workspaceSummaryEl.textContent = 'No folder';
   }
-  
-  // Update active tab indicator
-  const activeTab = workspaceState.openTabs.find(t => t.id === workspaceState.activeTab);
-  if (activeTab) {
-    activeTabIndicatorEl.textContent = activeTab.name;
-    activeTabIndicatorEl.classList.add('has-document');
-  } else {
-    activeTabIndicatorEl.textContent = 'No document open';
-    activeTabIndicatorEl.classList.remove('has-document');
-  }
-  
-  // Update agent panel visibility
-  if (workspaceState.agentPanelVisible) {
-    agentSidebarEl.classList.remove('hidden');
-  } else {
-    agentSidebarEl.classList.add('hidden');
-  }
+
+  const activeTab = getActiveTab();
+  activeTabIndicatorEl.textContent = activeTab ? activeTab.name : 'No document open';
+  activeTabIndicatorEl.classList.toggle('has-document', Boolean(activeTab));
 }
 
-/**
- * Update the workspace tree in the left pane
- */
-function updateWorkspaceTree() {
-  // For Phase 0, we just show the workspace path and tabs
-  // In Phase 3, this will be expanded to show the full file tree
-  
-  const treeContent = document.createElement('div');
-  
-  // Workspace root
-  if (workspaceState.workspacePath) {
-    const rootItem = document.createElement('div');
-    rootItem.className = 'tree-item workspace-root';
-    rootItem.innerHTML = `<span class="tree-icon">📁</span><span class="tree-label">${workspaceState.workspacePath.split('/').pop()}</span>`;
-    rootItem.onclick = () => {
-      // TODO: Expand/collapse workspace
-    };
-    treeContent.appendChild(rootItem);
-    
-    // Show open tabs/files
-    if (workspaceState.openTabs.length > 0) {
-      const filesHeader = document.createElement('div');
-      filesHeader.className = 'tree-item';
-      filesHeader.style.fontSize = '11px';
-      filesHeader.style.color = '#666666';
-      filesHeader.style.paddingLeft = '15px';
-      filesHeader.textContent = 'OPEN FILES';
-      treeContent.appendChild(filesHeader);
-      
-      workspaceState.openTabs.forEach(tab => {
-        const fileItem = document.createElement('div');
-        fileItem.className = 'tree-item';
-        fileItem.style.paddingLeft = '20px';
-        fileItem.innerHTML = `<span class="tree-icon">📄</span><span class="tree-label">${tab.name}</span>`;
-        fileItem.onclick = () => {
-          setActiveTab(tab.id);
-        };
-        
-        if (tab.id === workspaceState.activeTab) {
-          fileItem.style.backgroundColor = '#2d2d2d';
-          fileItem.style.color = '#ffffff';
-        }
-        
-        treeContent.appendChild(fileItem);
-      });
-    } else {
-      const placeholder = document.createElement('div');
-      placeholder.className = 'tree-item tree-placeholder';
-      placeholder.innerHTML = '<em>Open a folder to see files</em>';
-      treeContent.appendChild(placeholder);
-    }
-  } else {
-    const placeholder = document.createElement('div');
-    placeholder.className = 'tree-item tree-placeholder';
-    placeholder.innerHTML = '<em>Open a folder to see files</em>';
-    treeContent.appendChild(placeholder);
-  }
-  
-  // Replace the content of workspace tree
+function renderWorkspaceTree() {
   const paneContent = workspaceTreeEl.querySelector('.pane-content');
-  if (paneContent) {
-    paneContent.innerHTML = '';
-    paneContent.appendChild(treeContent);
+  paneContent.innerHTML = '';
+
+  if (!workspaceState.workspaceTree) {
+    paneContent.appendChild(createEmptyState('Select a folder to browse `.docx` files.'));
+    return;
+  }
+
+  paneContent.appendChild(renderTreeNode(workspaceState.workspaceTree, 0));
+}
+
+function renderTreeNode(node, depth) {
+  const container = document.createElement('div');
+  container.className = 'tree-node';
+
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = 'tree-item';
+  row.style.setProperty('--depth', `${depth}`);
+  row.dataset.entryType = node.type;
+  row.dataset.active = String(workspaceState.selectedPath === node.path);
+  row.innerHTML = `
+    <span class="tree-icon">${node.type === 'directory' ? 'DIR' : 'DOCX'}</span>
+    <span class="tree-label">${node.name}</span>
+  `;
+
+  row.addEventListener('click', async () => {
+    await window.desktop.setSelectedEntry({ path: node.path, type: node.type });
+    if (node.type === 'file') {
+      await window.desktop.openWorkspaceEntry(node.path);
+    }
+  });
+
+  container.appendChild(row);
+
+  if (node.type === 'directory' && node.children?.length) {
+    const children = document.createElement('div');
+    children.className = 'tree-children';
+    for (const child of node.children) {
+      children.appendChild(renderTreeNode(child, depth + 1));
+    }
+    container.appendChild(children);
+  }
+
+  return container;
+}
+
+function renderTabs() {
+  tabStripEl.innerHTML = '';
+
+  if (workspaceState.openTabs.length === 0) {
+    tabStripEl.classList.add('is-empty');
+    return;
+  }
+
+  tabStripEl.classList.remove('is-empty');
+
+  for (const tab of workspaceState.openTabs) {
+    const tabEl = document.createElement('div');
+    tabEl.className = 'tab-pill';
+    tabEl.dataset.active = String(tab.id === workspaceState.activeTab);
+
+    const activateButton = document.createElement('button');
+    activateButton.type = 'button';
+    activateButton.className = 'tab-pill-button';
+    activateButton.textContent = tab.name;
+    activateButton.addEventListener('click', async () => {
+      await window.desktop.setActiveTab(tab.id);
+      await switchToTab(tab.id);
+    });
+
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'tab-pill-close';
+    closeButton.textContent = 'x';
+    closeButton.title = `Close ${tab.name}`;
+    closeButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      window.desktop.closeTab(tab.id);
+    });
+
+    tabEl.appendChild(activateButton);
+    tabEl.appendChild(closeButton);
+    tabStripEl.appendChild(tabEl);
   }
 }
 
 /**
- * Show placeholder in editor with message
+ * Render document toolbar (Phase 2)
  */
-function showEditorPlaceholder(message) {
-  const editorContent = document.getElementById('editor-content');
-  const placeholder = editorContent.querySelector('.editor-placeholder');
+function renderDocumentToolbar() {
+  const activeTab = getActiveTab();
+  const hasDocument = Boolean(activeTab);
   
-  if (placeholder) {
-    placeholder.querySelector('h2').textContent = message;
+  // Show/hide toolbar based on whether a document is open
+  documentToolbarEl.classList.toggle('visible', hasDocument);
+  
+  if (!hasDocument) {
+    return;
+  }
+
+  // Update mode buttons based on current session state
+  if (!window.desktop || !window.desktop.DOCUMENT_MODE) {
+    return;
+  }
+
+  // Get session state from main process
+  const sessionState = window.desktop.getSessionState(activeTab.id);
+  
+  // Update active mode button
+  modeViewingBtn.classList.toggle('active', sessionState.mode === window.desktop.DOCUMENT_MODE.VIEWING);
+  modeEditingBtn.classList.toggle('active', sessionState.mode === window.desktop.DOCUMENT_MODE.EDITING);
+  modeSuggestingBtn.classList.toggle('active', sessionState.mode === window.desktop.DOCUMENT_MODE.SUGGESTING);
+  
+  // Update save button state
+  saveButton.disabled = !sessionState.dirty;
+}
+
+function renderEditorSurface() {
+  const activeTab = getActiveTab();
+
+  if (!activeTab) {
+    showEditorPlaceholder();
+    hideSuperDocContainer();
+    return;
+  }
+
+  // Check if we have a document session for this tab
+  if (!window.desktop) {
+    showEditorPlaceholder();
+    hideSuperDocContainer();
+    return;
+  }
+
+  const sessionState = window.desktop.getSessionState(activeTab.id);
+  
+  if (sessionState.loaded) {
+    // Hide placeholder and show SuperDoc container
+    hideEditorPlaceholder();
+    showSuperDocContainer();
+    
+    // If this is a new tab or we need to load the document, do so
+    if (currentTabId !== activeTab.id) {
+      loadDocumentForTab(activeTab.id);
+    }
+  } else {
+    // Show placeholder for now
+    showEditorPlaceholder();
+    hideSuperDocContainer();
   }
 }
 
-/**
- * Open folder dialog via IPC
- */
+function renderAgentPanel() {
+  agentSidebarEl.classList.toggle('hidden', !workspaceState.agentPanelVisible);
+}
+
+function renderStatusStrip() {
+  selectionStatusEl.textContent = workspaceState.selectedPath
+    ? `${workspaceState.selectedEntryType ?? 'entry'}: ${workspaceState.selectedPath}`
+    : 'No selection';
+
+  const activeTab = getActiveTab();
+  documentStatusEl.textContent = activeTab
+    ? `Active tab: ${activeTab.name}`
+    : 'Waiting for a DOCX session';
+}
+
+function showEditorPlaceholder() {
+  editorContentEl.innerHTML = `
+    <div class="editor-placeholder">
+      <div class="placeholder-badge">Phase 0</div>
+      <h1>Desktop shell ready</h1>
+      <p>Open a folder, browse the workspace, and select a \`.docx\` file.</p>
+      <button class="placeholder-button" id="inline-open-file" type="button">Open DOCX File</button>
+    </div>
+  `;
+
+  document.getElementById('inline-open-file').addEventListener('click', openFile);
+}
+
+function createEmptyState(message) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'tree-empty';
+  wrapper.innerHTML = `<p>${message}</p>`;
+  return wrapper;
+}
+
+function showFatal(message) {
+  editorContentEl.innerHTML = `
+    <div class="editor-placeholder">
+      <div class="placeholder-badge error">Error</div>
+      <h1>Desktop shell unavailable</h1>
+      <p>${message}</p>
+    </div>
+  `;
+}
+
 async function openFolder() {
-  console.log('Opening folder dialog...');
-  
-  try {
-    if (window.electronAPI && window.electronAPI.ipcRenderer) {
-      const result = await window.electronAPI.ipcRenderer.invoke('open-folder');
-      if (result.success) {
-        console.log('Folder selected:', result.path);
-      }
-    } else if (window.api) {
-      const result = await window.api.invoke('open-folder');
-      if (result.success) {
-        console.log('Folder selected:', result.path);
-      }
-    }
-  } catch (error) {
-    console.error('Failed to open folder:', error);
-  }
+  await window.desktop.openFolder();
 }
 
-/**
- * Open file dialog via IPC
- */
 async function openFile() {
-  console.log('Opening file dialog...');
-  
-  try {
-    if (window.electronAPI && window.electronAPI.ipcRenderer) {
-      const result = await window.electronAPI.ipcRenderer.invoke('open-file');
-      if (result.success) {
-        console.log('File selected:', result.path);
-      }
-    } else if (window.api) {
-      const result = await window.api.invoke('open-file');
-      if (result.success) {
-        console.log('File selected:', result.path);
-      }
-    }
-  } catch (error) {
-    console.error('Failed to open file:', error);
-  }
+  await window.desktop.openFile();
 }
 
-/**
- * Toggle agent panel visibility
- */
 async function toggleAgentPanel() {
+  await window.desktop.toggleAgentPanel();
+}
+
+function getActiveTab() {
+  return workspaceState.openTabs.find((tab) => tab.id === workspaceState.activeTab) ?? null;
+}
+
+function countDocxFiles(node) {
+  if (!node) return 0;
+  if (node.type === 'file') return 1;
+  return (node.children ?? []).reduce((sum, child) => sum + countDocxFiles(child), 0);
+}
+
+// ============================================
+// Phase 2: SuperDoc Integration
+// ============================================
+
+/**
+ * Load SuperDoc for a specific tab
+ * @param {string} tabId 
+ */
+async function loadDocumentForTab(tabId) {
+  if (currentTabId === tabId && activeSuperDocInstance) {
+    // Already loaded for this tab
+    return;
+  }
+
+  // Clean up previous instance
+  destroySuperDocInstance();
+
+  // Get document from session
+  const result = await window.desktop.getDocumentForTab(tabId);
+  
+  if (!result.success || !result.file) {
+    console.error('Failed to get document for tab:', tabId);
+    showEditorPlaceholder();
+    hideSuperDocContainer();
+    return;
+  }
+
+  // Get session state to know the mode
+  const sessionState = window.desktop.getSessionState(tabId);
+  const mode = sessionState.mode || window.desktop.DOCUMENT_MODE.EDITING;
+
   try {
-    if (window.electronAPI && window.electronAPI.ipcRenderer) {
-      const result = await window.electronAPI.ipcRenderer.invoke('toggle-agent-panel');
-      workspaceState.agentPanelVisible = result.visible;
-      updateUI();
-    } else if (window.api) {
-      const result = await window.api.invoke('toggle-agent-panel');
-      workspaceState.agentPanelVisible = result.visible;
-      updateUI();
-    }
+    // Import SuperDoc dynamically
+    const { SuperDoc } = await import('superdoc');
+    const { superdocFonts } = await import('@superdoc-dev/fonts');
+    
+    // Import styles
+    await import('superdoc/style.css');
+
+    // Create SuperDoc instance
+    activeSuperDocInstance = new SuperDoc({
+      selector: '#superdoc-editor',
+      document: result.file,
+      documentMode: mode,
+      fonts: superdocFonts,
+      // Listen for changes to mark session as dirty
+      onUpdate: () => {
+        if (currentTabId === tabId) {
+          markSessionDirty(tabId);
+        }
+      }
+    });
+
+    // Store reference in session (via main process)
+    // Note: We can't directly call storeEditorReference from renderer
+    // This would require adding an IPC handler
+    
+    currentTabId = tabId;
+    
+    // Update toolbar to reflect current mode
+    updateModeButtons(mode);
+    
+    console.log('SuperDoc loaded for tab:', tabId, 'mode:', mode);
+    
   } catch (error) {
-    console.error('Failed to toggle agent panel:', error);
-    // Fallback to local state
-    workspaceState.agentPanelVisible = !workspaceState.agentPanelVisible;
-    updateUI();
+    console.error('Failed to load SuperDoc:', error);
+    showEditorPlaceholder();
+    hideSuperDocContainer();
+    destroySuperDocInstance();
   }
 }
 
 /**
- * Set active tab
+ * Switch to a different tab
+ * @param {string} tabId 
  */
-async function setActiveTab(tabId) {
-  try {
-    if (window.electronAPI && window.electronAPI.ipcRenderer) {
-      await window.electronAPI.ipcRenderer.invoke('set-active-tab', tabId);
-    } else if (window.api) {
-      await window.api.invoke('set-active-tab', tabId);
-    }
+async function switchToTab(tabId) {
+  if (currentTabId === tabId) {
+    return;
+  }
+
+  // Get session state for new tab
+  const sessionState = window.desktop.getSessionState(tabId);
+  
+  if (sessionState.loaded) {
+    // Load the document for this tab
+    await loadDocumentForTab(tabId);
     
-    workspaceState.activeTab = tabId;
-    workspaceState.activeDocument = tabId;
-    
-    const activeTab = workspaceState.openTabs.find(t => t.id === tabId);
-    if (activeTab) {
-      showEditorPlaceholder(`📄 ${activeTab.name}`);
-    }
-    
-    updateUI();
-    updateWorkspaceTree();
-  } catch (error) {
-    console.error('Failed to set active tab:', error);
+    // Update toolbar
+    renderDocumentToolbar();
+  } else {
+    // No session yet, show placeholder
+    currentTabId = null;
+    destroySuperDocInstance();
+    showEditorPlaceholder();
+    hideSuperDocContainer();
   }
 }
 
-// Initialize the app when DOM is loaded
-document.addEventListener('DOMContentLoaded', init);
+/**
+ * Mark session as dirty (has unsaved changes)
+ * @param {string} tabId
+ */
+function markSessionDirty(tabId) {
+  if (window.desktop) {
+    // This will trigger a state change that we listen to
+    // For now, just update the toolbar
+    renderDocumentToolbar();
+  }
+}
 
-// Also run init if it's already loaded
-document.readyState === 'complete' && init();
+/**
+ * Set document mode
+ * @param {string} mode 
+ */
+async function setDocumentMode(mode) {
+  const activeTab = getActiveTab();
+  if (!activeTab) return;
+
+  try {
+    await window.desktop.setDocumentMode({ tabId: activeTab.id, mode });
+    
+    // Update SuperDoc instance if it exists
+    if (activeSuperDocInstance && currentTabId === activeTab.id) {
+      // Note: SuperDoc's documentMode can be changed via API
+      // This requires SuperDoc to expose a way to change mode dynamically
+      // For now, we would need to destroy and recreate
+      // In the future, this should use editor.setDocumentMode(mode)
+      console.log('Mode changed to:', mode);
+      activeSuperDocInstance.destroy();
+      await loadDocumentForTab(activeTab.id);
+    }
+    
+    // Update UI
+    updateModeButtons(mode);
+    renderDocumentToolbar();
+    
+  } catch (error) {
+    console.error('Failed to set document mode:', error);
+  }
+}
+
+/**
+ * Save current document
+ */
+async function saveDocument() {
+  const activeTab = getActiveTab();
+  if (!activeTab || !activeSuperDocInstance) return;
+
+  try {
+    // Export document from SuperDoc
+    const blob = await activeSuperDocInstance.export({ isFinalDoc: true });
+    
+    // Save via main process
+    const result = await window.desktop.saveDocument({ 
+      tabId: activeTab.id, 
+      blob 
+    });
+    
+    if (result.success) {
+      console.log('Document saved:', result.path);
+      
+      // Update UI
+      renderDocumentToolbar();
+      documentStatusEl.textContent = `Saved: ${new Date(result.savedAt).toLocaleTimeString()}`;
+      
+      // Show success feedback
+      setTimeout(() => {
+        documentStatusEl.textContent = `Active tab: ${activeTab.name}`;
+      }, 2000);
+    }
+  } catch (error) {
+    console.error('Failed to save document:', error);
+    documentStatusEl.textContent = `Save failed: ${error.message}`;
+  }
+}
+
+/**
+ * Update mode button active states
+ * @param {string} mode 
+ */
+function updateModeButtons(mode) {
+  if (!window.desktop || !window.desktop.DOCUMENT_MODE) return;
+  
+  modeViewingBtn.classList.toggle('active', mode === window.desktop.DOCUMENT_MODE.VIEWING);
+  modeEditingBtn.classList.toggle('active', mode === window.desktop.DOCUMENT_MODE.EDITING);
+  modeSuggestingBtn.classList.toggle('active', mode === window.desktop.DOCUMENT_MODE.SUGGESTING);
+}
+
+/**
+ * Destroy current SuperDoc instance
+ */
+function destroySuperDocInstance() {
+  if (activeSuperDocInstance) {
+    try {
+      activeSuperDocInstance.destroy();
+    } catch (error) {
+      console.warn('Error destroying SuperDoc instance:', error);
+    }
+    activeSuperDocInstance = null;
+    currentTabId = null;
+  }
+}
+
+/**
+ * Hide editor placeholder
+ */
+function hideEditorPlaceholder() {
+  editorContentEl.style.display = 'none';
+}
+
+/**
+ * Show editor placeholder
+ */
+function showEditorPlaceholder() {
+  editorContentEl.style.display = 'block';
+}
+
+/**
+ * Show SuperDoc container
+ */
+function showSuperDocContainer() {
+  superdocContainerEl.classList.add('visible');
+}
+
+/**
+ * Hide SuperDoc container
+ */
+function hideSuperDocContainer() {
+  superdocContainerEl.classList.remove('visible');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  init().catch((error) => {
+    console.error(error);
+    showFatal(error.message);
+  });
+});

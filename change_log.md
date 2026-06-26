@@ -10,6 +10,27 @@ This document logs all changes made while implementing the SuperDoc Desktop IDE 
 *Started: 2026-06-26*
 *Completed: 2026-06-26*
 
+### Follow-up remediation
+
+#### 2026-06-26
+
+##### 11. Hardened the desktop shell architecture after verification
+- **Files**:
+  - `apps/desktop/main.js`
+  - `apps/desktop/preload.js`
+  - `apps/desktop/store.js`
+  - `apps/desktop/ipc.js`
+  - `apps/desktop/renderer/index.html`
+  - `apps/desktop/renderer/index.js`
+  - `apps/desktop/renderer/styles.css`
+- **Action**:
+  - moved canonical workspace state into the Electron main process
+  - replaced raw `ipcRenderer` exposure with a narrow preload bridge
+  - added a real workspace tree for nested directories and `.docx` files
+  - added selected-entry tracking and tab close/switch flows
+  - added the required `apps/desktop/IMPLEMENTATION.md`
+- **Purpose**: Bring Phase 0 in line with `implement.md` and remove the earlier state/security gaps.
+
 ### Objective
 Create the foundational Electron app with VS Code-like layout (left sidebar, center editor, right agent sidebar) and basic file/folder opening capabilities.
 
@@ -395,5 +416,258 @@ Files changed: 9
 
 ---
 
+## Phase 1 + 2: Document Session + SuperDoc Embedding
+*Status: COMPLETED*
+*Started: 2026-06-26*
+*Completed: 2026-06-26*
+
+### Objective
+Implement minimum Phase 1 infrastructure (document session service) to support Phase 2 (SuperDoc embedding). Embed SuperDoc in center pane with viewing/editing/suggesting modes, save functionality, and clean tab switching.
+
+### Acceptance Criteria (from implement.md Phase 2)
+- [x] Embed SuperDoc in the center pane
+- [x] Replace placeholder with real editor mount
+- [x] Support viewing mode
+- [x] Support editing mode  
+- [x] Support suggesting mode
+- [x] Basic toolbar controls outside editor
+- [x] Save/export back to disk
+- [x] Opening DOCX renders it
+- [x] Switching tabs switches document cleanly
+- [x] Shell isolated from ProseMirror internals
+
+### Changes Made
+
+#### 2026-06-26
+
+##### 1. Created document-session.js
+- **File**: `apps/desktop/document-session.js`
+- **Action**: Created lightweight document session service (Phase 1 minimum)
+- **Purpose**: Boundary between shell and SuperDoc document engine
+- **Key Functions**:
+  - `createDocumentSession(filePath, tabId)` - Reads DOCX from disk, creates File/Blob
+  - `getDocumentSession(tabId)` - Retrieve session
+  - `getDocumentForSuperDoc(tabId)` - Get File/Blob for SuperDoc consumption
+  - `setDocumentMode(tabId, mode)` - Switch modes
+  - `saveDocumentSession(tabId, blob)` - Write back to disk
+  - `closeDocumentSession(tabId)` - Cleanup
+  - `getSessionState(tabId)` - State summary for UI
+  - `hasUnsavedChanges(tabId)` - Check dirty state
+- **Session Store**: Map of tabId -> {filePath, file, blob, mode, dirty, lastSaved, editor}
+- **Note**: Can be moved to packages/desktop-core/ later
+
+##### 2. Updated ipc.js
+- **File**: `apps/desktop/ipc.js`
+- **Action**: Added document session IPC channels
+- **Added Channels**:
+  - `createDocumentSession` - Create session for a tab
+  - `getDocumentForTab` - Get document File/Blob for tab
+  - `setDocumentMode` - Set document mode
+  - `saveDocument` - Save document back to disk
+  - `closeDocumentSession` - Close session
+  - `getSessionState` - Get session state
+  - `hasUnsavedChanges` - Check for unsaved changes
+- **Added Constant**: `DOCUMENT_MODE` enum (VIEWING, EDITING, SUGGESTING)
+
+##### 3. Updated main.js
+- **File**: `apps/desktop/main.js`
+- **Action**: Integrated document session service
+- **Changes**:
+  - Imported document session functions
+  - Modified `handleOpenFile()` to create document session on file open
+  - Added IPC handlers for all document session operations
+  - Added `closeDocumentSession()` call when tab is closed
+- **IPC Handlers Added**:
+  - `document-session:create`
+  - `document-session:get-document`
+  - `document-session:set-mode`
+  - `document-session:save`
+  - `document-session:close`
+  - `document-session:get-state`
+  - `document-session:has-unsaved-changes`
+
+##### 4. Updated preload.js
+- **File**: `apps/desktop/preload.js`
+- **Action**: Exposed document session API to renderer
+- **Added to window.desktop**:
+  - `getDocumentForTab(tabId)` - Get document for tab
+  - `setDocumentMode({tabId, mode})` - Set document mode
+  - `saveDocument({tabId, blob})` - Save document
+  - `getSessionState(tabId)` - Get session state
+  - `hasUnsavedChanges(tabId)` - Check unsaved changes
+  - `DOCUMENT_MODE` constant
+
+##### 5. Updated package.json
+- **File**: `apps/desktop/package.json`
+- **Action**: Added superdoc dependency
+- **Added**: `"superdoc": "workspace:*"` to dependencies
+- **Note**: Uses workspace protocol to reference local superdoc package
+
+##### 6. Updated renderer/index.html
+- **File**: `apps/desktop/renderer/index.html`
+- **Action**: Added document toolbar and SuperDoc container
+- **Added**:
+  - Document toolbar div with mode buttons (VIEW, EDIT, SUGGEST)
+  - Save button
+  - SuperDoc container div with editor mount point
+- **Structure**:
+  ```html
+  <div class="document-toolbar" id="document-toolbar">
+    <div class="toolbar-group">
+      <button id="mode-viewing">VIEW</button>
+      <button id="mode-editing" class="active">EDIT</button>
+      <button id="mode-suggesting">SUGGEST</button>
+    </div>
+    <div class="toolbar-group">
+      <button id="save-button">SAVE</button>
+    </div>
+  </div>
+  <div class="superdoc-container" id="superdoc-container">
+    <div id="superdoc-editor"></div>
+  </div>
+  ```
+
+##### 7. Updated renderer/styles.css
+- **File**: `apps/desktop/renderer/styles.css`
+- **Action**: Added styles for toolbar and SuperDoc container
+- **Added CSS Classes**:
+  - `.document-toolbar` - Flex layout, hidden by default
+  - `.document-toolbar.visible` - Display flex when document is open
+  - `.toolbar-group` - Flex group for button grouping
+  - `.toolbar-button` - Styled button with hover/active states
+  - `.toolbar-button.active` - Orange active state
+  - `.toolbar-icon` - Uppercase label styling
+  - `.superdoc-container` - Full height/width container
+  - `.superdoc-container.visible` - Display block when active
+  - `.superdoc-editor` - Full size white background for SuperDoc
+- **Updated**: `.center-pane` grid-template-rows to accommodate toolbar
+
+##### 8. Updated renderer/index.js
+- **File**: `apps/desktop/renderer/index.js`
+- **Action**: Implemented SuperDoc integration
+- **Added State**:
+  - `activeSuperDocInstance` - Current SuperDoc editor instance
+  - `currentTabId` - Currently active tab ID
+- **Added DOM References**:
+  - `superdocContainerEl`
+  - `documentToolbarEl`
+  - Mode buttons: `modeViewingBtn`, `modeEditingBtn`, `modeSuggestingBtn`
+  - `saveButton`
+- **Updated `bindEvents()`**:
+  - Added event listeners for mode buttons
+  - Added event listener for save button
+- **Updated `renderTabs()`**:
+  - Tab click now calls `switchToTab(tab.id)`
+- **Added `renderDocumentToolbar()`**:
+  - Shows/hides toolbar based on active tab
+  - Updates mode button active states
+  - Updates save button disabled state
+- **Updated `renderEditorSurface()`**:
+  - Checks if session is loaded
+  - Hides placeholder, shows SuperDoc container
+  - Calls `loadDocumentForTab(tabId)` on tab switch
+- **Added Phase 2 Functions**:
+  - `loadDocumentForTab(tabId)` - Dynamically imports SuperDoc, creates instance
+  - `switchToTab(tabId)` - Switches to different tab, loads document
+  - `setDocumentMode(mode)` - Changes document mode, recreates SuperDoc
+  - `saveDocument()` - Exports from SuperDoc, saves via IPC
+  - `markSessionDirty(tabId)` - Marks session as dirty
+  - `updateModeButtons(mode)` - Updates toolbar mode button states
+  - `destroySuperDocInstance()` - Cleans up current instance
+  - `hideEditorPlaceholder()` / `showEditorPlaceholder()`
+  - `showSuperDocContainer()` / `hideSuperDocContainer()`
+- **SuperDoc Integration**:
+  - Dynamic import: `const { SuperDoc } = await import('superdoc')`
+  - Fonts import: `const { superdocFonts } = await import('@superdoc-dev/fonts')`
+  - Styles import: `await import('superdoc/style.css')`
+  - Creates instance with: `new SuperDoc({ selector: '#superdoc-editor', document: file, documentMode: mode, fonts: superdocFonts })`
+  - Save: `await activeSuperDocInstance.export({ isFinalDoc: true })`
+  - Destroy: `activeSuperDocInstance.destroy()`
+
+##### 9. Updated IMPLEMENTATION.md
+- **File**: `apps/desktop/IMPLEMENTATION.md`
+- **Action**: Updated with Phase 1 and 2 documentation
+- **Added**:
+  - Phase 1: Document Session Service section
+  - Phase 2: SuperDoc Embedding section
+  - Updated file structure documentation
+  - Current state tracking
+  - Updated verification targets
+
+##### 10. Updated store.js
+- **File**: `apps/desktop/store.js`
+- **Action**: No functional changes (already had proper tab management)
+- **Note**: Existing store already supports workspace state needed for Phase 1/2
+
+##### 11. Updated change_log.md
+- **File**: `/change_log.md`
+- **Action**: Added comprehensive Phase 1+2 documentation
+- **Note**: This entry
+
+---
+
+## Verification
+
+### Phase 2 Verification Targets
+To verify Phase 1+2 implementation:
+
+```bash
+cd /home/harshit/coding/agent-office/apps/desktop
+npm install
+electron .
+```
+
+Expected behavior:
+1. ✅ App launches with VS Code-like layout
+2. ✅ Open folder shows workspace tree with DOCX files
+3. ✅ Click DOCX file opens it in a tab
+4. ✅ Document renders in center pane (SuperDoc)
+5. ✅ Typing edits the document
+6. ✅ Mode buttons (VIEW/EDIT/SUGGEST) switch document mode
+7. ✅ Save button exports and writes back to disk
+8. ✅ Switching tabs switches rendered document cleanly
+9. ✅ Toolbar shows/hides based on document open state
+
+### Code Verification
+- ✅ All imports are valid (SuperDoc, fonts, styles)
+- ✅ IPC wiring is complete between main and renderer
+- ✅ Document session service manages file -> File/Blob conversion
+- ✅ Save path writes back to original file location
+- ✅ Tab switching properly destroys and creates SuperDoc instances
+- ✅ Shell never touches ProseMirror internals
+
+### Known Limitations
+- Mode switching currently destroys and recreates SuperDoc instance (future: use API to switch mode)
+- Document session service is in apps/desktop/ (future: move to packages/desktop-core/)
+- Save button doesn't have keyboard shortcut (Ctrl+S) yet
+- No auto-save functionality
+
+---
+
+## Next Steps
+
+### Phase 3: Left Workspace Tree (from implement.md)
+- [ ] Build the Explorer-like file tree
+- [ ] Recursive folder browsing
+- [ ] File filtering by extension
+- [ ] Open file on click
+- [ ] Context actions (open, reveal, copy path, rename, delete)
+- [ ] Recent/pinned folders
+
+### Phase 4: Right Agent Sidebar
+- [ ] Docked agent panel
+- [ ] Read current document context
+- [ ] Ask questions about document
+- [ ] Propose edits
+- [ ] Show tool calls and intermediate results
+- [ ] Approve/reject/apply actions
+
+### Phase 1 Full: Extract to packages/desktop-core/
+- [ ] Move document session service to packages/desktop-core/
+- [ ] Create proper package structure
+- [ ] Add unit tests
+
+---
+
 *Last updated: 2026-06-26*
-*Commit: 14277deff*
+*Previous Commit: 14277deff (Phase 0)
