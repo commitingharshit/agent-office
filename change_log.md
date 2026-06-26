@@ -362,10 +362,38 @@ mkdir -p apps/desktop/renderer
 
 # Install dependencies (to be run manually)
 cd apps/desktop
-npm init -y
-npm install electron
+npm install
+electron .
+
+# Verify Phase 0
+cd apps/desktop
+npm install
+npm start
 ```
+
+## Git Commit
+
+All Phase 0 changes have been committed to the repository:
+
+```bash
+Commit: 14277deff
+Author: SuperDoc Developer <harshit@superdoc.dev>
+Date: 2026-06-26
+Subject: feat: Phase 0 - Desktop app skeleton with VS Code-like layout
+```
+
+Files changed: 9
+- apps/desktop/main.js
+- apps/desktop/package.json
+- apps/desktop/preload.js
+- apps/desktop/renderer/index.html
+- apps/desktop/renderer/index.js
+- apps/desktop/renderer/styles.css
+- apps/desktop/store.js
+- change_log.md
+- implement.md
 
 ---
 
 *Last updated: 2026-06-26*
+*Commit: 14277deff*
