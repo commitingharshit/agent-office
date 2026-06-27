@@ -1,0 +1,326 @@
+/**
+ * Find & Replace Utility Functions
+ *
+ * Pure utility functions for text search, pattern matching, and document search.
+ * Extracted from FindReplaceDialog.tsx.
+ */
+// ============================================================================
+// TEXT SEARCH UTILITIES
+// ============================================================================
+/**
+ * Create default find options
+ */
+export function createDefaultFindOptions() {
+    return {
+        matchCase: false,
+        matchWholeWord: false,
+        useRegex: false,
+    };
+}
+/**
+ * Escape string for use in regex pattern
+ */
+export function escapeRegexString(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+/**
+ * Create a regex pattern from search text and options
+ */
+export function createSearchPattern(searchText, options) {
+    if (!searchText)
+        return null;
+    try {
+        let pattern;
+        if (options.useRegex) {
+            pattern = searchText;
+        }
+        else {
+            pattern = escapeRegexString(searchText);
+        }
+        if (options.matchWholeWord) {
+            pattern = `\\b${pattern}\\b`;
+        }
+        const flags = options.matchCase ? 'g' : 'gi';
+        return new RegExp(pattern, flags);
+    }
+    catch (_a) {
+        return null;
+    }
+}
+/**
+ * Find all matches of search text in content
+ */
+export function findAllMatches(content, searchText, options) {
+    if (!content || !searchText) {
+        return [];
+    }
+    const matches = [];
+    // Honor `options.useRegex` — when set, the search string is the
+    // regex source verbatim. When unset, every regex metacharacter is
+    // escaped so `1.cat` matches only the literal three-char run.
+    // The matchCase lowercasing was incorrect in the old code path:
+    // /pattern/gi handles case-insensitivity natively, and lowercasing
+    // the source corrupted regex tokens (`\D` → `\d`). The
+    // case-folding is driven by the regex flags instead.
+    const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    let pattern = options.useRegex ? searchText : escapeRegex(searchText);
+    if (options.matchWholeWord) {
+        pattern = `\\b${pattern}\\b`;
+    }
+    const flags = options.matchCase ? 'g' : 'gi';
+    let regex;
+    try {
+        regex = new RegExp(pattern, flags);
+    }
+    catch (_a) {
+        // Invalid regex (e.g. unclosed bracket) → no matches rather than
+        // throwing past the dialog. Matches `createSearchPattern`'s
+        // existing failure mode so the dialog stays responsive.
+        return [];
+    }
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+        matches.push({
+            start: match.index,
+            end: match.index + match[0].length,
+        });
+        if (match[0].length === 0) {
+            regex.lastIndex++;
+        }
+    }
+    return matches;
+}
+/**
+ * Replace text in content
+ */
+export function replaceAllInContent(content, searchText, replaceText, options) {
+    const pattern = createSearchPattern(searchText, options);
+    if (!pattern)
+        return content;
+    return content.replace(pattern, replaceText);
+}
+/**
+ * Replace first match in content
+ */
+export function replaceFirstInContent(content, searchText, replaceText, options, startIndex = 0) {
+    const matches = findAllMatches(content, searchText, options);
+    const match = matches.find((m) => m.start >= startIndex) || matches[0];
+    if (!match) {
+        return { content, replaced: false, matchStart: -1, matchEnd: -1 };
+    }
+    const newContent = content.substring(0, match.start) + replaceText + content.substring(match.end);
+    return {
+        content: newContent,
+        replaced: true,
+        matchStart: match.start,
+        matchEnd: match.start + replaceText.length,
+    };
+}
+/**
+ * Get match count for status display
+ */
+export function getMatchCountText(result) {
+    if (!result)
+        return '';
+    if (result.totalCount === 0)
+        return 'No results';
+    if (result.totalCount === 1)
+        return '1 match';
+    return `${result.currentIndex + 1} of ${result.totalCount} matches`;
+}
+/**
+ * Check if search text is empty or whitespace-only
+ */
+export function isEmptySearch(searchText) {
+    return !searchText || searchText.trim() === '';
+}
+/**
+ * Get default highlight options
+ */
+export function getDefaultHighlightOptions() {
+    return {
+        currentMatchColor: '#FFFF00',
+        otherMatchColor: '#FFFFAA',
+    };
+}
+// ============================================================================
+// DOCUMENT SEARCH UTILITIES
+// ============================================================================
+/**
+ * Get plain text from a run
+ */
+function getRunText(run) {
+    if (!run || !run.content)
+        return '';
+    let text = '';
+    for (const item of run.content) {
+        if (item.type === 'text') {
+            text += item.text || '';
+        }
+        else if (item.type === 'tab') {
+            text += '\t';
+        }
+        else if (item.type === 'break' && item.breakType === 'textWrapping') {
+            text += '\n';
+        }
+    }
+    return text;
+}
+/**
+ * Get plain text from a paragraph
+ */
+function getParagraphPlainText(paragraph) {
+    if (!paragraph || !paragraph.content)
+        return '';
+    let text = '';
+    for (const item of paragraph.content) {
+        if (item.type === 'run') {
+            text += getRunText(item);
+        }
+        else if (item.type === 'hyperlink') {
+            for (const child of item.children || []) {
+                if (child.type === 'run') {
+                    text += getRunText(child);
+                }
+            }
+        }
+    }
+    return text;
+}
+/**
+ * Find all matches in a document
+ */
+export function findInDocument(document, searchText, options) {
+    var _a, _b;
+    if (!document || !searchText)
+        return [];
+    const matches = [];
+    const body = ((_a = document.package) === null || _a === void 0 ? void 0 : _a.document) || ((_b = document.package) === null || _b === void 0 ? void 0 : _b.document);
+    if (!body || !body.content)
+        return matches;
+    let paragraphIndex = 0;
+    for (const block of body.content) {
+        if (block.type === 'paragraph') {
+            const paragraphMatches = findInParagraph(block, searchText, options, paragraphIndex);
+            matches.push(...paragraphMatches);
+            paragraphIndex++;
+        }
+        else if (block.type === 'table') {
+            for (const row of block.rows || []) {
+                for (const cell of row.cells || []) {
+                    for (const cellContent of cell.content || []) {
+                        if (cellContent.type === 'paragraph') {
+                            // Table paragraphs tracked separately - skip for now
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return matches;
+}
+/**
+ * Find matches in a single paragraph
+ */
+export function findInParagraph(paragraph, searchText, options, paragraphIndex) {
+    const matches = [];
+    const paragraphText = getParagraphPlainText(paragraph);
+    if (!paragraphText)
+        return matches;
+    const textMatches = findAllMatches(paragraphText, searchText, options);
+    for (const match of textMatches) {
+        const contentInfo = findContentAtOffset(paragraph, match.start);
+        matches.push({
+            paragraphIndex,
+            contentIndex: contentInfo.contentIndex,
+            startOffset: contentInfo.offsetInContent,
+            endOffset: contentInfo.offsetInContent + (match.end - match.start),
+            text: paragraphText.substring(match.start, match.end),
+        });
+    }
+    return matches;
+}
+/**
+ * Find the content (run) at a specific character offset in a paragraph
+ */
+function findContentAtOffset(paragraph, offset) {
+    if (!paragraph || !paragraph.content) {
+        return { contentIndex: 0, runIndex: 0, offsetInContent: offset };
+    }
+    let currentOffset = 0;
+    let contentIndex = 0;
+    for (const item of paragraph.content) {
+        let itemText = '';
+        if (item.type === 'run') {
+            itemText = getRunText(item);
+        }
+        else if (item.type === 'hyperlink') {
+            for (const child of item.children || []) {
+                if (child.type === 'run') {
+                    itemText += getRunText(child);
+                }
+            }
+        }
+        const itemLength = itemText.length;
+        if (currentOffset + itemLength > offset) {
+            return {
+                contentIndex,
+                runIndex: contentIndex,
+                offsetInContent: offset - currentOffset,
+            };
+        }
+        currentOffset += itemLength;
+        contentIndex++;
+    }
+    return {
+        contentIndex: Math.max(0, paragraph.content.length - 1),
+        runIndex: Math.max(0, paragraph.content.length - 1),
+        offsetInContent: 0,
+    };
+}
+/**
+ * Scroll to a match in the document.
+ *
+ * `findInDocument` counts only top-level body paragraphs when assigning
+ * `match.paragraphIndex`, so we mirror that on the painted DOM: collect
+ * visible `.layout-paragraph` elements that aren't inside a header,
+ * footer, table, text-box, or the hidden ProseMirror tree, dedupe by
+ * `data-block-id` (a paragraph can paginate into multiple fragments
+ * sharing one block id), and pick the Nth one. The previous query
+ * looked for `data-paragraph-index`, which the painter never emits —
+ * the function silently no-op'd and Cmd+F appeared to do nothing
+ * (GH #321).
+ */
+export function scrollToMatch(containerElement, match) {
+    if (!containerElement || !match)
+        return;
+    const paragraphs = Array.from(containerElement.querySelectorAll('.layout-paragraph')).filter((el) => {
+        if (el.closest('.paged-editor__hidden-pm'))
+            return false;
+        if (el.closest('.layout-page-header'))
+            return false;
+        if (el.closest('.layout-page-footer'))
+            return false;
+        if (el.closest('.layout-table'))
+            return false;
+        if (el.closest('.layout-textbox'))
+            return false;
+        return true;
+    });
+    const seen = new Set();
+    const uniqueParagraphs = [];
+    for (const el of paragraphs) {
+        const blockId = el.dataset.blockId;
+        if (blockId) {
+            if (seen.has(blockId))
+                continue;
+            seen.add(blockId);
+        }
+        uniqueParagraphs.push(el);
+    }
+    const target = uniqueParagraphs[match.paragraphIndex];
+    if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+//# sourceMappingURL=findReplaceUtils.js.map

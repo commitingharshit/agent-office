@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "es6",
+    "outDir": "out",
+    "lib": ["es2017", "dom", "dom.iterable"],
+    "jsx": "react-jsx",
+    "sourceMap": true,
+    "rootDir": "../..",
+    "strict": true,
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "@casualoffice/docs": ["../../packages/react/src/index.ts"],
+      "@casualoffice/docx-core": ["../../packages/core/src/core.ts"],
+      "@eigenpal/docx-core": ["../../packages/core/src/core.ts"],
+      "@eigenpal/docx-core/*": ["../../packages/core/src/*"]
+    }
+  },
+  "exclude": ["node_modules", ".vscode-test", "out", "webview"],
+  "include": ["src/**/*"]
+}
+

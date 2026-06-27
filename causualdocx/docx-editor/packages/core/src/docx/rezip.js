@@ -1,0 +1,1155 @@
+/**
+ * DOCX Repacker - Repack modified document into valid DOCX
+ *
+ * Takes a Document with modified content and creates a new DOCX file
+ * by updating document.xml while preserving all other files from
+ * the original ZIP archive.
+ *
+ * This ensures round-trip fidelity:
+ * - styles.xml, theme1.xml, fontTable.xml remain untouched
+ * - Media files preserved
+ * - Relationships preserved
+ * - Only document.xml is updated with new content
+ *
+ * OOXML Package Structure:
+ * - [Content_Types].xml - Content type declarations
+ * - _rels/.rels - Package relationships
+ * - word/document.xml - Main document (modified)
+ * - word/styles.xml - Styles (preserved)
+ * - word/theme/theme1.xml - Theme (preserved)
+ * - word/numbering.xml - Numbering (preserved)
+ * - word/fontTable.xml - Font table (preserved)
+ * - word/settings.xml - Settings (preserved)
+ * - word/header*.xml - Headers (preserved)
+ * - word/footer*.xml - Footers (preserved)
+ * - word/footnotes.xml - Footnotes (preserved)
+ * - word/endnotes.xml - Endnotes (preserved)
+ * - word/media/* - Media files (preserved)
+ * - word/_rels/document.xml.rels - Document relationships (preserved)
+ * - docProps/* - Document properties (preserved)
+ */
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+import JSZip from 'jszip';
+import { serializeDocument } from './serializer/documentSerializer';
+import { serializeHeaderFooter } from './serializer/headerFooterSerializer';
+import { replaceFootnotesInXml, replaceEndnotesInXml } from './serializer/footnoteSerializer';
+import { serializeCommentsWithInfo, serializeCommentsExtended, serializeCommentsIds, serializeCommentsExtensible, } from './serializer/commentSerializer';
+import { RELATIONSHIP_TYPES } from './relsParser';
+import { escapeXml } from './serializer/xmlUtils';
+import { applyCorePropertiesToXml, EMPTY_CORE_PROPERTIES_XML } from './corePropertiesParser';
+/**
+ * Find the highest rId number in a relationships XML string.
+ */
+export function findMaxRId(relsXml) {
+    let maxId = 0;
+    for (const match of relsXml.matchAll(/Id="rId(\d+)"/g)) {
+        const id = parseInt(match[1], 10);
+        if (id > maxId)
+            maxId = id;
+    }
+    return maxId;
+}
+// ============================================================================
+// COMMENTS SERIALIZATION
+// ============================================================================
+function serializeCommentsToZip(doc, zip, compressionLevel) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const comments = doc.package.document.comments;
+        if (!comments || comments.length === 0)
+            return;
+        const { xml: commentsXml, paraInfos } = serializeCommentsWithInfo(comments);
+        zip.file('word/comments.xml', commentsXml, {
+            compression: 'DEFLATE',
+            compressionOptions: { level: compressionLevel },
+        });
+        // Write commentsExtended.xml for reply threading (Word/Google Docs interop)
+        const extendedXml = serializeCommentsExtended(paraInfos);
+        if (extendedXml) {
+            zip.file('word/commentsExtended.xml', extendedXml, {
+                compression: 'DEFLATE',
+                compressionOptions: { level: compressionLevel },
+            });
+        }
+        // Write commentsIds.xml for stable IDs (Word Online needs this for replies)
+        const idsXml = serializeCommentsIds(paraInfos);
+        if (idsXml) {
+            zip.file('word/commentsIds.xml', idsXml, {
+                compression: 'DEFLATE',
+                compressionOptions: { level: compressionLevel },
+            });
+        }
+        // Write commentsExtensible.xml for UTC dates (Pages, Word 2016+)
+        const extensibleXml = serializeCommentsExtensible(paraInfos, comments);
+        if (extensibleXml) {
+            zip.file('word/commentsExtensible.xml', extensibleXml, {
+                compression: 'DEFLATE',
+                compressionOptions: { level: compressionLevel },
+            });
+        }
+        yield ensureAllCommentParts(zip, compressionLevel);
+    });
+}
+// ============================================================================
+// NEW IMAGE HANDLING
+// ============================================================================
+/**
+ * Collect all images with data-URL src from the document content.
+ * These are newly inserted images that need to be added to the ZIP.
+ */
+function collectNewImages(blocks) {
+    var _a;
+    const images = [];
+    for (const block of blocks) {
+        if (block.type === 'paragraph') {
+            for (const item of block.content) {
+                if (item.type === 'run') {
+                    for (const c of item.content) {
+                        if (c.type === 'drawing' && ((_a = c.image.src) === null || _a === void 0 ? void 0 : _a.startsWith('data:'))) {
+                            images.push(c.image);
+                        }
+                    }
+                }
+            }
+        }
+        else if (block.type === 'table') {
+            for (const row of block.rows) {
+                for (const cell of row.cells) {
+                    images.push(...collectNewImages(cell.content));
+                }
+            }
+        }
+    }
+    return images;
+}
+/** Map MIME type to file extension (inverse of getContentTypeForExtension) */
+const MIME_TO_EXT = {
+    'image/png': 'png',
+    'image/jpeg': 'jpeg',
+    'image/gif': 'gif',
+    'image/bmp': 'bmp',
+    'image/tiff': 'tiff',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg',
+};
+/**
+ * Decode a data URL to binary ArrayBuffer and file extension.
+ */
+function decodeDataUrl(dataUrl) {
+    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) {
+        throw new Error('Invalid data URL');
+    }
+    const binary = atob(match[2]);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return { data: bytes.buffer, extension: MIME_TO_EXT[match[1]] || 'png' };
+}
+const EMPTY_RELS_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+/**
+ * Resolve the on-disk filename of a header/footer part from its relationship entry.
+ * Returns e.g. `word/header1.xml`.
+ */
+function headerFooterFilename(target) {
+    return target.startsWith('/') ? target.slice(1) : `word/${target}`;
+}
+/**
+ * Enumerate all parts that may contain newly inserted images/hyperlinks:
+ * the document body plus every header and footer.
+ */
+function collectParts(doc) {
+    const parts = [
+        { relsPath: 'word/_rels/document.xml.rels', blocks: doc.package.document.content },
+    ];
+    const rels = doc.package.relationships;
+    if (!rels)
+        return parts;
+    const addHeaderFooterParts = (map, type) => {
+        if (!map)
+            return;
+        for (const [rId, hf] of map.entries()) {
+            const rel = rels.get(rId);
+            if (!rel || rel.type !== type || !rel.target)
+                continue;
+            const filename = headerFooterFilename(rel.target);
+            const basename = filename.replace(/^word\//, '');
+            parts.push({ relsPath: `word/_rels/${basename}.rels`, blocks: hf.content });
+        }
+    };
+    addHeaderFooterParts(doc.package.headers, RELATIONSHIP_TYPES.header);
+    addHeaderFooterParts(doc.package.footers, RELATIONSHIP_TYPES.footer);
+    return parts;
+}
+/**
+ * Read an existing rels file (or return a minimal stub) and normalize the
+ * self-closing form `<Relationships .../>` — which Word emits for empty parts —
+ * to the open/close form so our `.replace('</Relationships>', ...)` append works.
+ */
+function readRelsOrStub(zip, relsPath) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const file = zip.file(relsPath);
+        const xml = file ? yield file.async('text') : EMPTY_RELS_XML;
+        return xml.replace(/<Relationships([^>]*)\/>/, '<Relationships$1></Relationships>');
+    });
+}
+/**
+ * Register new image extensions in [Content_Types].xml (idempotent).
+ */
+function registerImageExtensions(zip, extensions, compressionLevel) {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (extensions.size === 0)
+            return;
+        const ctFile = zip.file('[Content_Types].xml');
+        if (!ctFile)
+            return;
+        let ctXml = yield ctFile.async('text');
+        let changed = false;
+        for (const ext of extensions) {
+            if (!ctXml.includes(`Extension="${ext}"`)) {
+                const contentType = getContentTypeForExtension(ext, '');
+                ctXml = ctXml.replace('</Types>', `<Default Extension="${ext}" ContentType="${contentType}"/></Types>`);
+                changed = true;
+            }
+        }
+        if (changed) {
+            zip.file('[Content_Types].xml', ctXml, {
+                compression: 'DEFLATE',
+                compressionOptions: { level: compressionLevel },
+            });
+        }
+    });
+}
+/**
+ * Find the highest image number currently used in `word/media/`. Media filenames
+ * are a shared package-wide namespace, so a single counter is used across parts.
+ */
+function findMaxImageNum(zip) {
+    let max = 0;
+    zip.forEach((relativePath) => {
+        const m = relativePath.match(/^word\/media\/image(\d+)\./);
+        if (m) {
+            const num = parseInt(m[1], 10);
+            if (num > max)
+                max = num;
+        }
+    });
+    return max;
+}
+/**
+ * Process newly inserted images across all parts (body, headers, footers):
+ * add binary data to ZIP, create per-part relationships, update content types,
+ * and rewrite rIds so the serializer outputs correct references.
+ *
+ * Mutates each image's rId in-place.
+ */
+function processNewImages(parts, zip, compressionLevel) {
+    return __awaiter(this, void 0, void 0, function* () {
+        let maxImageNum = findMaxImageNum(zip);
+        const extensionsAdded = new Set();
+        for (const { relsPath, blocks } of parts) {
+            const images = collectNewImages(blocks);
+            if (images.length === 0)
+                continue;
+            const relsXml = yield readRelsOrStub(zip, relsPath);
+            let maxId = findMaxRId(relsXml);
+            const relEntries = [];
+            for (const image of images) {
+                const { data, extension } = decodeDataUrl(image.src);
+                maxImageNum++;
+                maxId++;
+                const mediaFilename = `image${maxImageNum}.${extension}`;
+                const newRId = `rId${maxId}`;
+                zip.file(`word/media/${mediaFilename}`, data, {
+                    compression: 'DEFLATE',
+                    compressionOptions: { level: compressionLevel },
+                });
+                relEntries.push(`<Relationship Id="${newRId}" Type="${RELATIONSHIP_TYPES.image}" Target="media/${mediaFilename}"/>`);
+                extensionsAdded.add(extension);
+                image.rId = newRId;
+            }
+            const updatedRelsXml = relsXml.replace('</Relationships>', relEntries.join('') + '</Relationships>');
+            zip.file(relsPath, updatedRelsXml, {
+                compression: 'DEFLATE',
+                compressionOptions: { level: compressionLevel },
+            });
+        }
+        yield registerImageExtensions(zip, extensionsAdded, compressionLevel);
+    });
+}
+// ============================================================================
+// NEW HYPERLINK HANDLING
+// ============================================================================
+/**
+ * Collect all hyperlinks that have an href but no rId from block content.
+ * These are newly created hyperlinks that need relationship entries.
+ */
+function collectHyperlinksWithoutRId(blocks) {
+    const hyperlinks = [];
+    for (const block of blocks) {
+        if (block.type === 'paragraph') {
+            for (const item of block.content) {
+                if (item.type === 'hyperlink' && item.href && !item.rId && !item.anchor) {
+                    hyperlinks.push(item);
+                }
+            }
+        }
+        else if (block.type === 'table') {
+            for (const row of block.rows) {
+                for (const cell of row.cells) {
+                    hyperlinks.push(...collectHyperlinksWithoutRId(cell.content));
+                }
+            }
+        }
+    }
+    return hyperlinks;
+}
+/**
+ * Process newly created hyperlinks across all parts (body, headers, footers):
+ * assign rIds and add relationship entries to the owning part's rels file.
+ *
+ * Mutates each hyperlink's rId in-place.
+ */
+function processNewHyperlinks(parts, zip, compressionLevel) {
+    return __awaiter(this, void 0, void 0, function* () {
+        for (const { relsPath, blocks } of parts) {
+            const hyperlinks = collectHyperlinksWithoutRId(blocks);
+            if (hyperlinks.length === 0)
+                continue;
+            const relsXml = yield readRelsOrStub(zip, relsPath);
+            let maxId = findMaxRId(relsXml);
+            const relEntries = [];
+            for (const hyperlink of hyperlinks) {
+                maxId++;
+                const newRId = `rId${maxId}`;
+                relEntries.push(`<Relationship Id="${newRId}" Type="${RELATIONSHIP_TYPES.hyperlink}" Target="${escapeXml(hyperlink.href)}" TargetMode="External"/>`);
+                hyperlink.rId = newRId;
+            }
+            const updatedRelsXml = relsXml.replace('</Relationships>', relEntries.join('') + '</Relationships>');
+            zip.file(relsPath, updatedRelsXml, {
+                compression: 'DEFLATE',
+                compressionOptions: { level: compressionLevel },
+            });
+        }
+    });
+}
+/**
+ * Repack a Document into a valid DOCX file
+ *
+ * @param doc - Document with modified content
+ * @param options - Optional repack options
+ * @returns Promise resolving to DOCX as ArrayBuffer
+ * @throws Error if document has no original buffer for round-trip
+ */
+export function repackDocx(doc_1) {
+    return __awaiter(this, arguments, void 0, function* (doc, options = {}) {
+        var _a, _b, _c, _d, _e;
+        // Validate we have an original buffer to base on
+        if (!doc.originalBuffer) {
+            throw new Error('Cannot repack document: no original buffer for round-trip. ' +
+                'Use createDocx() for new documents.');
+        }
+        const { compressionLevel = 6, updateModifiedDate = true, modifiedBy } = options;
+        const exportDocument = doc;
+        // Load the original ZIP
+        const originalZip = yield JSZip.loadAsync(doc.originalBuffer);
+        // Create a new ZIP with all original files
+        const newZip = new JSZip();
+        // Copy all files from original ZIP
+        for (const [path, file] of Object.entries(originalZip.files)) {
+            // Skip directories
+            if (file.dir) {
+                newZip.folder(path.replace(/\/$/, ''));
+                continue;
+            }
+            // Get original file content
+            const content = yield file.async('arraybuffer');
+            // Add to new ZIP (we'll update specific files below)
+            newZip.file(path, content, {
+                compression: 'DEFLATE',
+                compressionOptions: { level: compressionLevel },
+            });
+        }
+        // Process newly inserted images and hyperlinks across body + headers + footers.
+        // Mutates rIds in-place so serializers emit correct references.
+        const parts = collectParts(exportDocument);
+        yield processNewImages(parts, newZip, compressionLevel);
+        yield processNewHyperlinks(parts, newZip, compressionLevel);
+        // Serialize and update document.xml (after image/hyperlink rIds have been rewritten)
+        const documentXml = serializeDocument(exportDocument);
+        newZip.file('word/document.xml', documentXml, {
+            compression: 'DEFLATE',
+            compressionOptions: { level: compressionLevel },
+        });
+        // Serialize and update modified headers/footers
+        serializeHeadersFootersToZip(exportDocument, newZip, compressionLevel);
+        yield ensureHeaderFooterParts(exportDocument, newZip, compressionLevel);
+        // Override footnotes.xml ONLY for footnotes the user edited (opt-in). Each
+        // edited footnote's text is surgically replaced inside the original XML;
+        // untouched footnotes — and every doc that never edits one — stay verbatim.
+        {
+            const editedFootnotes = ((_b = (_a = exportDocument.package) === null || _a === void 0 ? void 0 : _a.footnotes) !== null && _b !== void 0 ? _b : []).filter((f) => f.edited);
+            if (editedFootnotes.length > 0) {
+                const fnFile = originalZip.file('word/footnotes.xml');
+                if (fnFile) {
+                    const newFnXml = replaceFootnotesInXml(yield fnFile.async('text'), editedFootnotes);
+                    newZip.file('word/footnotes.xml', newFnXml, {
+                        compression: 'DEFLATE',
+                        compressionOptions: { level: compressionLevel },
+                    });
+                }
+            }
+            const editedEndnotes = ((_d = (_c = exportDocument.package) === null || _c === void 0 ? void 0 : _c.endnotes) !== null && _d !== void 0 ? _d : []).filter((e) => e.edited);
+            if (editedEndnotes.length > 0) {
+                const enFile = originalZip.file('word/endnotes.xml');
+                if (enFile) {
+                    const newEnXml = replaceEndnotesInXml(yield enFile.async('text'), editedEndnotes);
+                    newZip.file('word/endnotes.xml', newEnXml, {
+                        compression: 'DEFLATE',
+                        compressionOptions: { level: compressionLevel },
+                    });
+                }
+            }
+        }
+        // Update docProps/core.xml. Two independent inputs are applied:
+        //   1. User-editable fields from `pkg.properties` (set by the File →
+        //      Properties dialog) — `applyCorePropertiesToXml`.
+        //   2. The modified-date stamp (`updateCoreProperties`) — always on
+        //      when `updateModifiedDate` is true so a saved file looks "just
+        //      now" to other Word installs.
+        // The pipeline is property-edits first, then date stamp, so the stamp
+        // always wins over a stale `modified` in `pkg.properties`.
+        const userProps = (_e = exportDocument.package) === null || _e === void 0 ? void 0 : _e.properties;
+        const hasUserPropEdits = !!userProps && Object.keys(userProps).length > 0;
+        if (updateModifiedDate || hasUserPropEdits) {
+            const corePropsPath = 'docProps/core.xml';
+            const corePropsFile = originalZip.file(corePropsPath);
+            const originalCoreProps = corePropsFile
+                ? yield corePropsFile.async('text')
+                : EMPTY_CORE_PROPERTIES_XML;
+            let updatedCoreProps = originalCoreProps;
+            if (hasUserPropEdits) {
+                updatedCoreProps = applyCorePropertiesToXml(updatedCoreProps, userProps);
+            }
+            if (updateModifiedDate) {
+                updatedCoreProps = updateCoreProperties(updatedCoreProps, {
+                    updateModifiedDate,
+                    modifiedBy,
+                });
+            }
+            newZip.file(corePropsPath, updatedCoreProps, {
+                compression: 'DEFLATE',
+                compressionOptions: { level: compressionLevel },
+            });
+        }
+        // Generate the new DOCX file
+        const arrayBuffer = yield newZip.generateAsync({
+            type: 'arraybuffer',
+            compression: 'DEFLATE',
+            compressionOptions: { level: compressionLevel },
+        });
+        return arrayBuffer;
+    });
+}
+/**
+ * Repack a Document using raw content for more control
+ *
+ * @param doc - Document with modified content
+ * @param rawContent - Original raw content from unzipDocx
+ * @param options - Optional repack options
+ * @returns Promise resolving to DOCX as ArrayBuffer
+ */
+export function repackDocxFromRaw(doc_1, rawContent_1) {
+    return __awaiter(this, arguments, void 0, function* (doc, rawContent, options = {}) {
+        var _a, _b, _c, _d;
+        const { compressionLevel = 6, updateModifiedDate = true, modifiedBy } = options;
+        const exportDocument = doc;
+        // Create a new ZIP with all original files
+        const newZip = new JSZip();
+        // Copy all files from original ZIP
+        for (const [path, file] of Object.entries(rawContent.originalZip.files)) {
+            // Skip directories
+            if (file.dir) {
+                newZip.folder(path.replace(/\/$/, ''));
+                continue;
+            }
+            // Get original file content
+            const content = yield file.async('arraybuffer');
+            // Add to new ZIP
+            newZip.file(path, content, {
+                compression: 'DEFLATE',
+                compressionOptions: { level: compressionLevel },
+            });
+        }
+        // Process newly inserted images and hyperlinks across body + headers + footers.
+        const parts = collectParts(exportDocument);
+        yield processNewImages(parts, newZip, compressionLevel);
+        yield processNewHyperlinks(parts, newZip, compressionLevel);
+        const documentXml = serializeDocument(exportDocument);
+        newZip.file('word/document.xml', documentXml, {
+            compression: 'DEFLATE',
+            compressionOptions: { level: compressionLevel },
+        });
+        // Serialize and update modified headers/footers
+        serializeHeadersFootersToZip(exportDocument, newZip, compressionLevel);
+        yield ensureHeaderFooterParts(exportDocument, newZip, compressionLevel);
+        // Override footnotes.xml ONLY for footnotes the user edited (opt-in; see
+        // repackDocx for the rationale). Untouched footnotes stay verbatim.
+        {
+            const editedFootnotes = ((_b = (_a = exportDocument.package) === null || _a === void 0 ? void 0 : _a.footnotes) !== null && _b !== void 0 ? _b : []).filter((f) => f.edited);
+            if (editedFootnotes.length > 0) {
+                const fnFile = rawContent.originalZip.file('word/footnotes.xml');
+                if (fnFile) {
+                    const newFnXml = replaceFootnotesInXml(yield fnFile.async('text'), editedFootnotes);
+                    newZip.file('word/footnotes.xml', newFnXml, {
+                        compression: 'DEFLATE',
+                        compressionOptions: { level: compressionLevel },
+                    });
+                }
+            }
+            const editedEndnotes = ((_d = (_c = exportDocument.package) === null || _c === void 0 ? void 0 : _c.endnotes) !== null && _d !== void 0 ? _d : []).filter((e) => e.edited);
+            if (editedEndnotes.length > 0) {
+                const enFile = rawContent.originalZip.file('word/endnotes.xml');
+                if (enFile) {
+                    const newEnXml = replaceEndnotesInXml(yield enFile.async('text'), editedEndnotes);
+                    newZip.file('word/endnotes.xml', newEnXml, {
+                        compression: 'DEFLATE',
+                        compressionOptions: { level: compressionLevel },
+                    });
+                }
+            }
+        }
+        // Serialize comments
+        yield serializeCommentsToZip(exportDocument, newZip, compressionLevel);
+        // Optionally update core properties
+        if (updateModifiedDate && rawContent.corePropsXml) {
+            const updatedCoreProps = updateCoreProperties(rawContent.corePropsXml, {
+                updateModifiedDate,
+                modifiedBy,
+            });
+            newZip.file('docProps/core.xml', updatedCoreProps, {
+                compression: 'DEFLATE',
+                compressionOptions: { level: compressionLevel },
+            });
+        }
+        // Generate the new DOCX file
+        const arrayBuffer = yield newZip.generateAsync({
+            type: 'arraybuffer',
+            compression: 'DEFLATE',
+            compressionOptions: { level: compressionLevel },
+        });
+        return arrayBuffer;
+    });
+}
+// ============================================================================
+// COMMENT PACKAGING HELPERS
+// ============================================================================
+const HEADER_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml';
+const FOOTER_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml';
+export const COMMENTS_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml';
+export const COMMENTS_EXTENDED_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml';
+export const COMMENTS_IDS_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml';
+export const COMMENTS_EXTENSIBLE_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml';
+/**
+ * Ensure every header/footer in `doc.package.relationships` is wired up in
+ * `[Content_Types].xml` and `word/_rels/document.xml.rels`. For blank documents
+ * where the user adds a header/footer for the first time, these files don't
+ * know about the new part yet — without this Word silently drops them (#274).
+ */
+function ensureHeaderFooterParts(doc, zip, compressionLevel) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const rels = doc.package.relationships;
+        if (!rels)
+            return;
+        const parts = [];
+        for (const [rId, rel] of rels) {
+            if (!rel.target)
+                continue;
+            const contentType = rel.type === RELATIONSHIP_TYPES.header
+                ? HEADER_CONTENT_TYPE
+                : rel.type === RELATIONSHIP_TYPES.footer
+                    ? FOOTER_CONTENT_TYPE
+                    : null;
+            if (!contentType)
+                continue;
+            parts.push({
+                rId,
+                target: rel.target.replace(/^(\/?word\/)/, ''),
+                contentType,
+                relType: rel.type,
+            });
+        }
+        if (parts.length === 0)
+            return;
+        const ctFile = zip.file('[Content_Types].xml');
+        if (ctFile) {
+            let ctXml = yield ctFile.async('text');
+            let changed = false;
+            for (const { target, contentType } of parts) {
+                const partName = `/word/${target}`;
+                if (!ctXml.includes(`PartName="${partName}"`)) {
+                    ctXml = ctXml.replace('</Types>', `<Override PartName="${partName}" ContentType="${contentType}"/></Types>`);
+                    changed = true;
+                }
+            }
+            if (changed) {
+                zip.file('[Content_Types].xml', ctXml, {
+                    compression: 'DEFLATE',
+                    compressionOptions: { level: compressionLevel },
+                });
+            }
+        }
+        const relsPath = 'word/_rels/document.xml.rels';
+        let relsXml = yield readRelsOrStub(zip, relsPath);
+        let relsChanged = false;
+        for (const { rId, relType, target } of parts) {
+            if (!relsXml.includes(`Id="${rId}"`)) {
+                relsXml = relsXml.replace('</Relationships>', `<Relationship Id="${rId}" Type="${relType}" Target="${target}"/></Relationships>`);
+                relsChanged = true;
+            }
+        }
+        if (relsChanged) {
+            zip.file(relsPath, relsXml, {
+                compression: 'DEFLATE',
+                compressionOptions: { level: compressionLevel },
+            });
+        }
+    });
+}
+/**
+ * Ensure content types and relationships exist for all comment parts.
+ * Reads each shared file once, applies all modifications, writes once.
+ */
+function ensureAllCommentParts(zip, compressionLevel) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const COMMENT_PARTS = [
+            {
+                partName: '/word/comments.xml',
+                contentType: COMMENTS_CONTENT_TYPE,
+                target: 'comments.xml',
+                relType: RELATIONSHIP_TYPES.comments,
+            },
+            {
+                partName: '/word/commentsExtended.xml',
+                contentType: COMMENTS_EXTENDED_CONTENT_TYPE,
+                target: 'commentsExtended.xml',
+                relType: RELATIONSHIP_TYPES.commentsExtended,
+            },
+            {
+                partName: '/word/commentsIds.xml',
+                contentType: COMMENTS_IDS_CONTENT_TYPE,
+                target: 'commentsIds.xml',
+                relType: RELATIONSHIP_TYPES.commentsIds,
+            },
+            {
+                partName: '/word/commentsExtensible.xml',
+                contentType: COMMENTS_EXTENSIBLE_CONTENT_TYPE,
+                target: 'commentsExtensible.xml',
+                relType: RELATIONSHIP_TYPES.commentsExtensible,
+            },
+        ];
+        // Content types — single read/write
+        const ctFile = zip.file('[Content_Types].xml');
+        if (ctFile) {
+            let ctXml = yield ctFile.async('text');
+            let changed = false;
+            for (const { partName, contentType } of COMMENT_PARTS) {
+                if (!ctXml.includes(partName)) {
+                    ctXml = ctXml.replace('</Types>', `<Override PartName="${partName}" ContentType="${contentType}"/></Types>`);
+                    changed = true;
+                }
+            }
+            if (changed) {
+                zip.file('[Content_Types].xml', ctXml, {
+                    compression: 'DEFLATE',
+                    compressionOptions: { level: compressionLevel },
+                });
+            }
+        }
+        // Relationships — single read/write
+        const relsPath = 'word/_rels/document.xml.rels';
+        const relsFile = zip.file(relsPath);
+        if (relsFile) {
+            let relsXml = yield relsFile.async('text');
+            let changed = false;
+            for (const { target, relType } of COMMENT_PARTS) {
+                if (!relsXml.includes(target)) {
+                    const newRId = `rId${findMaxRId(relsXml) + 1}`;
+                    relsXml = relsXml.replace('</Relationships>', `<Relationship Id="${newRId}" Type="${relType}" Target="${target}"/></Relationships>`);
+                    changed = true;
+                }
+            }
+            if (changed) {
+                zip.file(relsPath, relsXml, {
+                    compression: 'DEFLATE',
+                    compressionOptions: { level: compressionLevel },
+                });
+            }
+        }
+    });
+}
+// ============================================================================
+// SELECTIVE UPDATES
+// ============================================================================
+/**
+ * Update only document.xml in a DOCX buffer (minimal changes)
+ *
+ * @param originalBuffer - Original DOCX as ArrayBuffer
+ * @param newDocumentXml - New document.xml content
+ * @param options - Optional repack options
+ * @returns Promise resolving to DOCX as ArrayBuffer
+ */
+export function updateDocumentXml(originalBuffer_1, newDocumentXml_1) {
+    return __awaiter(this, arguments, void 0, function* (originalBuffer, newDocumentXml, options = {}) {
+        const { compressionLevel = 6 } = options;
+        // Load original ZIP
+        const zip = yield JSZip.loadAsync(originalBuffer);
+        // Update document.xml
+        zip.file('word/document.xml', newDocumentXml, {
+            compression: 'DEFLATE',
+            compressionOptions: { level: compressionLevel },
+        });
+        // Generate new DOCX
+        return zip.generateAsync({
+            type: 'arraybuffer',
+            compression: 'DEFLATE',
+            compressionOptions: { level: compressionLevel },
+        });
+    });
+}
+/**
+ * Update a specific XML file in a DOCX buffer
+ *
+ * @param originalBuffer - Original DOCX as ArrayBuffer
+ * @param path - Path within the ZIP (e.g., "word/styles.xml")
+ * @param content - New XML content
+ * @param options - Optional repack options
+ * @returns Promise resolving to DOCX as ArrayBuffer
+ */
+export function updateXmlFile(originalBuffer_1, path_1, content_1) {
+    return __awaiter(this, arguments, void 0, function* (originalBuffer, path, content, options = {}) {
+        const { compressionLevel = 6 } = options;
+        const zip = yield JSZip.loadAsync(originalBuffer);
+        zip.file(path, content, {
+            compression: 'DEFLATE',
+            compressionOptions: { level: compressionLevel },
+        });
+        return zip.generateAsync({
+            type: 'arraybuffer',
+            compression: 'DEFLATE',
+            compressionOptions: { level: compressionLevel },
+        });
+    });
+}
+/**
+ * Update multiple files in a DOCX buffer
+ *
+ * @param originalBuffer - Original DOCX as ArrayBuffer
+ * @param updates - Map of path -> content for files to update
+ * @param options - Optional repack options
+ * @returns Promise resolving to DOCX as ArrayBuffer
+ */
+export function updateMultipleFiles(originalBuffer_1, updates_1) {
+    return __awaiter(this, arguments, void 0, function* (originalBuffer, updates, options = {}) {
+        const zip = yield JSZip.loadAsync(originalBuffer);
+        return applyUpdatesToZip(zip, updates, options);
+    });
+}
+/**
+ * Apply file updates to an already-loaded JSZip instance and generate the output.
+ * Use this when the zip is already loaded to avoid a redundant decompression pass.
+ */
+export function applyUpdatesToZip(zip_1, updates_1) {
+    return __awaiter(this, arguments, void 0, function* (zip, updates, options = {}) {
+        const { compressionLevel = 6 } = options;
+        for (const [path, content] of updates) {
+            zip.file(path, content, {
+                compression: 'DEFLATE',
+                compressionOptions: { level: compressionLevel },
+            });
+        }
+        return zip.generateAsync({
+            type: 'arraybuffer',
+            compression: 'DEFLATE',
+            compressionOptions: { level: compressionLevel },
+        });
+    });
+}
+// ============================================================================
+// RELATIONSHIP MANAGEMENT
+// ============================================================================
+/**
+ * Add a new relationship to document.xml.rels
+ *
+ * @param originalBuffer - Original DOCX as ArrayBuffer
+ * @param relationship - New relationship to add
+ * @returns Promise resolving to { buffer: ArrayBuffer, rId: string }
+ */
+export function addRelationship(originalBuffer, relationship) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const zip = yield JSZip.loadAsync(originalBuffer);
+        // Read existing relationships
+        const relsPath = 'word/_rels/document.xml.rels';
+        const relsFile = zip.file(relsPath);
+        if (!relsFile) {
+            throw new Error('document.xml.rels not found in DOCX');
+        }
+        const relsXml = yield relsFile.async('text');
+        // Generate new rId
+        const newRId = `rId${findMaxRId(relsXml) + 1}`;
+        // Build new relationship element
+        const targetModeAttr = relationship.targetMode === 'External' ? ' TargetMode="External"' : '';
+        const newRelElement = `<Relationship Id="${newRId}" Type="${relationship.type}" Target="${escapeXml(relationship.target)}"${targetModeAttr}/>`;
+        // Insert before closing tag
+        const updatedRelsXml = relsXml.replace('</Relationships>', `${newRelElement}</Relationships>`);
+        // Update the ZIP
+        zip.file(relsPath, updatedRelsXml);
+        const buffer = yield zip.generateAsync({
+            type: 'arraybuffer',
+            compression: 'DEFLATE',
+            compressionOptions: { level: 6 },
+        });
+        return { buffer, rId: newRId };
+    });
+}
+/**
+ * Add a media file to the DOCX
+ *
+ * @param originalBuffer - Original DOCX as ArrayBuffer
+ * @param filename - Filename for the media (e.g., "image1.png")
+ * @param data - Binary data for the media file
+ * @param mimeType - MIME type (e.g., "image/png")
+ * @returns Promise resolving to { buffer: ArrayBuffer, rId: string, path: string }
+ */
+export function addMedia(originalBuffer, filename, data, mimeType) {
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a;
+        const zip = yield JSZip.loadAsync(originalBuffer);
+        // Determine media path
+        const mediaPath = `word/media/${filename}`;
+        // Add media file
+        zip.file(mediaPath, data);
+        // Add relationship
+        const relResult = yield addRelationship(yield zip.generateAsync({ type: 'arraybuffer' }), {
+            type: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image',
+            target: `media/${filename}`,
+        });
+        // Update content types if needed
+        const contentTypesFile = zip.file('[Content_Types].xml');
+        if (contentTypesFile) {
+            const contentTypesXml = yield contentTypesFile.async('text');
+            const extension = ((_a = filename.split('.').pop()) === null || _a === void 0 ? void 0 : _a.toLowerCase()) || '';
+            // Check if extension is already registered
+            const hasExtension = contentTypesXml.includes(`Extension="${extension}"`);
+            if (!hasExtension && extension) {
+                // Add content type for this extension
+                const contentType = getContentTypeForExtension(extension, mimeType);
+                const extensionElement = `<Default Extension="${extension}" ContentType="${contentType}"/>`;
+                // Insert after other defaults
+                const updatedContentTypes = contentTypesXml.replace('</Types>', `${extensionElement}</Types>`);
+                const finalZip = yield JSZip.loadAsync(relResult.buffer);
+                finalZip.file('[Content_Types].xml', updatedContentTypes);
+                return {
+                    buffer: yield finalZip.generateAsync({
+                        type: 'arraybuffer',
+                        compression: 'DEFLATE',
+                        compressionOptions: { level: 6 },
+                    }),
+                    rId: relResult.rId,
+                    path: mediaPath,
+                };
+            }
+        }
+        return {
+            buffer: relResult.buffer,
+            rId: relResult.rId,
+            path: mediaPath,
+        };
+    });
+}
+// ============================================================================
+// HEADER/FOOTER SERIALIZATION
+// ============================================================================
+/**
+ * Collect serialized header/footer XML updates from the document model.
+ * Uses the relationship map to resolve rId → filename.
+ */
+export function collectHeaderFooterUpdates(doc) {
+    const updates = new Map();
+    const rels = doc.package.relationships;
+    if (!rels)
+        return updates;
+    const parts = [
+        { map: doc.package.headers, type: RELATIONSHIP_TYPES.header },
+        { map: doc.package.footers, type: RELATIONSHIP_TYPES.footer },
+    ];
+    for (const { map, type } of parts) {
+        if (!map)
+            continue;
+        for (const [rId, headerFooter] of map.entries()) {
+            const rel = rels.get(rId);
+            if (rel && rel.type === type && rel.target) {
+                updates.set(headerFooterFilename(rel.target), serializeHeaderFooter(headerFooter));
+            }
+        }
+    }
+    return updates;
+}
+/**
+ * Serialize modified headers and footers into the ZIP
+ */
+function serializeHeadersFootersToZip(doc, zip, compressionLevel) {
+    const compressionOptions = { level: compressionLevel };
+    for (const [filename, xml] of collectHeaderFooterUpdates(doc)) {
+        zip.file(filename, xml, { compression: 'DEFLATE', compressionOptions });
+    }
+}
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+/**
+ * Update core properties XML with new modification date
+ */
+export function updateCoreProperties(corePropsXml, options) {
+    let result = corePropsXml;
+    if (options.updateModifiedDate) {
+        const now = new Date().toISOString();
+        // Update dcterms:modified
+        if (result.includes('<dcterms:modified')) {
+            result = result.replace(/<dcterms:modified[^>]*>[^<]*<\/dcterms:modified>/, `<dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified>`);
+        }
+        else {
+            // Add modified date if not present
+            result = result.replace('</cp:coreProperties>', `<dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`);
+        }
+    }
+    if (options.modifiedBy) {
+        // Update cp:lastModifiedBy
+        if (result.includes('<cp:lastModifiedBy')) {
+            result = result.replace(/<cp:lastModifiedBy>[^<]*<\/cp:lastModifiedBy>/, `<cp:lastModifiedBy>${escapeXml(options.modifiedBy)}</cp:lastModifiedBy>`);
+        }
+        else {
+            // Add lastModifiedBy if not present
+            result = result.replace('</cp:coreProperties>', `<cp:lastModifiedBy>${escapeXml(options.modifiedBy)}</cp:lastModifiedBy></cp:coreProperties>`);
+        }
+    }
+    return result;
+}
+/**
+ * Get content type for a file extension
+ */
+function getContentTypeForExtension(extension, mimeType) {
+    // Use provided mime type or fall back to common types
+    if (mimeType)
+        return mimeType;
+    const contentTypes = {
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        gif: 'image/gif',
+        bmp: 'image/bmp',
+        tif: 'image/tiff',
+        tiff: 'image/tiff',
+        svg: 'image/svg+xml',
+        webp: 'image/webp',
+        wmf: 'image/x-wmf',
+        emf: 'image/x-emf',
+    };
+    return contentTypes[extension] || 'application/octet-stream';
+}
+// ============================================================================
+// VALIDATION
+// ============================================================================
+/**
+ * Validate that a buffer is a valid DOCX file
+ *
+ * @param buffer - Buffer to validate
+ * @returns Promise resolving to validation result
+ */
+export function validateDocx(buffer) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const errors = [];
+        const warnings = [];
+        try {
+            const zip = yield JSZip.loadAsync(buffer);
+            // Check for required files
+            const requiredFiles = ['[Content_Types].xml', 'word/document.xml'];
+            for (const file of requiredFiles) {
+                if (!zip.file(file)) {
+                    errors.push(`Missing required file: ${file}`);
+                }
+            }
+            // Check for recommended files
+            const recommendedFiles = ['_rels/.rels', 'word/_rels/document.xml.rels', 'word/styles.xml'];
+            for (const file of recommendedFiles) {
+                if (!zip.file(file)) {
+                    warnings.push(`Missing recommended file: ${file}`);
+                }
+            }
+            // Validate document.xml is valid XML
+            const docFile = zip.file('word/document.xml');
+            if (docFile) {
+                const docXml = yield docFile.async('text');
+                // Basic XML validation
+                if (!docXml.includes('<?xml')) {
+                    warnings.push('document.xml missing XML declaration');
+                }
+                if (!docXml.includes('<w:document')) {
+                    errors.push('document.xml missing w:document element');
+                }
+                if (!docXml.includes('<w:body>')) {
+                    errors.push('document.xml missing w:body element');
+                }
+            }
+            // Validate Content_Types.xml
+            const ctFile = zip.file('[Content_Types].xml');
+            if (ctFile) {
+                const ctXml = yield ctFile.async('text');
+                if (!ctXml.includes('word/document.xml') &&
+                    !ctXml.includes('application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml')) {
+                    warnings.push('Content_Types.xml may be missing document.xml type declaration');
+                }
+            }
+        }
+        catch (error) {
+            errors.push(`Failed to read as ZIP: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+        return {
+            valid: errors.length === 0,
+            errors,
+            warnings,
+        };
+    });
+}
+/**
+ * Check if buffer looks like a DOCX file (quick check)
+ *
+ * @param buffer - Buffer to check
+ * @returns true if buffer starts with ZIP signature
+ */
+export function isDocxBuffer(buffer) {
+    if (buffer.byteLength < 4)
+        return false;
+    const view = new Uint8Array(buffer);
+    // ZIP file signature: PK (0x50, 0x4B)
+    return view[0] === 0x50 && view[1] === 0x4b;
+}
+// ============================================================================
+// CREATE NEW DOCX
+// ============================================================================
+/**
+ * Create a new empty DOCX file
+ *
+ * @returns Promise resolving to minimal DOCX as ArrayBuffer
+ */
+export function createEmptyDocx() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const zip = new JSZip();
+        // Content Types
+        zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>`);
+        // Package relationships
+        zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>`);
+        // Document relationships
+        zip.file('word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`);
+        // Document
+        zip.file('word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <w:body>
+    <w:p>
+      <w:r>
+        <w:t></w:t>
+      </w:r>
+    </w:p>
+    <w:sectPr>
+      <w:pgSz w:w="12240" w:h="15840"/>
+      <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>
+    </w:sectPr>
+  </w:body>
+</w:document>`);
+        // Minimal styles
+        zip.file('word/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:docDefaults>
+    <w:rPrDefault>
+      <w:rPr>
+        <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/>
+        <w:sz w:val="22"/>
+      </w:rPr>
+    </w:rPrDefault>
+    <w:pPrDefault>
+      <w:pPr>
+        <w:spacing w:after="200" w:line="276" w:lineRule="auto"/>
+      </w:pPr>
+    </w:pPrDefault>
+  </w:docDefaults>
+  <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
+    <w:name w:val="Normal"/>
+  </w:style>
+</w:styles>`);
+        // Core properties
+        const now = new Date().toISOString();
+        zip.file('docProps/core.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:creator>EigenPal DOCX Editor</dc:creator>
+  <dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created>
+  <dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified>
+</cp:coreProperties>`);
+        // App properties
+        zip.file('docProps/app.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">
+  <Application>EigenPal DOCX Editor</Application>
+  <AppVersion>1.0.0</AppVersion>
+</Properties>`);
+        return zip.generateAsync({
+            type: 'arraybuffer',
+            compression: 'DEFLATE',
+            compressionOptions: { level: 6 },
+        });
+    });
+}
+/**
+ * Create a new DOCX from a Document (without requiring original buffer)
+ *
+ * @param doc - Document to serialize
+ * @returns Promise resolving to DOCX as ArrayBuffer
+ */
+export function createDocx(doc) {
+    return __awaiter(this, void 0, void 0, function* () {
+        // Start with an empty DOCX
+        const emptyBuffer = yield createEmptyDocx();
+        // Add document as original buffer
+        const docWithBuffer = Object.assign(Object.assign({}, doc), { originalBuffer: emptyBuffer });
+        // Repack with the document content
+        return repackDocx(docWithBuffer);
+    });
+}
+// ============================================================================
+// EXPORTS
+// ============================================================================
+export default repackDocx;
+//# sourceMappingURL=rezip.js.map

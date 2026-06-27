@@ -1,0 +1,331 @@
+/**
+ * Selection Tracker Plugin
+ *
+ * Tracks selection changes and emits events for toolbar state updates.
+ * Provides the current selection context including:
+ * - Text formatting at cursor/selection
+ * - Paragraph formatting
+ * - Selection range information
+ */
+import { Plugin, PluginKey } from 'prosemirror-state';
+/**
+ * Plugin key for accessing selection tracker state
+ */
+export const selectionTrackerKey = new PluginKey('selectionTracker');
+/**
+ * Extract selection context from editor state
+ */
+export function extractSelectionContext(state) {
+    var _a;
+    const { selection, doc } = state;
+    const { from, to, empty } = selection;
+    const $from = doc.resolve(from);
+    // Find paragraph indices
+    let startParagraphIndex = 0;
+    let endParagraphIndex = 0;
+    doc.forEach((_node, offset, index) => {
+        if (offset > to)
+            return false; // early-exit once past selection
+        if (offset <= from) {
+            startParagraphIndex = index;
+        }
+        if (offset <= to) {
+            endParagraphIndex = index;
+        }
+    });
+    // Extract text formatting from marks
+    const textFormatting = extractTextFormatting(state);
+    // Extract paragraph formatting
+    const paragraph = $from.parent;
+    const paragraphFormatting = {};
+    if (paragraph.type.name === 'paragraph') {
+        if (paragraph.attrs.alignment) {
+            paragraphFormatting.alignment = paragraph.attrs.alignment;
+        }
+        if (paragraph.attrs.lineSpacing) {
+            paragraphFormatting.lineSpacing = paragraph.attrs.lineSpacing;
+            paragraphFormatting.lineSpacingRule = paragraph.attrs.lineSpacingRule;
+        }
+        if (paragraph.attrs.indentLeft) {
+            paragraphFormatting.indentLeft = paragraph.attrs.indentLeft;
+        }
+        if (paragraph.attrs.indentRight) {
+            paragraphFormatting.indentRight = paragraph.attrs.indentRight;
+        }
+        if (paragraph.attrs.indentFirstLine) {
+            paragraphFormatting.indentFirstLine = paragraph.attrs.indentFirstLine;
+        }
+        if (paragraph.attrs.hangingIndent) {
+            paragraphFormatting.hangingIndent = paragraph.attrs.hangingIndent;
+        }
+        if (paragraph.attrs.tabs) {
+            paragraphFormatting.tabs = paragraph.attrs.tabs;
+        }
+        if (paragraph.attrs.numPr) {
+            paragraphFormatting.numPr = paragraph.attrs.numPr;
+        }
+        if (paragraph.attrs.styleId) {
+            paragraphFormatting.styleId = paragraph.attrs.styleId;
+        }
+        if (paragraph.attrs.spaceBefore != null) {
+            paragraphFormatting.spaceBefore = paragraph.attrs.spaceBefore;
+        }
+        if (paragraph.attrs.spaceAfter != null) {
+            paragraphFormatting.spaceAfter = paragraph.attrs.spaceAfter;
+        }
+    }
+    // List detection
+    const numPr = (_a = paragraph.attrs) === null || _a === void 0 ? void 0 : _a.numPr;
+    const inList = !!(numPr === null || numPr === void 0 ? void 0 : numPr.numId);
+    const listType = (numPr === null || numPr === void 0 ? void 0 : numPr.numId) === 1 ? 'bullet' : (numPr === null || numPr === void 0 ? void 0 : numPr.numId) ? 'numbered' : undefined;
+    const listLevel = numPr === null || numPr === void 0 ? void 0 : numPr.ilvl;
+    // Comment and tracked change detection
+    const allMarks = state.storedMarks || (empty ? $from.marks() : []);
+    const activeCommentIds = [];
+    let inInsertion = false;
+    let inDeletion = false;
+    for (const mark of allMarks) {
+        if (mark.type.name === 'comment' && mark.attrs.commentId) {
+            activeCommentIds.push(mark.attrs.commentId);
+        }
+        if (mark.type.name === 'insertion') {
+            inInsertion = true;
+        }
+        if (mark.type.name === 'deletion') {
+            inDeletion = true;
+        }
+    }
+    return {
+        hasSelection: !empty,
+        isMultiParagraph: startParagraphIndex !== endParagraphIndex,
+        textFormatting,
+        paragraphFormatting,
+        startParagraphIndex,
+        endParagraphIndex,
+        inList,
+        listType,
+        listLevel,
+        activeCommentIds,
+        inInsertion,
+        inDeletion,
+    };
+}
+/**
+ * Extract text formatting from current selection/cursor marks
+ */
+function extractTextFormatting(state) {
+    const { selection } = state;
+    const { empty, $from, from, to } = selection;
+    // Get marks. For an empty selection (cursor), stored marks take
+    // precedence (so format-then-type works), otherwise the marks at the
+    // resolved cursor position. For a non-empty selection, walk every
+    // text node in the range and intersect the marks — the toolbar
+    // should reflect a formatting as "active" only when *every* covered
+    // character carries it. (Without this branch, a selection like
+    // "bold" inside `<strong>bold</strong>` returned `[]` and the
+    // toolbar showed bold=inactive even though the entire selection was
+    // bold.)
+    let marks = [];
+    if (empty) {
+        if (state.storedMarks) {
+            marks = state.storedMarks;
+        }
+        else {
+            // $from.marks() is left-leaning — at the start of a marked
+            // range (cursor between a non-bold space and bold "bold")
+            // it returns the marks of the preceding character (no bold),
+            // so the toolbar reads bold-inactive even though the user
+            // is visually "inside" the bold range. Word + Google Docs
+            // treat boundary cursors as inside the *adjacent* mark for
+            // toolbar state, so also peek at the node *after* the
+            // cursor and union those marks in.
+            const leftMarks = $from.marks();
+            const after = $from.nodeAfter;
+            const rightMarks = after ? after.marks : [];
+            const seen = new Set();
+            const combined = [];
+            for (const m of [...leftMarks, ...rightMarks]) {
+                // Dedupe by type+attrs so the same mark from both sides
+                // doesn't double up in the toolbar's mark scan below.
+                const key = m.type.name + JSON.stringify(m.attrs);
+                if (seen.has(key))
+                    continue;
+                seen.add(key);
+                combined.push(m);
+            }
+            marks = combined;
+        }
+    }
+    else {
+        let intersection = null;
+        state.doc.nodesBetween(from, to, (node) => {
+            if (!node.isText)
+                return true;
+            if (intersection === null) {
+                intersection = [...node.marks];
+            }
+            else {
+                intersection = intersection.filter((m) => node.marks.some((n) => n.eq(m)));
+            }
+            return false;
+        });
+        marks = intersection !== null && intersection !== void 0 ? intersection : [];
+    }
+    const formatting = {};
+    for (const mark of marks) {
+        switch (mark.type.name) {
+            case 'bold':
+                formatting.bold = true;
+                break;
+            case 'italic':
+                formatting.italic = true;
+                break;
+            case 'underline':
+                formatting.underline = {
+                    style: mark.attrs.style || 'single',
+                    color: mark.attrs.color,
+                };
+                break;
+            case 'strike':
+                if (mark.attrs.double) {
+                    formatting.doubleStrike = true;
+                }
+                else {
+                    formatting.strike = true;
+                }
+                break;
+            case 'textColor':
+                formatting.color = {
+                    rgb: mark.attrs.rgb,
+                    themeColor: mark.attrs.themeColor,
+                    themeTint: mark.attrs.themeTint,
+                    themeShade: mark.attrs.themeShade,
+                };
+                break;
+            case 'highlight':
+                formatting.highlight = mark.attrs.color;
+                break;
+            case 'fontSize':
+                formatting.fontSize = mark.attrs.size;
+                break;
+            case 'fontFamily':
+                formatting.fontFamily = {
+                    ascii: mark.attrs.ascii,
+                    hAnsi: mark.attrs.hAnsi,
+                    asciiTheme: mark.attrs.asciiTheme,
+                };
+                break;
+            case 'superscript':
+                formatting.vertAlign = 'superscript';
+                break;
+            case 'subscript':
+                formatting.vertAlign = 'subscript';
+                break;
+            case 'smallCaps':
+                formatting.smallCaps = true;
+                break;
+            case 'allCaps':
+                formatting.allCaps = true;
+                break;
+            case 'hidden':
+                formatting.hidden = true;
+                break;
+            case 'emboss':
+                formatting.emboss = true;
+                break;
+            case 'imprint':
+                formatting.imprint = true;
+                break;
+            case 'textShadow':
+                formatting.shadow = true;
+                break;
+            case 'textOutline':
+                formatting.outline = true;
+                break;
+            case 'characterSpacing':
+                if (mark.attrs.spacing != null) {
+                    formatting.spacing = mark.attrs.spacing;
+                }
+                break;
+        }
+    }
+    return formatting;
+}
+/**
+ * Create selection tracker plugin
+ */
+export function createSelectionTrackerPlugin(onSelectionChange) {
+    return new Plugin({
+        key: selectionTrackerKey,
+        state: {
+            init(_, state) {
+                return extractSelectionContext(state);
+            },
+            apply(tr, prevContext, _, newState) {
+                // Only recalculate if selection or doc changed
+                if (!tr.selectionSet && !tr.docChanged) {
+                    return prevContext;
+                }
+                const newContext = extractSelectionContext(newState);
+                // Notify callback if context changed
+                if (onSelectionChange && !contextsEqual(prevContext, newContext)) {
+                    // Defer to next tick to avoid dispatch during dispatch
+                    setTimeout(() => onSelectionChange(newContext), 0);
+                }
+                return newContext;
+            },
+        },
+        view() {
+            return {
+                update(view, prevState) {
+                    if (!onSelectionChange)
+                        return;
+                    // Only emit on selection/doc changes
+                    if (view.state.selection.eq(prevState.selection) && view.state.doc.eq(prevState.doc)) {
+                        return;
+                    }
+                    // Reuse context already computed in state.apply() — avoid double doc walk
+                    const context = selectionTrackerKey.getState(view.state);
+                    if (context) {
+                        onSelectionChange(context);
+                    }
+                },
+            };
+        },
+    });
+}
+function arraysEqual(a, b) {
+    if (a === b)
+        return true;
+    if (!a || !b || a.length !== b.length)
+        return false;
+    for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i])
+            return false;
+    }
+    return true;
+}
+/**
+ * Compare two selection contexts for equality
+ */
+function contextsEqual(a, b) {
+    return (a.hasSelection === b.hasSelection &&
+        a.isMultiParagraph === b.isMultiParagraph &&
+        a.startParagraphIndex === b.startParagraphIndex &&
+        a.endParagraphIndex === b.endParagraphIndex &&
+        a.inList === b.inList &&
+        a.listType === b.listType &&
+        a.listLevel === b.listLevel &&
+        a.inInsertion === b.inInsertion &&
+        a.inDeletion === b.inDeletion &&
+        arraysEqual(a.activeCommentIds, b.activeCommentIds) &&
+        JSON.stringify(a.textFormatting) === JSON.stringify(b.textFormatting) &&
+        JSON.stringify(a.paragraphFormatting) === JSON.stringify(b.paragraphFormatting));
+}
+/**
+ * Get current selection context from editor state
+ */
+export function getSelectionContext(state) {
+    return selectionTrackerKey.getState(state) || null;
+}
+//# sourceMappingURL=selectionTracker.js.map

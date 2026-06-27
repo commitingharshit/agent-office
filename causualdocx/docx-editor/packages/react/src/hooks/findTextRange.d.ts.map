@@ -1,0 +1,1 @@
+{"version":3,"file":"findTextRange.d.ts","sourceRoot":"","sources":["findTextRange.ts"],"names":[],"mappings":"AAAA;;;;;;;;;;;;;;;;;;;;;GAqBG;AAEH,OAAO,KAAK,EAAE,IAAI,IAAI,MAAM,EAAE,MAAM,mBAAmB,CAAC;AAwDxD;;;;;GAKG;AACH,wBAAgB,aAAa,CAC3B,GAAG,EAAE,MAAM,EACX,IAAI,EAAE,MAAM,EACZ,OAAO,CAAC,EAAE,MAAM,GACf;IAAE,IAAI,EAAE,MAAM,CAAC;IAAC,EAAE,EAAE,MAAM,CAAA;CAAE,GAAG,IAAI,CAwBrC"}

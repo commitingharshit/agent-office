@@ -1,0 +1,1 @@
+{"version":3,"file":"DocExtension.js","sourceRoot":"","sources":["DocExtension.ts"],"names":[],"mappings":"AAAA;;GAEG;AAEH,OAAO,EAAE,mBAAmB,EAAE,MAAM,WAAW,CAAC;AAEhD,MAAM,CAAC,MAAM,YAAY,GAAG,mBAAmB,CAAC;IAC9C,IAAI,EAAE,KAAK;IACX,cAAc,EAAE,KAAK;IACrB,QAAQ,EAAE;QACR,OAAO,EAAE,6DAA6D;KACvE;CACF,CAAC,CAAC"}

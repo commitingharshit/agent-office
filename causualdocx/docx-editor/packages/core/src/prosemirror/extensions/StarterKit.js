@@ -1,0 +1,169 @@
+/**
+ * StarterKit — bundles all extensions into a ready-to-use set
+ *
+ * Usage:
+ *   const extensions = createStarterKit();
+ *   const manager = new ExtensionManager(extensions);
+ *   manager.buildSchema();
+ *   manager.initializeRuntime();
+ */
+// Core
+import { DocExtension } from './core/DocExtension';
+import { TextExtension } from './core/TextExtension';
+import { ParagraphExtension } from './core/ParagraphExtension';
+import { HistoryExtension } from './core/HistoryExtension';
+// Marks
+import { BoldExtension } from './marks/BoldExtension';
+import { ItalicExtension } from './marks/ItalicExtension';
+import { UnderlineExtension } from './marks/UnderlineExtension';
+import { StrikeExtension } from './marks/StrikeExtension';
+import { TextColorExtension } from './marks/TextColorExtension';
+import { HighlightExtension } from './marks/HighlightExtension';
+import { RunShadingExtension } from './marks/RunShadingExtension';
+import { FontSizeExtension } from './marks/FontSizeExtension';
+import { FontFamilyExtension } from './marks/FontFamilyExtension';
+import { SuperscriptExtension } from './marks/SuperscriptExtension';
+import { SubscriptExtension } from './marks/SubscriptExtension';
+import { HyperlinkExtension } from './marks/HyperlinkExtension';
+import { AllCapsExtension } from './marks/AllCapsExtension';
+import { SmallCapsExtension } from './marks/SmallCapsExtension';
+import { FootnoteRefExtension } from './marks/FootnoteRefExtension';
+import { CharacterSpacingExtension } from './marks/CharacterSpacingExtension';
+import { CommentExtension } from './marks/CommentExtension';
+import { InsertionExtension, DeletionExtension } from './marks/TrackedChangeExtensions';
+import { EmbossExtension, ImprintExtension, TextShadowExtension, EmphasisMarkExtension, TextOutlineExtension, } from './marks/TextEffectsExtensions';
+import { HiddenExtension, RtlExtension, TextEffectExtension } from './marks/HiddenTextExtensions';
+// Nodes
+import { HardBreakExtension } from './nodes/HardBreakExtension';
+import { TabExtension } from './nodes/TabExtension';
+import { ImageExtension } from './nodes/ImageExtension';
+import { TextBoxExtension } from './nodes/TextBoxExtension';
+import { ShapeExtension } from './nodes/ShapeExtension';
+import { HorizontalRuleExtension } from './nodes/HorizontalRuleExtension';
+import { PageBreakExtension } from './nodes/PageBreakExtension';
+import { FieldExtension } from './nodes/FieldExtension';
+import { SdtExtension } from './nodes/SdtExtension';
+import { MathExtension } from './nodes/MathExtension';
+import { createTableExtensions } from './nodes/TableExtension';
+// Features
+import { ListExtension } from './features/ListExtension';
+import { BaseKeymapExtension } from './features/BaseKeymapExtension';
+import { SelectionTrackerExtension } from './features/SelectionTrackerExtension';
+import { ImageDragExtension } from './features/ImageDragExtension';
+import { ImagePasteExtension } from './features/ImagePasteExtension';
+import { DropCursorExtension } from './features/DropCursorExtension';
+import { ParagraphChangeTrackerExtension } from './features/ParagraphChangeTrackerExtension';
+import { ParaIdAllocatorExtension } from './features/ParaIdAllocatorExtension';
+import { StoredMarksRestoreExtension } from './features/StoredMarksRestoreExtension';
+import { BidiShortcutExtension } from './features/BidiShortcutExtension';
+import { PasteStyleInlinerExtension } from './features/PasteStyleInlinerExtension';
+import { SmartQuotesExtension } from './features/SmartQuotesExtension';
+import { AutocorrectExtension } from './features/AutocorrectExtension';
+import { SpellcheckExtension } from './features/SpellcheckExtension';
+import { WordNavigationExtension } from './features/WordNavigationExtension';
+/**
+ * Create the full set of extensions for the DOCX editor
+ */
+export function createStarterKit(options = {}) {
+    const disabled = new Set(options.disable || []);
+    const extensions = [];
+    function add(name, ext) {
+        if (!disabled.has(name)) {
+            extensions.push(ext);
+        }
+    }
+    // Core (always included unless explicitly disabled)
+    add('doc', DocExtension());
+    add('text', TextExtension());
+    add('paragraph', ParagraphExtension());
+    add('history', HistoryExtension({
+        depth: options.historyDepth,
+        newGroupDelay: options.historyNewGroupDelay,
+    }));
+    // Marks
+    add('bold', BoldExtension());
+    add('italic', ItalicExtension());
+    add('underline', UnderlineExtension());
+    add('strike', StrikeExtension());
+    add('textColor', TextColorExtension());
+    add('highlight', HighlightExtension());
+    add('runShading', RunShadingExtension());
+    add('fontSize', FontSizeExtension());
+    add('fontFamily', FontFamilyExtension());
+    add('superscript', SuperscriptExtension());
+    add('subscript', SubscriptExtension());
+    add('hyperlink', HyperlinkExtension());
+    add('allCaps', AllCapsExtension());
+    add('smallCaps', SmallCapsExtension());
+    add('footnoteRef', FootnoteRefExtension());
+    add('characterSpacing', CharacterSpacingExtension());
+    add('emboss', EmbossExtension());
+    add('imprint', ImprintExtension());
+    add('textShadow', TextShadowExtension());
+    add('emphasisMark', EmphasisMarkExtension());
+    add('textOutline', TextOutlineExtension());
+    add('hidden', HiddenExtension());
+    add('rtl', RtlExtension());
+    add('textEffect', TextEffectExtension());
+    add('comment', CommentExtension());
+    add('insertion', InsertionExtension());
+    add('deletion', DeletionExtension());
+    // Nodes
+    add('hardBreak', HardBreakExtension());
+    add('tab', TabExtension());
+    add('image', ImageExtension());
+    add('textBox', TextBoxExtension());
+    add('shape', ShapeExtension());
+    add('imageDrag', ImageDragExtension());
+    add('imagePaste', ImagePasteExtension());
+    add('dropCursor', DropCursorExtension());
+    add('horizontalRule', HorizontalRuleExtension());
+    add('pageBreak', PageBreakExtension());
+    add('field', FieldExtension());
+    add('sdt', SdtExtension());
+    add('math', MathExtension());
+    // Table (5 extensions grouped)
+    if (!disabled.has('table')) {
+        extensions.push(...createTableExtensions());
+    }
+    // Features
+    add('pasteStyleInliner', PasteStyleInlinerExtension());
+    add('list', ListExtension());
+    add('baseKeymap', BaseKeymapExtension());
+    add('selectionTracker', SelectionTrackerExtension({
+        onSelectionChange: options.onSelectionChange,
+    }));
+    add('paragraphChangeTracker', ParagraphChangeTrackerExtension());
+    // Run after the change tracker so it sees paragraphs in their final
+    // state. Allocates `paraId` for any paragraph without one (e.g. new
+    // paragraphs from Enter / paste / programmatic insertion).
+    add('paraIdAllocator', ParaIdAllocatorExtension());
+    // Restore storedMarks from a paragraph's defaultTextFormatting after
+    // doc-changing edits that clear storedMarks (e.g. select-all + Backspace).
+    // Must run after paraIdAllocator so the paragraph's attrs are final.
+    // Gated on docChanged to avoid firing on selection-only transactions
+    // (caught a race against TableMoreDropdown re-renders 2026-05-25).
+    add('storedMarksRestore', StoredMarksRestoreExtension());
+    add('bidiShortcut', BidiShortcutExtension());
+    // Typographic substitutions (smart quotes, em dash, ellipsis) as
+    // the user types. Defaults on, matching Word + Docs. Disable via
+    // `createStarterKit({ disable: ['smartQuotes'] })` when authoring
+    // technical content where straight quotes matter (e.g. code).
+    add('smartQuotes', SmartQuotesExtension());
+    // Autocorrect: symbol sequences ((c)→©, -->→→) + a small common-
+    // typo dictionary (teh→the). Same input-rule mechanism as smart
+    // quotes, single-transaction so Ctrl+Z reverts. Defaults on;
+    // disable via createStarterKit({ disable: ['autocorrect'] }).
+    add('autocorrect', AutocorrectExtension());
+    // Spell-check decorations — inert until the React side calls
+    // `setSpellChecker(...)` with an nspell-backed engine + the user
+    // toggles it on. Off by default so the ~500 KB dictionary download
+    // doesn't fire on every page load.
+    add('spellcheck', SpellcheckExtension());
+    // Word-wise cursor motion (Alt+Arrow on macOS, Ctrl+Arrow elsewhere) +
+    // Shift variants to extend. Operates on PM state — the dialog-advertised
+    // "move by word" had no working binding before this.
+    add('wordNavigation', WordNavigationExtension());
+    return extensions;
+}
+//# sourceMappingURL=StarterKit.js.map

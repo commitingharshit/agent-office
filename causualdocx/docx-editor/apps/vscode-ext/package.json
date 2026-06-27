@@ -1,0 +1,352 @@
+{
+  "name": "docx-editor-vscode",
+  "displayName": "DOCX Editor",
+  "publisher": "casualoffice",
+  "description": "Open and edit DOCX files directly in VS Code with full Word fidelity",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "AI",
+    "Chat"
+  ],
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./out/apps/vscode-ext/src/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "DOCX Editor",
+      "properties": {
+        "docxEditor.hermes.command": {
+          "type": "string",
+          "default": "hermes",
+          "description": "Command used to launch the local Hermes CLI for the @hermes chat participant."
+        }
+      }
+    },
+    "customEditors": [
+      {
+        "viewType": "docx-editor.docxEditor",
+        "displayName": "DOCX Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.docx"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "docx-editor.hermes",
+        "fullName": "Hermes",
+        "name": "hermes",
+        "description": "Chat with the local Hermes agent from the VS Code Chat panel.",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "reset",
+            "description": "Clear the saved Hermes conversation history"
+          },
+          {
+            "name": "help",
+            "description": "Show Hermes command help"
+          },
+          {
+            "name": "commands",
+            "description": "Browse all Hermes slash commands"
+          },
+          {
+            "name": "save_decision",
+            "description": "Save a decision to memory"
+          },
+          {
+            "name": "save_contact",
+            "description": "Save a contact to memory"
+          },
+          {
+            "name": "draft_email",
+            "description": "Draft an email from context"
+          },
+          {
+            "name": "summarize_notion",
+            "description": "Summarize context into Notion"
+          },
+          {
+            "name": "find_context",
+            "description": "Search linked context for a topic"
+          },
+          {
+            "name": "create_task",
+            "description": "Turn context into a task"
+          },
+          {
+            "name": "save_episode",
+            "description": "Save the current session as an episode"
+          },
+          {
+            "name": "search_episode",
+            "description": "Search episodic memory"
+          },
+          {
+            "name": "search_whatsapp",
+            "description": "Search WhatsApp messages"
+          },
+          {
+            "name": "send_whatsapp_message",
+            "description": "Send a WhatsApp message"
+          },
+          {
+            "name": "daily_capture",
+            "description": "Capture and log info to Obsidian"
+          },
+          {
+            "name": "search_memory",
+            "description": "Search long-term semantic memory"
+          },
+          {
+            "name": "config",
+            "description": "Show or update CLI configuration"
+          },
+          {
+            "name": "model",
+            "description": "Show or change the current model"
+          },
+          {
+            "name": "personality",
+            "description": "Set the active personality"
+          },
+          {
+            "name": "reasoning",
+            "description": "Change reasoning level"
+          },
+          {
+            "name": "verbose",
+            "description": "Cycle verbosity level"
+          },
+          {
+            "name": "voice",
+            "description": "Toggle voice mode"
+          },
+          {
+            "name": "yolo",
+            "description": "Toggle approval bypass"
+          },
+          {
+            "name": "busy",
+            "description": "Control what Enter does while Hermes is working"
+          },
+          {
+            "name": "indicator",
+            "description": "Pick the busy indicator style"
+          },
+          {
+            "name": "footer",
+            "description": "Toggle runtime metadata footer"
+          },
+          {
+            "name": "skin",
+            "description": "Change the theme"
+          },
+          {
+            "name": "statusbar",
+            "description": "Toggle the status bar"
+          },
+          {
+            "name": "tools",
+            "description": "Manage tools"
+          },
+          {
+            "name": "toolsets",
+            "description": "List toolsets"
+          },
+          {
+            "name": "skills",
+            "description": "Search or install skills"
+          },
+          {
+            "name": "skill",
+            "description": "Load a skill into the session"
+          },
+          {
+            "name": "reload-skills",
+            "description": "Re-scan installed skills"
+          },
+          {
+            "name": "reload",
+            "description": "Reload .env values"
+          },
+          {
+            "name": "reload-mcp",
+            "description": "Reload MCP servers"
+          },
+          {
+            "name": "cron",
+            "description": "Manage cron jobs"
+          },
+          {
+            "name": "curator",
+            "description": "Background skill maintenance"
+          },
+          {
+            "name": "kanban",
+            "description": "Multi-profile collaboration board"
+          },
+          {
+            "name": "plugins",
+            "description": "List plugins"
+          },
+          {
+            "name": "approve",
+            "description": "Approve a pending gateway command"
+          },
+          {
+            "name": "deny",
+            "description": "Deny a pending gateway command"
+          },
+          {
+            "name": "restart",
+            "description": "Restart the gateway"
+          },
+          {
+            "name": "sethome",
+            "description": "Set current chat as the home channel"
+          },
+          {
+            "name": "update",
+            "description": "Update Hermes to the latest version"
+          },
+          {
+            "name": "topic",
+            "description": "Telegram topic sessions"
+          },
+          {
+            "name": "platforms",
+            "description": "Show platform connection status"
+          },
+          {
+            "name": "branch",
+            "description": "Branch the current session"
+          },
+          {
+            "name": "fork",
+            "description": "Alias for branch"
+          },
+          {
+            "name": "fast",
+            "description": "Toggle priority processing"
+          },
+          {
+            "name": "browser",
+            "description": "Open a browser connection"
+          },
+          {
+            "name": "history",
+            "description": "Show conversation history"
+          },
+          {
+            "name": "save",
+            "description": "Save conversation to file"
+          },
+          {
+            "name": "copy",
+            "description": "Copy the last assistant response"
+          },
+          {
+            "name": "paste",
+            "description": "Attach clipboard image"
+          },
+          {
+            "name": "image",
+            "description": "Attach a local image file"
+          },
+          {
+            "name": "usage",
+            "description": "Show token usage"
+          },
+          {
+            "name": "insights",
+            "description": "Show usage analytics"
+          },
+          {
+            "name": "gquota",
+            "description": "Show Gemini quota usage"
+          },
+          {
+            "name": "status",
+            "description": "Show session info"
+          },
+          {
+            "name": "profile",
+            "description": "Show active profile info"
+          },
+          {
+            "name": "debug",
+            "description": "Upload a debug report"
+          },
+          {
+            "name": "quit",
+            "description": "Exit the CLI"
+          },
+          {
+            "name": "exit",
+            "description": "Alias for quit"
+          },
+          {
+            "name": "q",
+            "description": "Short alias for quit"
+          }
+        ],
+        "disambiguation": [
+          {
+            "category": "hermes",
+            "description": "The user wants to chat with the local Hermes agent from VS Code.",
+            "examples": [
+              "chat with hermes",
+              "ask hermes to explain this document",
+              "use hermes in the VS Code chat window"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.10",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^8.13.0",
+    "@typescript-eslint/parser": "^8.13.0",
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/test-web": "^0.0.67",
+    "eslint": "^8.57.1",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CasualOffice/docs.git",
+    "directory": "docx-editor/apps/vscode-ext"
+  },
+  "bugs": {
+    "url": "https://github.com/CasualOffice/docs/issues"
+  },
+  "homepage": "https://github.com/CasualOffice/docs/tree/main/docx-editor/apps/vscode-ext#readme"
+}

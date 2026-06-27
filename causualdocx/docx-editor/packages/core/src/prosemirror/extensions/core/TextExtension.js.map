@@ -1,0 +1,1 @@
+{"version":3,"file":"TextExtension.js","sourceRoot":"","sources":["TextExtension.ts"],"names":[],"mappings":"AAAA;;GAEG;AAEH,OAAO,EAAE,mBAAmB,EAAE,MAAM,WAAW,CAAC;AAEhD,MAAM,CAAC,MAAM,aAAa,GAAG,mBAAmB,CAAC;IAC/C,IAAI,EAAE,MAAM;IACZ,cAAc,EAAE,MAAM;IACtB,QAAQ,EAAE;QACR,KAAK,EAAE,QAAQ;KAChB;CACF,CAAC,CAAC"}

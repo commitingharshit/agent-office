@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SuperDoc Desktop</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="../node_modules/superdoc/dist/style.css">
+</head>
+<body>
+  <div class="menu-bar">
+    <div class="menu-group">
+      <div class="brand-lockup">
+        <span class="brand-name">SuperDoc</span>
+        <span class="brand-subtitle" id="workspace-brand">No workspace</span>
+        <span class="brand-subtitle" id="workspace-path">No workspace selected</span>
+      </div>
+    </div>
+    <div class="menu-group menu-group-center">
+      <div class="document-summary" id="document-summary">
+        <span class="document-summary-title">No document open</span>
+        <span class="document-summary-meta">Saved state appears here</span>
+      </div>
+    </div>
+    <div class="menu-group menu-group-actions">
+      <button class="menu-button" id="toggle-agent-button" type="button" title="Show or hide assistant panel">
+        <span class="menu-icon">A</span>
+        <span id="toggle-agent-button-label">Show Assistant</span>
+      </button>
+      <button class="menu-button" id="open-folder-button" type="button">
+        <span class="menu-icon">F</span>
+        <span>Open Folder</span>
+      </button>
+      <button class="menu-button" id="open-file-button" type="button">
+        <span class="menu-icon">D</span>
+        <span>File</span>
+      </button>
+      <button class="menu-button" id="new-document-button" type="button" disabled title="Not implemented yet">
+        <span class="menu-icon">N</span>
+        <span>New</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="app-container" id="app-container">
+    <aside class="left-pane" id="workspace-tree">
+      <div class="pane-header">
+        <span class="pane-title">Explorer</span>
+        <span class="pane-meta" id="workspace-summary">No folder</span>
+      </div>
+      <div class="pane-content">
+        <div class="compact-state" id="explorer-state">
+          <div class="compact-state-kicker">Workspace</div>
+          <div class="compact-state-title">Open a folder or recent document</div>
+          <div class="compact-state-actions">
+            <button class="link-button" id="explorer-open-folder" type="button">Open folder</button>
+            <button class="link-button" id="explorer-open-file" type="button">Open document</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="center-pane" id="editor-pane">
+      <div class="pane-header pane-header-center">
+        <span class="pane-title">Editor</span>
+        <div class="pane-actions">
+          <span class="tab-indicator" id="active-tab-indicator">No document open</span>
+        </div>
+      </div>
+      <div class="tab-strip" id="tab-strip"></div>
+      
+      <div class="document-toolbar" id="document-toolbar">
+        <div class="toolbar-group">
+          <button class="toolbar-button" id="mode-viewing" type="button" title="Viewing Mode">
+            <span class="toolbar-icon">VIEW</span>
+          </button>
+          <button class="toolbar-button active" id="mode-editing" type="button" title="Editing Mode">
+            <span class="toolbar-icon">EDIT</span>
+          </button>
+          <button class="toolbar-button" id="mode-suggesting" type="button" title="Suggesting Mode">
+            <span class="toolbar-icon">SUGGEST</span>
+          </button>
+        </div>
+        <div class="toolbar-group">
+          <button class="toolbar-button" id="undo-button" type="button" disabled title="Undo (not wired yet)">
+            <span class="toolbar-icon">UNDO</span>
+          </button>
+          <button class="toolbar-button" id="redo-button" type="button" disabled title="Redo (not wired yet)">
+            <span class="toolbar-icon">REDO</span>
+          </button>
+          <button class="toolbar-button" id="search-button" type="button" disabled title="Search (not wired yet)">
+            <span class="toolbar-icon">SEARCH</span>
+          </button>
+        </div>
+        <div class="toolbar-group">
+          <div class="superdoc-toolbar-host" id="superdoc-toolbar-host"></div>
+        </div>
+        <div class="toolbar-group">
+          <button class="toolbar-button" id="save-as-button" type="button" disabled title="Save As (not wired yet)">
+            <span class="toolbar-icon">SAVE AS</span>
+          </button>
+          <button class="toolbar-button" id="save-button" type="button" title="Save (Ctrl+S)">
+            <span class="toolbar-icon">SAVE</span>
+          </button>
+        </div>
+      </div>
+      
+      <div class="pane-content editor-content" id="editor-content">
+        <div class="welcome-state">
+          <div class="welcome-copy">
+            <div class="welcome-eyebrow">DOCX workspace</div>
+            <h1>Open a document to start editing</h1>
+            <p>Browse the workspace, open a DOCX, and keep AI context aligned with the selected document.</p>
+          </div>
+          <div class="welcome-actions">
+            <button class="welcome-button primary" id="placeholder-open-file" type="button">Open document</button>
+            <button class="welcome-button secondary" id="placeholder-open-folder" type="button">Open folder</button>
+          </div>
+          <div class="welcome-grid">
+            <div class="welcome-card">
+              <span class="welcome-card-label">Recent files</span>
+              <div id="recent-documents" class="welcome-card-list"></div>
+            </div>
+            <div class="welcome-card">
+              <span class="welcome-card-label">Drop zone</span>
+              <div class="drop-zone">
+                <span>Drag a `.docx` into the app</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="superdoc-stage" id="superdoc-container">
+        <div class="superdoc-frame">
+          <div id="superdoc-editor" class="superdoc-editor"></div>
+        </div>
+      </div>
+      
+      <div class="status-strip" id="status-bar">
+        <span id="status-save">Saved</span>
+        <span id="status-docinfo">No document open</span>
+        <span id="status-cursor">Ln 1, Col 1</span>
+        <span id="status-zoom">100%</span>
+        <span id="status-ai">AI idle</span>
+      </div>
+    </main>
+
+    <aside class="right-pane" id="agent-sidebar">
+      <div class="pane-header">
+        <span class="pane-title">Assistant</span>
+        <div class="pane-actions">
+          <button class="pane-action-button" id="close-agent-button" type="button" title="Hide assistant">
+            Hide
+          </button>
+        </div>
+      </div>
+      <div class="pane-content">
+        <section class="assistant-shell">
+          <div class="assistant-stream" id="assistant-stream">
+            <div class="assistant-message assistant-message-system">
+              <span class="assistant-label">Context</span>
+              <p>Select text or open a document to start an assistant conversation.</p>
+            </div>
+          </div>
+          <div class="assistant-suggestions">
+            <button class="assistant-chip" type="button" disabled>Summarize selection</button>
+            <button class="assistant-chip" type="button" disabled>Suggest rewrite</button>
+            <button class="assistant-chip" type="button" disabled>Find references</button>
+          </div>
+          <div class="assistant-context">
+            <div>
+              <span class="assistant-label">Selected text</span>
+              <p id="assistant-selected-text">Nothing selected</p>
+            </div>
+            <div>
+              <span class="assistant-label">Referenced files</span>
+              <p id="assistant-referenced-files">No references yet</p>
+            </div>
+          </div>
+          <div class="assistant-composer">
+            <input type="text" id="assistant-input" placeholder="Ask about the document..." disabled>
+            <div class="assistant-composer-actions">
+              <button class="assistant-send" type="button" disabled>Apply</button>
+              <button class="assistant-send secondary" type="button" disabled>Reject</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module" src="index.js"></script>
+</body>
+</html>

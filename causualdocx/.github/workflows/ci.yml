@@ -1,0 +1,184 @@
+name: CI
+
+# Two parallel surfaces:
+#   - docx-editor/   editor fork (Bun + React, see jobs that set
+#                    working-directory at the job level)
+#   - backend/       Go gateway (jobs without that default)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    working-directory: docx-editor
+
+jobs:
+  lint:
+    name: Lint + format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The editor's styles.css @imports the @schnsrw/design-system
+          # tokens vendored at docx-editor/vendor/design-system (git
+          # submodule); the build fails without it checked out.
+          submodules: recursive
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Format check
+        run: bun run format:check
+
+      - name: Lint
+        run: bun run lint
+
+  unit:
+    name: Typecheck + unit + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The editor's styles.css @imports the @schnsrw/design-system
+          # tokens vendored at docx-editor/vendor/design-system (git
+          # submodule); the build fails without it checked out.
+          submodules: recursive
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Unit tests
+        run: bun test
+
+      - name: Build core + react packages
+        run: bun run build
+
+      - name: Round-trip audit (script must run without errors)
+        run: bun run scripts/roundtrip-audit.mjs
+
+  e2e:
+    name: Playwright e2e (shard ${{ matrix.shard }} / 4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Sharded matrix — Playwright's `--shard N/M` splits the test files
+    # deterministically across N parallel jobs. Each shard runs four
+    # workers internally, so wall-clock = (full-suite-time / N / workers
+    # / overhead). 4 shards × 4 workers turns a single 30-min serial run
+    # into ~6 min × 4 parallel jobs.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The editor's styles.css @imports the @schnsrw/design-system
+          # tokens vendored at docx-editor/vendor/design-system (git
+          # submodule); the build fails without it checked out.
+          submodules: recursive
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # Cache the Playwright browser binaries. The cache key embeds the
+      # @playwright/test version pulled from node_modules so a Playwright
+      # bump invalidates automatically.
+      - name: Resolve Playwright version
+        id: pw
+        run: |
+          version=$(node -e "console.log(require('./node_modules/@playwright/test/package.json').version)")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+
+      - name: Drop broken Microsoft apt repo
+        # The GitHub-hosted runner image pre-configures Microsoft's apt repos
+        # (azure-cli / packages.microsoft.com). They intermittently return 403,
+        # and `playwright install --with-deps` runs `apt-get update`, which
+        # fails the whole step (exit 100) when any configured repo errors. We
+        # don't need those repos for the browser system deps (they come from
+        # the stock Ubuntu archives), so remove them first.
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure* 2>/dev/null || true
+
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps (cache hit branch)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Run Playwright tests (shard ${{ matrix.shard }}/4)
+        run: bunx playwright test --shard=${{ matrix.shard }}/4
+        env:
+          CI: 'true'
+
+      - name: Upload Playwright HTML report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-shard-${{ matrix.shard }}
+          path: |
+            docx-editor/playwright-report
+            docx-editor/screenshots/test-results
+          retention-days: 7
+
+  backend:
+    name: Backend (Go vet + test + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The editor's styles.css @imports the @schnsrw/design-system
+          # tokens vendored at docx-editor/vendor/design-system (git
+          # submodule); the build fails without it checked out.
+          submodules: recursive
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          cache-dependency-path: backend/go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (race)
+        run: go test -race ./...
+
+      - name: Build
+        run: go build ./...

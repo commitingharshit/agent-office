@@ -1,0 +1,18 @@
+{
+  "name": "docpatch-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MCP wrapper for DocPatch Rust kernel",
+  "main": "build/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "latest"
+  },
+  "devDependencies": {
+    "typescript": "latest",
+    "@types/node": "latest"
+  }
+}

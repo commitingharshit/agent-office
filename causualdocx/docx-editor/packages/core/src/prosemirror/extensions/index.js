@@ -1,0 +1,22 @@
+/**
+ * Extension System — Barrel Export
+ */
+// Types
+export { Priority } from './types';
+// Factories
+export { createExtension, createNodeExtension, createMarkExtension } from './create';
+// Manager
+export { ExtensionManager } from './ExtensionManager';
+// StarterKit
+export { createStarterKit } from './StarterKit';
+// Runtime preferences — read by SmartQuotes/Autocorrect each keystroke.
+// Tools → Preferences dialog mutates these; the React layer persists to
+// localStorage on mount and on change.
+export { editorPreferences, setEditorPreference } from './features/editorPreferences';
+// Spell-check — the extension is registered by `createStarterKit`; the
+// React layer plugs in the actual dictionary engine via `setSpellChecker`.
+export { SpellcheckExtension, setSpellChecker, refreshSpellcheckDecorations, spellcheckPluginKey, } from './features/SpellcheckExtension';
+// Re-export specific extensions consumers commonly customize
+export { ParagraphChangeTrackerExtension, getChangedParagraphIds, hasStructuralChanges, hasUntrackedChanges, getChangedBlockTypes, hasNonParagraphBlockChanges, clearTrackedChanges, } from './features/ParagraphChangeTrackerExtension';
+export { TableNodeExtension, TableRowExtension, TableCellExtension, TableHeaderExtension, } from './nodes/TableExtension';
+//# sourceMappingURL=index.js.map

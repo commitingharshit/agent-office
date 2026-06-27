@@ -1,0 +1,15 @@
+export const CARD_STYLE_COLLAPSED = {
+    padding: '8px 10px',
+    borderRadius: 8,
+    backgroundColor: 'var(--doc-surface-muted, #f8fbff)',
+    cursor: 'pointer',
+    boxShadow: '0 1px 3px rgba(60,64,67,0.2), 0 2px 6px rgba(60,64,67,0.08)',
+};
+export const CARD_STYLE_EXPANDED = {
+    padding: '10px 12px',
+    borderRadius: 8,
+    backgroundColor: 'var(--doc-surface, white)',
+    cursor: 'pointer',
+    boxShadow: '0 1px 3px rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15)',
+};
+//# sourceMappingURL=cardStyles.js.map

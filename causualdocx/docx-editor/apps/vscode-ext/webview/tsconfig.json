@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "module": "esnext",
+    "target": "es6",
+    "lib": ["es2017", "dom", "dom.iterable"],
+    "sourceMap": true,
+    "rootDir": "../../..",
+    "strict": true,
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowSyntheticDefaultImports": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "react": ["../../../node_modules/@types/react"],
+      "react/jsx-runtime": ["../../../node_modules/@types/react/jsx-runtime"],
+      "@casualoffice/docs": ["../../../packages/react/src/index.ts"],
+      "@eigenpal/docx-core": ["../../../packages/core/src/core.ts"],
+      "@eigenpal/docx-core/*": ["../../../packages/core/src/*"]
+    }
+  },
+  "exclude": ["node_modules"],
+  "include": ["src/**/*", "../../../packages/react/src/types/nspell.d.ts"]
+}

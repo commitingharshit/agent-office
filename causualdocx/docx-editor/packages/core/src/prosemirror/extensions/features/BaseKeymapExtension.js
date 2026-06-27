@@ -1,0 +1,249 @@
+/**
+ * Base Keymap Extension — wraps prosemirror-commands baseKeymap
+ *
+ * Priority: Low (150) — must be the last keymap so other extensions can override keys
+ */
+import { baseKeymap, splitBlock, deleteSelection, joinBackward, joinForward, selectAll, selectParentNode, } from 'prosemirror-commands';
+import { Plugin } from 'prosemirror-state';
+import { createExtension } from '../create';
+import { textFormattingToMarks } from '../marks/markUtils';
+import { Priority } from '../types';
+import { mergeFontFamily } from '../../../utils/fontFamilyMerge';
+function chainCommands(...commands) {
+    return (state, dispatch, view) => {
+        for (const cmd of commands) {
+            if (cmd(state, dispatch, view)) {
+                return true;
+            }
+        }
+        return false;
+    };
+}
+/**
+ * Backspace at the start of a paragraph clears first-line indent / hanging indent
+ * before joining with the previous paragraph (matches Word behavior).
+ */
+const clearIndentOnBackspace = (state, dispatch) => {
+    const { $cursor } = state.selection;
+    if (!$cursor)
+        return false;
+    // Only at the very start of a paragraph
+    if ($cursor.parentOffset !== 0)
+        return false;
+    if ($cursor.parent.type.name !== 'paragraph')
+        return false;
+    const attrs = $cursor.parent.attrs;
+    const hasFirstLine = attrs.indentFirstLine != null && attrs.indentFirstLine > 0;
+    const hasHanging = !!attrs.hangingIndent;
+    const hasIndentLeft = attrs.indentLeft != null && attrs.indentLeft > 0;
+    if (!hasFirstLine && !hasHanging && !hasIndentLeft)
+        return false;
+    if (dispatch) {
+        const pos = $cursor.before();
+        const tr = state.tr.setNodeMarkup(pos, undefined, Object.assign(Object.assign({}, attrs), { indentFirstLine: null, hangingIndent: null, indentLeft: null }));
+        dispatch(tr.scrollIntoView());
+    }
+    return true;
+};
+/**
+ * Backspace inside an EMPTY text box deletes the whole box (Word /
+ * Google Docs behavior). A text box is `isolating`, so the default
+ * `joinBackward` can't cross its boundary — without this, Backspace in
+ * an empty text box is a dead key. Only fires when the box holds a
+ * single empty paragraph and the caret is at its very start; a
+ * non-empty box falls through so its content deletes normally first.
+ */
+const deleteEmptyTextBoxOnBackspace = (state, dispatch) => {
+    var _a, _b;
+    const sel = state.selection;
+    if (!sel.empty)
+        return false;
+    const $from = sel.$from;
+    for (let d = $from.depth; d > 0; d--) {
+        const node = $from.node(d);
+        if (node.type.name === 'textBox') {
+            const onlyChildEmpty = node.childCount === 1 && ((_b = (_a = node.firstChild) === null || _a === void 0 ? void 0 : _a.content.size) !== null && _b !== void 0 ? _b : 0) === 0;
+            const atStart = $from.parentOffset === 0 && $from.index(d) === 0;
+            if (onlyChildEmpty && atStart) {
+                if (dispatch) {
+                    const before = $from.before(d);
+                    dispatch(state.tr.delete(before, before + node.nodeSize).scrollIntoView());
+                }
+                return true;
+            }
+            return false; // inside a non-empty box — let default handling run
+        }
+    }
+    return false;
+};
+/**
+ * Custom Enter handler: splits the block, inherits style-related attrs,
+ * clears paragraph borders, and preserves font marks on the new paragraph.
+ *
+ * splitBlock creates a new paragraph with default attrs (all null),
+ * so we must manually copy style-related attrs from the source paragraph.
+ * Word does NOT propagate paragraph borders (w:pBdr) on Enter.
+ */
+const INHERITED_PARA_ATTRS = [
+    'defaultTextFormatting',
+    'styleId',
+    'lineSpacing',
+    'lineSpacingRule',
+    'spaceAfter',
+    'spaceBefore',
+    'contextualSpacing',
+];
+/** Mark types that represent style-inherited formatting (font, size, color). */
+const STYLE_MARK_NAMES = new Set(['fontFamily', 'fontSize', 'textColor']);
+const splitBlockClearBorders = (state, dispatch, view) => {
+    var _a;
+    // Capture source paragraph info BEFORE split (splitBlock resets everything)
+    const { $from: preSplitFrom } = state.selection;
+    const sourcePara = preSplitFrom.parent.type.name === 'paragraph' ? preSplitFrom.parent : null;
+    // Collect style marks from the cursor position before splitting.
+    // Use storedMarks if set, otherwise resolve from the position.
+    const preMarks = state.storedMarks || preSplitFrom.marks();
+    const styleMarks = preMarks.filter((m) => STYLE_MARK_NAMES.has(m.type.name));
+    // Intercept splitBlock's transaction so we can modify it before dispatch.
+    // This ensures attrs + stored marks are set in a single transaction,
+    // avoiding a flash where the empty paragraph has no formatting.
+    let splitTr = null;
+    const capturingDispatch = dispatch
+        ? (tr) => {
+            splitTr = tr;
+        }
+        : undefined;
+    if (!splitBlock(state, capturingDispatch, view)) {
+        return false;
+    }
+    if (dispatch && splitTr !== null) {
+        // After split, cursor is in the new (second) paragraph.
+        // Apply attr inheritance, border clearing, and stored marks to the SAME transaction.
+        const tr = splitTr;
+        const { $from } = tr.selection;
+        const newPara = $from.parent;
+        if (newPara.type.name === 'paragraph') {
+            const newAttrs = Object.assign({}, newPara.attrs);
+            let attrsChanged = false;
+            // Copy inherited attrs from source paragraph
+            if (sourcePara) {
+                for (const key of INHERITED_PARA_ATTRS) {
+                    const srcVal = sourcePara.attrs[key];
+                    if (srcVal != null && newAttrs[key] == null) {
+                        newAttrs[key] = srcVal;
+                        attrsChanged = true;
+                    }
+                }
+            }
+            // Clear borders (Word does not propagate paragraph borders on Enter)
+            if (newAttrs.borders) {
+                newAttrs.borders = null;
+                attrsChanged = true;
+            }
+            if (attrsChanged) {
+                tr.setNodeMarkup($from.before(), undefined, newAttrs);
+            }
+            // For empty paragraphs (Enter at end of line), set stored marks so typed text
+            // inherits font family, font size, and text color. We skip bold/italic/etc —
+            // Word doesn't carry direct formatting to new paragraphs.
+            if (newPara.textContent.length === 0) {
+                // Determine effective style marks. When text has explicit marks (e.g. user
+                // applied a font override), use those. When text inherits formatting from
+                // the paragraph style chain (no explicit marks), derive marks from the
+                // source paragraph's defaultTextFormatting.
+                let effectiveMarks = styleMarks;
+                if (effectiveMarks.length === 0 && sourcePara) {
+                    const dtf = sourcePara.attrs.defaultTextFormatting;
+                    if (dtf) {
+                        const allMarks = textFormattingToMarks(dtf, state.schema);
+                        effectiveMarks = allMarks.filter((m) => STYLE_MARK_NAMES.has(m.type.name));
+                    }
+                }
+                if (effectiveMarks.length > 0) {
+                    // Sync defaultTextFormatting with the actual cursor marks so the empty
+                    // paragraph measurement (used for caret height) matches the stored marks.
+                    const dtf = Object.assign({}, ((_a = newAttrs.defaultTextFormatting) !== null && _a !== void 0 ? _a : {}));
+                    let dtfChanged = false;
+                    for (const m of effectiveMarks) {
+                        if (m.type.name === 'fontSize' && m.attrs.size !== dtf.fontSize) {
+                            dtf.fontSize = m.attrs.size;
+                            dtfChanged = true;
+                        }
+                        if (m.type.name === 'fontFamily') {
+                            const ascii = m.attrs.ascii;
+                            if (ascii && (!dtf.fontFamily || dtf.fontFamily.ascii !== ascii)) {
+                                // Pair-aware merge so a stale asciiTheme (e.g. minorHAnsi from
+                                // docDefaults) doesn't silently win over the user's explicit
+                                // ascii — see fontFamilyMerge for the OOXML rule.
+                                dtf.fontFamily = mergeFontFamily(dtf.fontFamily, {
+                                    ascii,
+                                    hAnsi: m.attrs.hAnsi,
+                                });
+                                dtfChanged = true;
+                            }
+                        }
+                    }
+                    if (dtfChanged) {
+                        tr.setNodeMarkup($from.before(), undefined, Object.assign(Object.assign({}, newAttrs), { defaultTextFormatting: dtf }));
+                    }
+                    // IMPORTANT: setStoredMarks MUST be called AFTER all setNodeMarkup calls.
+                    // setNodeMarkup adds a ReplaceStep which clears storedMarks on the transaction.
+                    tr.setStoredMarks(effectiveMarks);
+                }
+            }
+        }
+        dispatch(tr.scrollIntoView());
+    }
+    return true;
+};
+/**
+ * When the cursor lands in an empty paragraph that carries a non-empty
+ * `defaultTextFormatting` (set by toolbar toggles on empty paragraphs, or
+ * inherited via splitBlockClearBorders), seed `storedMarks` so the first
+ * typed character actually picks up those marks. The selection-state
+ * toolbar already reads `defaultTextFormatting` directly to light up the
+ * right buttons; without this seed the toolbar would show e.g. bold ON
+ * but the typed text would still be plain.
+ */
+const seedStoredMarksFromDefaultFormatting = new Plugin({
+    appendTransaction(transactions, _oldState, newState) {
+        // Only react when selection changed and no transaction touched storedMarks.
+        if (!transactions.some((t) => t.selectionSet))
+            return null;
+        if (transactions.some((t) => t.storedMarksSet))
+            return null;
+        if (newState.storedMarks && newState.storedMarks.length > 0)
+            return null;
+        const { selection, schema } = newState;
+        if (!selection.empty)
+            return null;
+        const parent = selection.$from.parent;
+        if (parent.type.name !== 'paragraph')
+            return null;
+        if (parent.textContent.length > 0)
+            return null;
+        const dtf = parent.attrs.defaultTextFormatting;
+        if (!dtf)
+            return null;
+        const marks = textFormattingToMarks(dtf, schema);
+        if (marks.length === 0)
+            return null;
+        const tr = newState.tr;
+        tr.setStoredMarks(marks);
+        tr.setMeta('addToHistory', false);
+        return tr;
+    },
+});
+export const BaseKeymapExtension = createExtension({
+    name: 'baseKeymap',
+    priority: Priority.Low,
+    onSchemaReady(_ctx) {
+        return {
+            keyboardShortcuts: Object.assign(Object.assign({}, baseKeymap), { 
+                // Override some keys with better defaults
+                Enter: splitBlockClearBorders, Backspace: chainCommands(deleteSelection, deleteEmptyTextBoxOnBackspace, clearIndentOnBackspace, joinBackward), Delete: chainCommands(deleteSelection, joinForward), 'Mod-a': selectAll, Escape: selectParentNode }),
+            plugins: [seedStoredMarksFromDefaultFormatting],
+        };
+    },
+});
+//# sourceMappingURL=BaseKeymapExtension.js.map
